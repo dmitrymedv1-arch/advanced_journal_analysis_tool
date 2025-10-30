@@ -26,8 +26,15 @@ import nest_asyncio
 nest_asyncio.apply()
 
 # Additional imports for specific libs
-from habanero import Crossref
 import aiohttp
+from crossref_commons.retrieval import get_entity
+from crossref_commons.types import EntityType, OutputType
+
+def get_crossref_metadata(doi):
+    try:
+        return get_entity(doi, EntityType.WORK, OutputType.JSON)
+    except:
+        return None
 
 # --- Глобальные настройки ---
 EMAIL = st.secrets.get("EMAIL", "your.email@example.com")  # Use Streamlit secrets for email
@@ -1674,6 +1681,7 @@ test_journals = [
 
 for issn_ex, name in test_journals:
     st.sidebar.markdown(f"• {issn_ex} - {name}")
+
 
 
 
