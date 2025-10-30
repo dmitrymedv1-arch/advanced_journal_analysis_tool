@@ -5,6 +5,7 @@ import numpy as np
 import requests
 import time
 import threading
+from habanero import Crossref
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import quote
 import re
@@ -1674,3 +1675,4 @@ test_journals = [
 
 for issn_ex, name in test_journals:
     st.sidebar.markdown(f"• {issn_ex} - {name}")
+
