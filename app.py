@@ -26,7 +26,7 @@ import nest_asyncio
 nest_asyncio.apply()
 
 # Additional imports for specific libs
-from crossrefapi import Article
+from habanero import Crossref
 import aiohttp
 
 # --- Глобальные настройки ---
@@ -1674,5 +1674,6 @@ test_journals = [
 
 for issn_ex, name in test_journals:
     st.sidebar.markdown(f"• {issn_ex} - {name}")
+
 
 
