@@ -65,7 +65,7 @@ class AnalysisState:
         self.openalex_cache = {}
         self.unified_cache = {}
         self.citing_cache = defaultdict(list)
-        self.citing_yearly_cache = defaultdict(dict)  # Новый кэш для цитирований по годам
+        self.citing_yearly_cache = defaultdict(dict)
         self.institution_cache = {}
         self.journal_cache = {}
         self.analysis_results = None
@@ -2428,4 +2428,3 @@ def main():
 # Запуск приложения
 if __name__ == "__main__":
     main()
-
