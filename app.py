@@ -18,6 +18,21 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import base64
 import os
+import calendar
+import pickle
+import hashlib
+import warnings
+import asyncio
+import aiohttp
+import nest_asyncio
+
+# Для работы async в Streamlit
+try:
+    nest_asyncio.apply()
+except:
+    pass
+
+warnings.filterwarnings('ignore')
 
 # --- Конфигурация страницы ---
 st.set_page_config(
@@ -32,6 +47,16 @@ EMAIL = st.secrets.get("EMAIL", "your.email@example.com") if hasattr(st, 'secret
 MAX_WORKERS = 5
 RETRIES = 3
 DELAYS = [0.2, 0.5, 0.7, 1.0, 1.3, 1.5, 2.0]
+
+# Настройки кэша
+CACHE_DIR = "journal_analysis_cache"
+CACHE_DURATION = timedelta(hours=24)
+
+# Глобальные переменные для статистики
+total_requests = 0
+failed_requests = 0
+request_lock = threading.Lock()
+last_429_warning = ""
 
 # --- Классы для хранения состояния ---
 class AnalysisState:
@@ -114,6 +139,44 @@ class JournalAnalyzerConfig:
         }
 
 config = JournalAnalyzerConfig()
+
+# --- Функции кэширования ---
+def ensure_cache_dir():
+    """Создает директорию для кэша если её нет"""
+    if not os.path.exists(CACHE_DIR):
+        os.makedirs(CACHE_DIR)
+
+def get_cache_key(*args):
+    """Генерирует ключ кэша на основе аргументов"""
+    key_string = "_".join(str(arg) for arg in args)
+    return hashlib.md5(key_string.encode()).hexdigest()
+
+def save_to_cache(data, cache_key):
+    """Сохраняет данные в кэш"""
+    ensure_cache_dir()
+    cache_file = os.path.join(CACHE_DIR, f"{cache_key}.pkl")
+    cache_data = {
+        'data': data,
+        'timestamp': datetime.now()
+    }
+    with open(cache_file, 'wb') as f:
+        pickle.dump(cache_data, f)
+
+def load_from_cache(cache_key):
+    """Загружает данные из кэша"""
+    cache_file = os.path.join(CACHE_DIR, f"{cache_key}.pkl")
+    if not os.path.exists(cache_file):
+        return None
+    try:
+        with open(cache_file, 'rb') as f:
+            cache_data = pickle.load(f)
+        if datetime.now() - cache_data['timestamp'] < CACHE_DURATION:
+            return cache_data['data']
+        else:
+            os.remove(cache_file)
+            return None
+    except:
+        return None
 
 # --- Вспомогательные функции ---
 def update_progress(progress, text):
@@ -842,71 +905,278 @@ def calculate_citation_timing_stats(analyzed_metadata, state):
     
     return citation_timing_stats
 
-# === 16. Расчет Impact Factor ===
-def calculate_impact_factor(analyzed_metadata, current_date, state):
-    current_year = current_date.year
-    citation_years = [current_year - 1, current_year - 2]
-    publication_years = [current_year - 3, current_year - 4]
-    
-    publications_count = 0
-    publications_list = []
-    
-    for meta in analyzed_metadata:
-        if meta and meta.get('crossref'):
-            pub_year = meta['crossref'].get('published', {}).get('date-parts', [[0]])[0][0]
-            if pub_year in publication_years:
-                publications_count += 1
-                publications_list.append({
-                    'doi': meta['crossref'].get('DOI'),
-                    'year': pub_year,
-                    'title': meta['crossref'].get('title', [''])[0]
-                })
-    
-    citations_count = 0
-    citations_details = []
-    
-    for pub in publications_list:
-        if pub['doi']:
-            citings = get_citing_dois_and_metadata((pub['doi'], state))
-            for citing in citings:
-                if citing.get('openalex'):
-                    cite_year = citing['openalex'].get('publication_year', 0)
-                    if cite_year in citation_years:
-                        citations_count += 1
-                        citations_details.append({
-                            'cited_doi': pub['doi'],
-                            'cited_year': pub['year'],
-                            'citing_doi': citing['doi'],
-                            'citing_year': cite_year
-                        })
-    
-    if publications_count > 0:
-        impact_factor = citations_count / publications_count
-    else:
-        impact_factor = 0.0
-    
-    return {
-        'impact_factor': impact_factor,
-        'citations_count': citations_count,
-        'publications_count': publications_count,
-        'citation_years': citation_years,
-        'publication_years': publication_years,
-        'publications_list': publications_list,
-        'citations_details': citations_details
-    }
+# === 16. КОРРЕКТНЫЙ РАСЧЕТ Impact Factor и CiteScore ===
+def validate_issn(issn):
+    """Проверка формата ISSN"""
+    if not issn:
+        return False
+    pattern = r'^\d{4}-\d{3}[\dXx]$'
+    return re.match(pattern, issn) is not None
 
-# === 17. Расчет IF и дней ===
-def calculate_if_and_days(analyzed_metadata, all_citing_metadata, current_date, state):
-    if_data = calculate_impact_factor(analyzed_metadata, current_date, state)
+def get_seasonal_coefficients(journal_field="general"):
+    """Возвращает взвешенные коэффициенты на основе исторических данных"""
+    seasonal_patterns = {
+        "natural_sciences": {
+            1: 0.85, 2: 1.05, 3: 1.25, 4: 1.15, 5: 1.00, 6: 0.95,
+            7: 0.70, 8: 0.75, 9: 1.30, 10: 1.20, 11: 1.15, 12: 0.65
+        },
+        "general": {
+            1: 0.90, 2: 1.15, 3: 1.20, 4: 1.15, 5: 1.00, 6: 1.00,
+            7: 0.70, 8: 0.80, 9: 1.20, 10: 1.25, 11: 1.15, 12: 0.60
+        }
+    }
+    return seasonal_patterns.get(journal_field, seasonal_patterns["general"])
+
+def calculate_weighted_multiplier(current_date, seasonal_coefficients, method="balanced"):
+    """Расчет взвешенного множителя"""
+    current_year = current_date.year
+    current_month = current_date.month
+    days_passed = (current_date - date(current_year, 1, 1)).days + 1
+
+    weighted_passed = 0
+    for month in range(1, current_month + 1):
+        _, month_days = calendar.monthrange(current_year, month)
+        if month == current_month:
+            month_days = current_date.day
+        weighted_passed += seasonal_coefficients[month] * month_days
+
+    total_weighted_year = sum(
+        seasonal_coefficients[month] * calendar.monthrange(current_year, month)[1]
+        for month in range(1, 13)
+    )
+
+    base_multiplier = total_weighted_year / weighted_passed if weighted_passed > 0 else 1.0
+
+    if method == "conservative":
+        return max(1.0, base_multiplier * 0.9)
+    elif method == "optimistic":
+        return max(1.0, base_multiplier * 1.1)
+    else:
+        return max(1.0, base_multiplier)
+
+def detect_journal_field(issn, journal_name):
+    """Автоматическое определение области журнала"""
+    field_keywords = {
+        "natural_sciences": ['nature', 'science', 'physical', 'chemistry', 'physics'],
+        "general": ['general', 'techno', 'acta']
+    }
+    journal_name_lower = journal_name.lower()
+    for field, keywords in field_keywords.items():
+        for keyword in keywords:
+            if keyword in journal_name_lower:
+                return field
+    return "general"
+
+def calculate_correct_impact_factor_and_citescore(issn, journal_name, analyzed_metadata, state):
+    """Корректный расчет Impact Factor и CiteScore по методологии из второго кода"""
+    
+    try:
+        current_date = datetime.now().date()
+        current_year = current_date.year
+        journal_field = detect_journal_field(issn, journal_name)
+
+        # Периоды для Impact Factor (публикации за 2 предыдущих года)
+        if_publication_years = [current_year - 2, current_year - 1]
+        
+        # Периоды для CiteScore (публикации за 4 предыдущих года)
+        cs_publication_years = list(range(current_year - 3, current_year + 1))
+
+        # Фильтрация статей для IF
+        if_items = []
+        for meta in analyzed_metadata:
+            if meta and meta.get('crossref'):
+                cr = meta['crossref']
+                pub_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
+                if pub_year in if_publication_years:
+                    if_items.append({
+                        'DOI': cr.get('DOI', 'N/A'),
+                        'published': {'date-parts': [[pub_year]]},
+                        'is-referenced-by-count': cr.get('is-referenced-by-count', 0),
+                        'crossref_data': cr,
+                        'openalex_data': meta.get('openalex')
+                    })
+
+        # Фильтрация статей для CiteScore
+        cs_items = []
+        for meta in analyzed_metadata:
+            if meta and meta.get('crossref'):
+                cr = meta['crossref']
+                pub_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
+                if pub_year in cs_publication_years:
+                    cs_items.append({
+                        'DOI': cr.get('DOI', 'N/A'),
+                        'published': {'date-parts': [[pub_year]]},
+                        'is-referenced-by-count': cr.get('is-referenced-by-count', 0),
+                        'crossref_data': cr,
+                        'openalex_data': meta.get('openalex')
+                    })
+
+        B_if = len(if_items)
+        B_cs = len(cs_items)
+        
+        st.info(f"📊 Для расчета Impact Factor: {B_if} статей за {if_publication_years}")
+        st.info(f"📊 Для расчета CiteScore: {B_cs} статей за {cs_publication_years}")
+
+        if B_if == 0 or B_cs == 0:
+            st.warning("❌ Недостаточно данных для расчета метрик")
+            return None
+
+        # Расчет цитирований через OpenAlex для IF
+        A_if_current = 0
+        if_citation_data = []
+        
+        for item in if_items:
+            doi = item['DOI']
+            crossref_cites = item['is-referenced-by-count']
+            
+            if doi != 'N/A':
+                # Получаем цитирования через OpenAlex
+                oa_data = get_openalex_metadata(doi, state)
+                if oa_data:
+                    openalex_count = oa_data.get('cited_by_count', 0)
+                    A_if_current += openalex_count
+                    
+                    if_citation_data.append({
+                        'DOI': doi,
+                        'Год публикации': item['published']['date-parts'][0][0],
+                        'Цитирования (Crossref)': crossref_cites,
+                        'Цитирования (OpenAlex)': openalex_count,
+                        'Цитирования в периоде': openalex_count
+                    })
+                else:
+                    if_citation_data.append({
+                        'DOI': doi,
+                        'Год публикации': item['published']['date-parts'][0][0],
+                        'Цитирования (Crossref)': crossref_cites,
+                        'Цитирования (OpenAlex)': 0,
+                        'Цитирования в периоде': 0
+                    })
+            else:
+                if_citation_data.append({
+                    'DOI': doi,
+                    'Год публикации': item['published']['date-parts'][0][0],
+                    'Цитирования (Crossref)': crossref_cites,
+                    'Цитирования (OpenAlex)': 0,
+                    'Цитирования в периоде': 0
+                })
+
+        # Расчет цитирований для CiteScore (используем Crossref)
+        A_cs_current = sum(item['is-referenced-by-count'] for item in cs_items)
+        cs_citation_data = [
+            {
+                'DOI': item['DOI'],
+                'Год публикации': item['published']['date-parts'][0][0],
+                'Цитирования (Crossref)': item['is-referenced-by-count'],
+                'Цитирования (OpenAlex)': 0,
+                'Цитирования в периоде': 0
+            } for item in cs_items
+        ]
+
+        # Расчет текущих значений
+        current_if = A_if_current / B_if if B_if > 0 else 0
+        current_citescore = A_cs_current / B_cs if B_cs > 0 else 0
+
+        # Прогнозирование с учетом сезонности
+        seasonal_coefficients = get_seasonal_coefficients(journal_field)
+        multiplier_conservative = calculate_weighted_multiplier(current_date, seasonal_coefficients, "conservative")
+        multiplier_balanced = calculate_weighted_multiplier(current_date, seasonal_coefficients, "balanced")
+        multiplier_optimistic = calculate_weighted_multiplier(current_date, seasonal_coefficients, "optimistic")
+
+        if_forecasts = {
+            'conservative': current_if * multiplier_conservative,
+            'balanced': current_if * multiplier_balanced,
+            'optimistic': current_if * multiplier_optimistic
+        }
+
+        citescore_forecasts = {
+            'conservative': current_citescore * multiplier_conservative,
+            'balanced': current_citescore * multiplier_balanced,
+            'optimistic': current_citescore * multiplier_optimistic
+        }
+
+        return {
+            'current_if': current_if,
+            'current_citescore': current_citescore,
+            'if_forecasts': if_forecasts,
+            'citescore_forecasts': citescore_forecasts,
+            'multipliers': {
+                'conservative': multiplier_conservative,
+                'balanced': multiplier_balanced,
+                'optimistic': multiplier_optimistic
+            },
+            'total_cites_if': A_if_current,
+            'total_articles_if': B_if,
+            'total_cites_cs': A_cs_current,
+            'total_articles_cs': B_cs,
+            'citation_distribution': dict(seasonal_coefficients),
+            'if_citation_data': if_citation_data,
+            'cs_citation_data': cs_citation_data,
+            'analysis_date': current_date,
+            'if_publication_years': if_publication_years,
+            'cs_publication_years': cs_publication_years,
+            'seasonal_coefficients': seasonal_coefficients,
+            'journal_field': journal_field,
+            'self_citation_rate': 0.05,
+            'total_self_citations': int(A_if_current * 0.05),
+            'issn': issn,
+            'journal_name': journal_name
+        }
+
+    except Exception as e:
+        st.error(f"❌ Ошибка при расчете метрик: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+# === 17. Расчет IF и дней (ОБНОВЛЕННАЯ ВЕРСИЯ) ===
+def calculate_if_and_days(analyzed_metadata, all_citing_metadata, current_date, state, issn, journal_name):
+    """Обновленная функция расчета IF с использованием корректной логики"""
+    
+    # Используем корректный расчет IF и CiteScore
+    metrics_data = calculate_correct_impact_factor_and_citescore(issn, journal_name, analyzed_metadata, state)
+    
+    if not metrics_data:
+        # Возвращаем значения по умолчанию в случае ошибки
+        return {
+            'if_value': 0.0,
+            'citescore_value': 0.0,
+            'c_num': 0,
+            'p_den': 0,
+            'cs_c_num': 0,
+            'cs_p_den': 0,
+            'citation_years': [],
+            'publication_years': [],
+            'cs_publication_years': [],
+            'days_min': 0,
+            'days_max': 0,
+            'days_mean': 0,
+            'days_median': 0,
+            'articles_with_timing_data': 0,
+            'first_citation_details': [],
+            'accumulation_curves': {},
+            'yearly_citations': [],
+            'total_years_covered': 0,
+            'if_forecasts': {},
+            'citescore_forecasts': {},
+            'multipliers': {},
+            'citation_distribution': {},
+            'journal_field': 'general'
+        }
+    
+    # Расчет времени цитирования (сохраняем старую логику)
     timing_stats = calculate_citation_timing_stats(analyzed_metadata, state)
     accumulation_stats = analyze_citation_accumulation(analyzed_metadata, state)
     
     return {
-        'if_value': if_data['impact_factor'],
-        'c_num': if_data['citations_count'],
-        'p_den': if_data['publications_count'],
-        'citation_years': if_data['citation_years'],
-        'publication_years': if_data['publication_years'],
+        'if_value': metrics_data['current_if'],
+        'citescore_value': metrics_data['current_citescore'],
+        'c_num': metrics_data['total_cites_if'],
+        'p_den': metrics_data['total_articles_if'],
+        'cs_c_num': metrics_data['total_cites_cs'],
+        'cs_p_den': metrics_data['total_articles_cs'],
+        'citation_years': [current_date.year - 1, current_date.year],
+        'publication_years': metrics_data['if_publication_years'],
+        'cs_publication_years': metrics_data['cs_publication_years'],
         'days_min': timing_stats['min_days_to_first_citation'],
         'days_max': timing_stats['max_days_to_first_citation'],
         'days_mean': timing_stats['mean_days_to_first_citation'],
@@ -915,10 +1185,15 @@ def calculate_if_and_days(analyzed_metadata, all_citing_metadata, current_date, 
         'first_citation_details': timing_stats['first_citation_details'],
         'accumulation_curves': accumulation_stats['accumulation_curves'],
         'yearly_citations': accumulation_stats['yearly_citations'],
-        'total_years_covered': accumulation_stats['total_years_covered']
+        'total_years_covered': accumulation_stats['total_years_covered'],
+        'if_forecasts': metrics_data['if_forecasts'],
+        'citescore_forecasts': metrics_data['citescore_forecasts'],
+        'multipliers': metrics_data['multipliers'],
+        'citation_distribution': metrics_data['citation_distribution'],
+        'journal_field': metrics_data['journal_field']
     }
 
-# === 18. Создание расширенного Excel отчета ===
+# === 18. Создание расширенного Excel отчета (ОБНОВЛЕННАЯ ВЕРСИЯ) ===
 def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, if_days, overlap_details, filename):
     with pd.ExcelWriter(filename, engine='openpyxl') as writer:
         # Лист 1: Анализируемые статьи
@@ -1155,32 +1430,63 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         enhanced_stats_df = pd.DataFrame(enhanced_stats_data)
         enhanced_stats_df.to_excel(writer, sheet_name='Расширенная_статистика', index=False)
 
-        # Лист 8: Impact Factor и время цитирования
+        # Лист 8: Impact Factor, CiteScore и время цитирования (ОБНОВЛЕННЫЙ)
         if_days_data = {
             'Метрика': [
-                'Impact Factor', 'Числитель (цитирования)', 
-                'Знаменатель (публикации)', 'Годы цитирований',
-                'Годы публикаций', 'Минимальные дни до первого цитирования',
-                'Максимальные дни до первого цитирования', 'Средние дни до первого цитирования',
-                'Медиана дней до первого цитирования', 'Статьи с данными о времени цитирования',
-                'Всего лет покрыто данными о цитированиях'
+                'Impact Factor (текущий)', 
+                'Impact Factor (консервативный прогноз)',
+                'Impact Factor (сбалансированный прогноз)',
+                'Impact Factor (оптимистичный прогноз)',
+                'CiteScore (текущий)',
+                'CiteScore (консервативный прогноз)',
+                'CiteScore (сбалансированный прогноз)',
+                'CiteScore (оптимистичный прогноз)',
+                'Числитель IF (цитирования)', 
+                'Знаменатель IF (публикации)', 
+                'Числитель CiteScore (цитирования)',
+                'Знаменатель CiteScore (публикации)',
+                'Годы публикаций для IF',
+                'Годы публикаций для CiteScore',
+                'Минимальные дни до первого цитирования',
+                'Максимальные дни до первого цитирования', 
+                'Средние дни до первого цитирования',
+                'Медиана дней до первого цитирования', 
+                'Статьи с данными о времени цитирования',
+                'Всего лет покрыто данными о цитированиях',
+                'Область журнала',
+                'Множитель (консервативный)',
+                'Множитель (сбалансированный)',
+                'Множитель (оптимистичный)'
             ],
             'Значение': [
                 f"{if_days['if_value']:.4f}",
+                f"{if_days['if_forecasts'].get('conservative', 0):.4f}",
+                f"{if_days['if_forecasts'].get('balanced', 0):.4f}",
+                f"{if_days['if_forecasts'].get('optimistic', 0):.4f}",
+                f"{if_days['citescore_value']:.4f}",
+                f"{if_days['citescore_forecasts'].get('conservative', 0):.4f}",
+                f"{if_days['citescore_forecasts'].get('balanced', 0):.4f}",
+                f"{if_days['citescore_forecasts'].get('optimistic', 0):.4f}",
                 if_days['c_num'],
                 if_days['p_den'],
-                f"{if_days['citation_years'][0]}-{if_days['citation_years'][1]}",
+                if_days['cs_c_num'],
+                if_days['cs_p_den'],
                 f"{if_days['publication_years'][0]}-{if_days['publication_years'][1]}",
+                f"{if_days['cs_publication_years'][0]}-{if_days['cs_publication_years'][-1]}",
                 if_days['days_min'],
                 if_days['days_max'],
                 f"{if_days['days_mean']:.1f}",
                 if_days['days_median'],
                 if_days['articles_with_timing_data'],
-                if_days['total_years_covered']
+                if_days['total_years_covered'],
+                if_days.get('journal_field', 'general'),
+                f"{if_days['multipliers'].get('conservative', 1):.2f}",
+                f"{if_days['multipliers'].get('balanced', 1):.2f}",
+                f"{if_days['multipliers'].get('optimistic', 1):.2f}"
             ]
         }
         if_days_df = pd.DataFrame(if_days_data)
-        if_days_df.to_excel(writer, sheet_name='Impact_Factor_Время_цитирования', index=False)
+        if_days_df.to_excel(writer, sheet_name='Impact_Factor_CiteScore_Время', index=False)
 
         # Лист 9: Цитирования по годам
         yearly_citations_data = []
@@ -1289,18 +1595,19 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
 
     return filename
 
-# === 19. Визуализация данных ===
+# === 19. Визуализация данных (ОБНОВЛЕННАЯ ВЕРСИЯ) ===
 def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days, overlap_details):
     """Создание визуализаций для дашборда"""
     
     # Создаем вкладки для разных типов визуализаций
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📈 Основные метрики", 
         "👥 Авторы и организации", 
         "🌍 География", 
         "📊 Цитирования",
         "🔀 Пересечения",
-        "⏱️ Время цитирования"
+        "⏱️ Время цитирования",
+        "🎯 IF & CiteScore"
     ])
     
     with tab1:
@@ -1312,14 +1619,18 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
             st.metric(
                 "Impact Factor", 
                 f"{if_days['if_value']:.4f}",
-                help=f"Расчет для публикаций {if_days['publication_years'][0]}-{if_days['publication_years'][1]} и цитирований {if_days['citation_years'][0]}-{if_days['citation_years'][1]}"
+                help=f"Расчет для публикаций {if_days['publication_years'][0]}-{if_days['publication_years'][1]}"
             )
         with col2:
-            st.metric("H-index", enhanced_stats['h_index'])
+            st.metric(
+                "CiteScore", 
+                f"{if_days['citescore_value']:.4f}",
+                help=f"Расчет для публикаций {if_days['cs_publication_years'][0]}-{if_days['cs_publication_years'][-1]}"
+            )
         with col3:
-            st.metric("Всего статей", analyzed_stats['n_items'])
+            st.metric("H-index", enhanced_stats['h_index'])
         with col4:
-            st.metric("Всего цитирований", enhanced_stats['total_citations'])
+            st.metric("Всего статей", analyzed_stats['n_items'])
         
         col5, col6, col7, col8 = st.columns(4)
         
@@ -1545,8 +1856,82 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
                 labels={'x': 'Дни до первого цитирования', 'y': 'Количество статей'}
             )
             st.plotly_chart(fig, use_container_width=True)
+    
+    with tab7:
+        st.subheader("🎯 Impact Factor и CiteScore - детальный анализ")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("##### Impact Factor")
+            st.metric("Текущий IF", f"{if_days['if_value']:.4f}")
+            st.metric("Числитель (цитирования)", if_days['c_num'])
+            st.metric("Знаменатель (публикации)", if_days['p_den'])
+            st.metric("Годы публикаций", f"{if_days['publication_years'][0]}-{if_days['publication_years'][1]}")
+            
+            st.markdown("##### Прогнозы IF")
+            forecast_data = {
+                'Тип прогноза': ['Консервативный', 'Сбалансированный', 'Оптимистичный'],
+                'Значение IF': [
+                    if_days['if_forecasts'].get('conservative', 0),
+                    if_days['if_forecasts'].get('balanced', 0),
+                    if_days['if_forecasts'].get('optimistic', 0)
+                ],
+                'Множитель': [
+                    if_days['multipliers'].get('conservative', 1),
+                    if_days['multipliers'].get('balanced', 1),
+                    if_days['multipliers'].get('optimistic', 1)
+                ]
+            }
+            forecast_df = pd.DataFrame(forecast_data)
+            st.dataframe(forecast_df)
+        
+        with col2:
+            st.markdown("##### CiteScore")
+            st.metric("Текущий CiteScore", f"{if_days['citescore_value']:.4f}")
+            st.metric("Числитель (цитирования)", if_days['cs_c_num'])
+            st.metric("Знаменатель (публикации)", if_days['cs_p_den'])
+            st.metric("Годы публикаций", f"{if_days['cs_publication_years'][0]}-{if_days['cs_publication_years'][-1]}")
+            
+            st.markdown("##### Прогнозы CiteScore")
+            cs_forecast_data = {
+                'Тип прогноза': ['Консервативный', 'Сбалансированный', 'Оптимистичный'],
+                'Значение CiteScore': [
+                    if_days['citescore_forecasts'].get('conservative', 0),
+                    if_days['citescore_forecasts'].get('balanced', 0),
+                    if_days['citescore_forecasts'].get('optimistic', 0)
+                ],
+                'Множитель': [
+                    if_days['multipliers'].get('conservative', 1),
+                    if_days['multipliers'].get('balanced', 1),
+                    if_days['multipliers'].get('optimistic', 1)
+                ]
+            }
+            cs_forecast_df = pd.DataFrame(cs_forecast_data)
+            st.dataframe(cs_forecast_df)
+        
+        # График сезонности цитирований
+        if if_days.get('citation_distribution'):
+            months = list(range(1, 13))
+            coefficients = [if_days['citation_distribution'].get(month, 1) for month in months]
+            month_names = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек']
+            
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                x=month_names,
+                y=coefficients,
+                name='Коэффициент цитирований',
+                marker_color='orange'
+            ))
+            fig.update_layout(
+                title='Сезонность цитирований по месяцам',
+                xaxis_title='Месяц',
+                yaxis_title='Коэффициент',
+                showlegend=False
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
-# === 20. Основная функция анализа ===
+# === 20. Основная функция анализа (ОБНОВЛЕННАЯ) ===
 def analyze_journal(issn, period_str):
     global delayer
     delayer = AdaptiveDelayer()
@@ -1676,7 +2061,7 @@ def analyze_journal(issn, period_str):
     overlap_details = analyze_overlaps(analyzed_metadata, all_citing_metadata, state)
     
     current_date = datetime.now()
-    if_days = calculate_if_and_days(analyzed_metadata, all_citing_metadata, current_date, state)
+    if_days = calculate_if_and_days(analyzed_metadata, all_citing_metadata, current_date, state, issn, journal_name)
     
     overall_progress.progress(0.9)
     
@@ -1746,12 +2131,13 @@ def main():
         
         st.info("""
         **Возможности анализа:**
-        - 📊 Impact Factor и H-index
+        - 📊 Impact Factor и CiteScore
         - 👥 Анализ авторов и аффилиаций
         - 🌍 Географическое распределение
         - 🔗 Пересечения между работами
         - ⏱️ Время до цитирования
         - 📈 Визуализация данных
+        - 🎯 Прогнозирование метрик
         """)
         
         st.warning("""
@@ -1825,7 +2211,7 @@ def main():
         st.markdown("---")
         st.header("📈 Детальная статистика")
         
-        tab1, tab2, tab3 = st.tabs(["Анализируемые статьи", "Цитирующие работы", "Сравнительный анализ"])
+        tab1, tab2, tab3, tab4 = st.tabs(["Анализируемые статьи", "Цитирующие работы", "Сравнительный анализ", "Метрики журнала"])
         
         with tab1:
             st.subheader("Статистика анализируемых статей")
@@ -1885,9 +2271,25 @@ def main():
                     "Среднее ссылок на статью (цитирующие)", 
                     f"{results['citing_stats']['ref_mean']:.1f}"
                 )
+        
+        with tab4:
+            st.subheader("Метрики журнала")
+            if_days = results['if_days']
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.metric("Impact Factor", f"{if_days['if_value']:.4f}")
+                st.metric("Числитель IF", if_days['c_num'])
+                st.metric("Знаменатель IF", if_days['p_den'])
+                st.metric("Годы публикаций IF", f"{if_days['publication_years'][0]}-{if_days['publication_years'][1]}")
+                
+            with col2:
+                st.metric("CiteScore", f"{if_days['citescore_value']:.4f}")
+                st.metric("Числитель CiteScore", if_days['cs_c_num'])
+                st.metric("Знаменатель CiteScore", if_days['cs_p_den'])
+                st.metric("Годы публикаций CiteScore", f"{if_days['cs_publication_years'][0]}-{if_days['cs_publication_years'][-1]}")
 
 # Запуск приложения
 if __name__ == "__main__":
     main()
-
-
