@@ -1471,8 +1471,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 if_days.get('p_den', 0),
                 if_days.get('cs_c_num', 0),
                 if_days.get('cs_p_den', 0),
-                f"{if_days.get('publication_years', [0, 0])[0]}-{if_days.get('publication_years', [0, 0])[1]}",
-                f"{if_days.get('cs_publication_years', [0, 0])[0]}-{if_days.get('cs_publication_years', [0, 0])[-1]}",
+                f"{if_days.get('publication_years', ['N/A', 'N/A'])[0]}-{if_days.get('publication_years', ['N/A', 'N/A'])[1] if len(if_days.get('publication_years', [])) > 1 else 'N/A'}",
+                f"{if_days.get('cs_publication_years', ['N/A', 'N/A'])[0]}-{if_days.get('cs_publication_years', ['N/A', 'N/A'])[-1] if if_days.get('cs_publication_years') else 'N/A'}",
                 if_days.get('days_min', 0),
                 if_days.get('days_max', 0),
                 f"{if_days.get('days_mean', 0):.1f}",
@@ -2293,3 +2293,4 @@ def main():
 # Запуск приложения
 if __name__ == "__main__":
     main()
+
