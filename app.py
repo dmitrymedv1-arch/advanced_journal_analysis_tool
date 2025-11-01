@@ -1195,6 +1195,8 @@ def calculate_if_and_days(analyzed_metadata, all_citing_metadata, current_date, 
 
 # === 18. Создание расширенного Excel отчета (ОБНОВЛЕННАЯ ВЕРСИЯ) ===
 def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, if_days, overlap_details, filename):
+    current_date = datetime.now()
+    
     with pd.ExcelWriter(filename, engine='openpyxl') as writer:
         # Лист 1: Анализируемые статьи
         analyzed_list = []
@@ -1471,8 +1473,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 if_days.get('p_den', 0),
                 if_days.get('cs_c_num', 0),
                 if_days.get('cs_p_den', 0),
-                f"{if_days.get('publication_years', ['N/A', 'N/A'])[0] if if_days.get('publication_years') else 'N/A'}-{if_days.get('publication_years', ['N/A', 'N/A'])[1] if if_days.get('publication_years') and len(if_days['publication_years']) > 1 else 'N/A'}",
-                f"{if_days.get('cs_publication_years', ['N/A', 'N/A'])[0] if if_days.get('cs_publication_years') else 'N/A'}-{if_days.get('cs_publication_years', ['N/A', 'N/A'])[-1] if if_days.get('cs_publication_years') else 'N/A'}",
+                f"{current_date.year - 2}-{current_date.year - 1}",
+                f"{current_date.year - 3}-{current_date.year}",
                 if_days.get('days_min', 0),
                 if_days.get('days_max', 0),
                 f"{if_days.get('days_mean', 0):.1f}",
@@ -1577,7 +1579,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         all_citing_countries_df = pd.DataFrame(all_citing_countries_data)
         all_citing_countries_df.to_excel(writer, sheet_name='Все_страны_цитирующие', index=False)
 
-        # Лист 18: Все журналы цитирующих (ИЗМЕНЕНО - теперь только цитирующие журналы)
+        # Лист 18: Все журналы цитирующих
         all_citing_journals_data = {
             'Журнал': [journal[0] for journal in citing_stats['all_journals']],
             'Количество статей': [journal[1] for journal in citing_stats['all_journals']]
@@ -1585,7 +1587,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
         all_citing_journals_df.to_excel(writer, sheet_name='Все_журналы_цитирующие', index=False)
 
-        # Лист 19: Все издатели цитирующих (ИЗМЕНЕНО - теперь только цитирующие издатели)
+        # Лист 19: Все издатели цитирующих
         all_citing_publishers_data = {
             'Издатель': [publisher[0] for publisher in citing_stats['all_publishers']],
             'Количество статей': [publisher[1] for publisher in citing_stats['all_publishers']]
@@ -1598,6 +1600,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
 # === 19. Визуализация данных (ОБНОВЛЕННАЯ ВЕРСИЯ) ===
 def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days, overlap_details):
     """Создание визуализаций для дашборда"""
+    
+    current_date = datetime.now()
     
     # Создаем вкладки для разных типов визуализаций
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -1619,13 +1623,13 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
             st.metric(
                 "Impact Factor", 
                 f"{if_days.get('if_value', 0):.4f}",
-                help=f"Расчет для публикаций {if_days.get('publication_years', ['N/A', 'N/A'])[0] if if_days.get('publication_years') else 'N/A'}-{if_days.get('publication_years', ['N/A', 'N/A'])[1] if if_days.get('publication_years') and len(if_days['publication_years']) > 1 else 'N/A'}"
+                help=f"Расчет для публикаций {current_date.year - 2}-{current_date.year - 1}"
             )
         with col2:
             st.metric(
                 "CiteScore", 
                 f"{if_days.get('citescore_value', 0):.4f}",
-                help=f"Расчет для публикаций {if_days.get('cs_publication_years', ['N/A', 'N/A'])[0] if if_days.get('cs_publication_years') else 'N/A'}-{if_days.get('cs_publication_years', ['N/A', 'N/A'])[-1] if if_days.get('cs_publication_years') else 'N/A'}"
+                help=f"Расчет для публикаций {current_date.year - 3}-{current_date.year}"
             )
         with col3:
             st.metric("H-index", enhanced_stats.get('h_index', 0))
@@ -1867,7 +1871,7 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
             st.metric("Текущий IF", f"{if_days.get('if_value', 0):.4f}")
             st.metric("Числитель (цитирования)", if_days.get('c_num', 0))
             st.metric("Знаменатель (публикации)", if_days.get('p_den', 0))
-            st.metric("Годы публикаций", f"{if_days.get('publication_years', ['N/A', 'N/A'])[0] if if_days.get('publication_years') else 'N/A'}-{if_days.get('publication_years', ['N/A', 'N/A'])[1] if if_days.get('publication_years') and len(if_days['publication_years']) > 1 else 'N/A'}")
+            st.metric("Годы публикаций", f"{current_date.year - 2}-{current_date.year - 1}")
             
             st.markdown("##### Прогнозы IF")
             forecast_data = {
@@ -1891,7 +1895,7 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
             st.metric("Текущий CiteScore", f"{if_days.get('citescore_value', 0):.4f}")
             st.metric("Числитель (цитирования)", if_days.get('cs_c_num', 0))
             st.metric("Знаменатель (публикации)", if_days.get('cs_p_den', 0))
-            st.metric("Годы публикаций CiteScore", f"{if_days.get('cs_publication_years', ['N/A', 'N/A'])[0] if if_days.get('cs_publication_years') else 'N/A'}-{if_days.get('cs_publication_years', ['N/A', 'N/A'])[-1] if if_days.get('cs_publication_years') else 'N/A'}")
+            st.metric("Годы публикаций", f"{current_date.year - 3}-{current_date.year}")
             
             st.markdown("##### Прогнозы CiteScore")
             cs_forecast_data = {
@@ -2275,6 +2279,7 @@ def main():
         with tab4:
             st.subheader("Метрики журнала")
             if_days = results['if_days']
+            current_date = datetime.now()
             
             col1, col2 = st.columns(2)
             
@@ -2282,17 +2287,14 @@ def main():
                 st.metric("Impact Factor", f"{if_days.get('if_value', 0):.4f}")
                 st.metric("Числитель IF", if_days.get('c_num', 0))
                 st.metric("Знаменатель IF", if_days.get('p_den', 0))
-                st.metric("Годы публикаций IF", f"{if_days.get('publication_years', [0, 0])[0]}-{if_days.get('publication_years', [0, 0])[1]}")
+                st.metric("Годы публикаций IF", f"{current_date.year - 2}-{current_date.year - 1}")
                 
             with col2:
                 st.metric("CiteScore", f"{if_days.get('citescore_value', 0):.4f}")
                 st.metric("Числитель CiteScore", if_days.get('cs_c_num', 0))
                 st.metric("Знаменатель CiteScore", if_days.get('cs_p_den', 0))
-                st.metric("Годы публикаций CiteScore", f"{if_days.get('cs_publication_years', [0, 0])[0]}-{if_days.get('cs_publication_years', [0, 0])[-1]}")
+                st.metric("Годы публикаций CiteScore", f"{current_date.year - 3}-{current_date.year}")
 
 # Запуск приложения
 if __name__ == "__main__":
     main()
-
-
-
