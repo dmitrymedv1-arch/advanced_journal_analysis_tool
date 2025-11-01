@@ -1619,13 +1619,13 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
             st.metric(
                 "Impact Factor", 
                 f"{if_days.get('if_value', 0):.4f}",
-                help=f"Расчет для публикаций {if_days.get('publication_years', [0, 0])[0]}-{if_days.get('publication_years', [0, 0])[1]}"
+                help=f"Расчет для публикаций {if_days.get('publication_years', ['N/A', 'N/A'])[0] if if_days.get('publication_years') else 'N/A'}-{if_days.get('publication_years', ['N/A', 'N/A'])[1] if if_days.get('publication_years') and len(if_days['publication_years']) > 1 else 'N/A'}"
             )
         with col2:
             st.metric(
                 "CiteScore", 
                 f"{if_days.get('citescore_value', 0):.4f}",
-                help=f"Расчет для публикаций {if_days.get('cs_publication_years', [0, 0])[0]}-{if_days.get('cs_publication_years', [0, 0])[-1]}"
+                help=f"Расчет для публикаций {if_days.get('cs_publication_years', ['N/A', 'N/A'])[0] if if_days.get('cs_publication_years') else 'N/A'}-{if_days.get('cs_publication_years', ['N/A', 'N/A'])[-1] if if_days.get('cs_publication_years') else 'N/A'}"
             )
         with col3:
             st.metric("H-index", enhanced_stats.get('h_index', 0))
@@ -2293,5 +2293,6 @@ def main():
 # Запуск приложения
 if __name__ == "__main__":
     main()
+
 
 
