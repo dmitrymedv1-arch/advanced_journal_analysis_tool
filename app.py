@@ -1459,30 +1459,30 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 'Множитель (оптимистичный)'
             ],
             'Значение': [
-                f"{if_days['if_value']:.4f}",
-                f"{if_days['if_forecasts'].get('conservative', 0):.4f}",
-                f"{if_days['if_forecasts'].get('balanced', 0):.4f}",
-                f"{if_days['if_forecasts'].get('optimistic', 0):.4f}",
-                f"{if_days['citescore_value']:.4f}",
-                f"{if_days['citescore_forecasts'].get('conservative', 0):.4f}",
-                f"{if_days['citescore_forecasts'].get('balanced', 0):.4f}",
-                f"{if_days['citescore_forecasts'].get('optimistic', 0):.4f}",
-                if_days['c_num'],
-                if_days['p_den'],
-                if_days['cs_c_num'],
-                if_days['cs_p_den'],
-                f"{if_days['publication_years'][0]}-{if_days['publication_years'][1]}",
-                f"{if_days['cs_publication_years'][0]}-{if_days['cs_publication_years'][-1]}",
-                if_days['days_min'],
-                if_days['days_max'],
-                f"{if_days['days_mean']:.1f}",
-                if_days['days_median'],
-                if_days['articles_with_timing_data'],
-                if_days['total_years_covered'],
+                f"{if_days.get('if_value', 0):.4f}",
+                f"{if_days.get('if_forecasts', {}).get('conservative', 0):.4f}",
+                f"{if_days.get('if_forecasts', {}).get('balanced', 0):.4f}",
+                f"{if_days.get('if_forecasts', {}).get('optimistic', 0):.4f}",
+                f"{if_days.get('citescore_value', 0):.4f}",
+                f"{if_days.get('citescore_forecasts', {}).get('conservative', 0):.4f}",
+                f"{if_days.get('citescore_forecasts', {}).get('balanced', 0):.4f}",
+                f"{if_days.get('citescore_forecasts', {}).get('optimistic', 0):.4f}",
+                if_days.get('c_num', 0),
+                if_days.get('p_den', 0),
+                if_days.get('cs_c_num', 0),
+                if_days.get('cs_p_den', 0),
+                f"{if_days.get('publication_years', [0, 0])[0]}-{if_days.get('publication_years', [0, 0])[1]}",
+                f"{if_days.get('cs_publication_years', [0, 0])[0]}-{if_days.get('cs_publication_years', [0, 0])[-1]}",
+                if_days.get('days_min', 0),
+                if_days.get('days_max', 0),
+                f"{if_days.get('days_mean', 0):.1f}",
+                if_days.get('days_median', 0),
+                if_days.get('articles_with_timing_data', 0),
+                if_days.get('total_years_covered', 0),
                 if_days.get('journal_field', 'general'),
-                f"{if_days['multipliers'].get('conservative', 1):.2f}",
-                f"{if_days['multipliers'].get('balanced', 1):.2f}",
-                f"{if_days['multipliers'].get('optimistic', 1):.2f}"
+                f"{if_days.get('multipliers', {}).get('conservative', 1):.2f}",
+                f"{if_days.get('multipliers', {}).get('balanced', 1):.2f}",
+                f"{if_days.get('multipliers', {}).get('optimistic', 1):.2f}"
             ]
         }
         if_days_df = pd.DataFrame(if_days_data)
@@ -1490,10 +1490,10 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
 
         # Лист 9: Цитирования по годам
         yearly_citations_data = []
-        for yearly_stat in if_days['yearly_citations']:
+        for yearly_stat in if_days.get('yearly_citations', []):
             yearly_citations_data.append({
-                'Год': yearly_stat['year'],
-                'Количество цитирований': yearly_stat['citations_count']
+                'Год': yearly_stat.get('year', 0),
+                'Количество цитирований': yearly_stat.get('citations_count', 0)
             })
         
         if yearly_citations_data:
@@ -1502,12 +1502,12 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
 
         # Лист 10: Кривые накопления цитирований
         accumulation_data = []
-        for pub_year, curve_data in if_days['accumulation_curves'].items():
+        for pub_year, curve_data in if_days.get('accumulation_curves', {}).items():
             for data_point in curve_data:
                 accumulation_data.append({
                     'Год публикации': pub_year,
-                    'Лет после публикации': data_point['years_since_publication'],
-                    'Накопительные цитирования': data_point['cumulative_citations']
+                    'Лет после публикации': data_point.get('years_since_publication', 0),
+                    'Накопительные цитирования': data_point.get('cumulative_citations', 0)
                 })
         
         if accumulation_data:
@@ -1577,7 +1577,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         all_citing_countries_df = pd.DataFrame(all_citing_countries_data)
         all_citing_countries_df.to_excel(writer, sheet_name='Все_страны_цитирующие', index=False)
 
-        # Лист 18: Все журналы цитирующих
+        # Лист 18: Все журналы цитирующих (ИЗМЕНЕНО - теперь только цитирующие журналы)
         all_citing_journals_data = {
             'Журнал': [journal[0] for journal in citing_stats['all_journals']],
             'Количество статей': [journal[1] for journal in citing_stats['all_journals']]
@@ -1585,7 +1585,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
         all_citing_journals_df.to_excel(writer, sheet_name='Все_журналы_цитирующие', index=False)
 
-        # Лист 19: Все издатели цитирующих
+        # Лист 19: Все издатели цитирующих (ИЗМЕНЕНО - теперь только цитирующие издатели)
         all_citing_publishers_data = {
             'Издатель': [publisher[0] for publisher in citing_stats['all_publishers']],
             'Количество статей': [publisher[1] for publisher in citing_stats['all_publishers']]
@@ -1618,35 +1618,35 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
         with col1:
             st.metric(
                 "Impact Factor", 
-                f"{if_days['if_value']:.4f}",
-                help=f"Расчет для публикаций {if_days['publication_years'][0]}-{if_days['publication_years'][1]}"
+                f"{if_days.get('if_value', 0):.4f}",
+                help=f"Расчет для публикаций {if_days.get('publication_years', [0, 0])[0]}-{if_days.get('publication_years', [0, 0])[1]}"
             )
         with col2:
             st.metric(
                 "CiteScore", 
-                f"{if_days['citescore_value']:.4f}",
-                help=f"Расчет для публикаций {if_days['cs_publication_years'][0]}-{if_days['cs_publication_years'][-1]}"
+                f"{if_days.get('citescore_value', 0):.4f}",
+                help=f"Расчет для публикаций {if_days.get('cs_publication_years', [0, 0])[0]}-{if_days.get('cs_publication_years', [0, 0])[-1]}"
             )
         with col3:
-            st.metric("H-index", enhanced_stats['h_index'])
+            st.metric("H-index", enhanced_stats.get('h_index', 0))
         with col4:
-            st.metric("Всего статей", analyzed_stats['n_items'])
+            st.metric("Всего статей", analyzed_stats.get('n_items', 0))
         
         col5, col6, col7, col8 = st.columns(4)
         
         with col5:
-            st.metric("Среднее цитирований", f"{enhanced_stats['avg_citations_per_article']:.1f}")
+            st.metric("Среднее цитирований", f"{enhanced_stats.get('avg_citations_per_article', 0):.1f}")
         with col6:
-            st.metric("Статьи с цитированиями", enhanced_stats['articles_with_citations'])
+            st.metric("Статьи с цитированиями", enhanced_stats.get('articles_with_citations', 0))
         with col7:
-            st.metric("Самоцитирования", f"{analyzed_stats['self_cites_pct']:.1f}%")
+            st.metric("Самоцитирования", f"{analyzed_stats.get('self_cites_pct', 0):.1f}%")
         with col8:
-            st.metric("Международные статьи", f"{analyzed_stats['multi_country_pct']:.1f}%")
+            st.metric("Международные статьи", f"{analyzed_stats.get('multi_country_pct', 0):.1f}%")
         
         # График цитирований по годам
-        if if_days['yearly_citations']:
-            years = [item['year'] for item in if_days['yearly_citations']]
-            citations = [item['citations_count'] for item in if_days['yearly_citations']]
+        if if_days.get('yearly_citations'):
+            years = [item.get('year', 0) for item in if_days['yearly_citations']]
+            citations = [item.get('citations_count', 0) for item in if_days['yearly_citations']]
             
             fig = go.Figure()
             fig.add_trace(go.Bar(
@@ -1670,7 +1670,7 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
         
         with col1:
             # Топ авторов анализируемых статей
-            if analyzed_stats['all_authors']:
+            if analyzed_stats.get('all_authors'):
                 top_authors = analyzed_stats['all_authors'][:15]
                 authors_df = pd.DataFrame(top_authors, columns=['Автор', 'Статей'])
                 fig = px.bar(
@@ -1687,9 +1687,9 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
             author_counts_data = {
                 'Категория': ['1 автор', '2-5 авторов', '6-10 авторов', '>10 авторов'],
                 'Статьи': [
-                    analyzed_stats['single_authors'],
-                    analyzed_stats['n_items'] - analyzed_stats['single_authors'] - analyzed_stats['multi_authors_gt10'],
-                    analyzed_stats['multi_authors_gt10'],
+                    analyzed_stats.get('single_authors', 0),
+                    analyzed_stats.get('n_items', 0) - analyzed_stats.get('single_authors', 0) - analyzed_stats.get('multi_authors_gt10', 0),
+                    analyzed_stats.get('multi_authors_gt10', 0),
                     0  # Можно добавить дополнительную категоризацию
                 ]
             }
@@ -1702,7 +1702,7 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
             st.plotly_chart(fig, use_container_width=True)
         
         # Топ аффилиаций
-        if analyzed_stats['all_affiliations']:
+        if analyzed_stats.get('all_affiliations'):
             top_affiliations = analyzed_stats['all_affiliations'][:10]
             aff_df = pd.DataFrame(top_affiliations, columns=['Аффилиация', 'Упоминаний'])
             fig = px.bar(
@@ -1722,7 +1722,7 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
         
         with col1:
             # Распределение по странам
-            if analyzed_stats['all_countries']:
+            if analyzed_stats.get('all_countries'):
                 countries_df = pd.DataFrame(analyzed_stats['all_countries'], columns=['Страна', 'Статей'])
                 fig = px.pie(
                     countries_df, 
@@ -1737,9 +1737,9 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
             collaboration_data = {
                 'Тип': ['Одна страна', 'Несколько стран', 'Нет данных'],
                 'Статьи': [
-                    analyzed_stats['single_country_articles'],
-                    analyzed_stats['multi_country_articles'],
-                    analyzed_stats['no_country_articles']
+                    analyzed_stats.get('single_country_articles', 0),
+                    analyzed_stats.get('multi_country_articles', 0),
+                    analyzed_stats.get('no_country_articles', 0)
                 ]
             }
             fig = px.bar(
@@ -1761,10 +1761,10 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
             citation_thresholds = {
                 'Порог': ['≥10', '≥50', '≥100', '≥200'],
                 'Статьи': [
-                    analyzed_stats['articles_with_10_citations'],
-                    analyzed_stats['articles_with_50_citations'],
-                    analyzed_stats['articles_with_100_citations'],
-                    analyzed_stats['articles_with_200_citations']
+                    analyzed_stats.get('articles_with_10_citations', 0),
+                    analyzed_stats.get('articles_with_50_citations', 0),
+                    analyzed_stats.get('articles_with_100_citations', 0),
+                    analyzed_stats.get('articles_with_200_citations', 0)
                 ]
             }
             fig = px.bar(
@@ -1781,8 +1781,8 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
             citation_status = {
                 'Статус': ['С цитированиями', 'Без цитирований'],
                 'Количество': [
-                    enhanced_stats['articles_with_citations'],
-                    enhanced_stats['articles_without_citations']
+                    enhanced_stats.get('articles_with_citations', 0),
+                    enhanced_stats.get('articles_without_citations', 0)
                 ]
             }
             fig = px.pie(
@@ -1799,7 +1799,7 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
         if overlap_details:
             # Сводная статистика по пересечениям
             total_overlaps = len(overlap_details)
-            articles_with_overlaps = len(set([o['analyzed_doi'] for o in overlap_details]))
+            articles_with_overlaps = len(set([o.get('analyzed_doi', '') for o in overlap_details]))
             
             col1, col2, col3 = st.columns(3)
             
@@ -1812,7 +1812,7 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
                 st.metric("Среднее пересечений на статью", f"{avg_overlaps:.1f}")
             
             # Распределение по количеству пересечений
-            overlap_counts = [o['common_authors_count'] + o['common_affiliations_count'] for o in overlap_details]
+            overlap_counts = [o.get('common_authors_count', 0) + o.get('common_affiliations_count', 0) for o in overlap_details]
             if overlap_counts:
                 fig = px.histogram(
                     x=overlap_counts,
@@ -1834,22 +1834,22 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Мин. дней до цитирования", if_days['days_min'])
+            st.metric("Мин. дней до цитирования", if_days.get('days_min', 0))
         with col2:
-            st.metric("Макс. дней до цитирования", if_days['days_max'])
+            st.metric("Макс. дней до цитирования", if_days.get('days_max', 0))
         with col3:
-            st.metric("Среднее дней", f"{if_days['days_mean']:.1f}")
+            st.metric("Среднее дней", f"{if_days.get('days_mean', 0):.1f}")
         with col4:
-            st.metric("Медиана дней", if_days['days_median'])
+            st.metric("Медиана дней", if_days.get('days_median', 0))
         
         # Детали первых цитирований
-        if if_days['first_citation_details']:
+        if if_days.get('first_citation_details'):
             st.subheader("Детали первых цитирований")
             first_citation_df = pd.DataFrame(if_days['first_citation_details'])
             st.dataframe(first_citation_df)
             
             # Гистограмма времени до первого цитирования
-            days_data = [d['days_to_first_citation'] for d in if_days['first_citation_details']]
+            days_data = [d.get('days_to_first_citation', 0) for d in if_days['first_citation_details']]
             fig = px.histogram(
                 x=days_data,
                 title='Распределение времени до первого цитирования (дни)',
@@ -1864,23 +1864,23 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
         
         with col1:
             st.markdown("##### Impact Factor")
-            st.metric("Текущий IF", f"{if_days['if_value']:.4f}")
-            st.metric("Числитель (цитирования)", if_days['c_num'])
-            st.metric("Знаменатель (публикации)", if_days['p_den'])
-            st.metric("Годы публикаций", f"{if_days['publication_years'][0]}-{if_days['publication_years'][1]}")
+            st.metric("Текущий IF", f"{if_days.get('if_value', 0):.4f}")
+            st.metric("Числитель (цитирования)", if_days.get('c_num', 0))
+            st.metric("Знаменатель (публикации)", if_days.get('p_den', 0))
+            st.metric("Годы публикаций", f"{if_days.get('publication_years', [0, 0])[0]}-{if_days.get('publication_years', [0, 0])[1]}")
             
             st.markdown("##### Прогнозы IF")
             forecast_data = {
                 'Тип прогноза': ['Консервативный', 'Сбалансированный', 'Оптимистичный'],
                 'Значение IF': [
-                    if_days['if_forecasts'].get('conservative', 0),
-                    if_days['if_forecasts'].get('balanced', 0),
-                    if_days['if_forecasts'].get('optimistic', 0)
+                    if_days.get('if_forecasts', {}).get('conservative', 0),
+                    if_days.get('if_forecasts', {}).get('balanced', 0),
+                    if_days.get('if_forecasts', {}).get('optimistic', 0)
                 ],
                 'Множитель': [
-                    if_days['multipliers'].get('conservative', 1),
-                    if_days['multipliers'].get('balanced', 1),
-                    if_days['multipliers'].get('optimistic', 1)
+                    if_days.get('multipliers', {}).get('conservative', 1),
+                    if_days.get('multipliers', {}).get('balanced', 1),
+                    if_days.get('multipliers', {}).get('optimistic', 1)
                 ]
             }
             forecast_df = pd.DataFrame(forecast_data)
@@ -1888,23 +1888,23 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
         
         with col2:
             st.markdown("##### CiteScore")
-            st.metric("Текущий CiteScore", f"{if_days['citescore_value']:.4f}")
-            st.metric("Числитель (цитирования)", if_days['cs_c_num'])
-            st.metric("Знаменатель (публикации)", if_days['cs_p_den'])
-            st.metric("Годы публикаций", f"{if_days['cs_publication_years'][0]}-{if_days['cs_publication_years'][-1]}")
+            st.metric("Текущий CiteScore", f"{if_days.get('citescore_value', 0):.4f}")
+            st.metric("Числитель (цитирования)", if_days.get('cs_c_num', 0))
+            st.metric("Знаменатель (публикации)", if_days.get('cs_p_den', 0))
+            st.metric("Годы публикаций", f"{if_days.get('cs_publication_years', [0, 0])[0]}-{if_days.get('cs_publication_years', [0, 0])[-1]}")
             
             st.markdown("##### Прогнозы CiteScore")
             cs_forecast_data = {
                 'Тип прогноза': ['Консервативный', 'Сбалансированный', 'Оптимистичный'],
                 'Значение CiteScore': [
-                    if_days['citescore_forecasts'].get('conservative', 0),
-                    if_days['citescore_forecasts'].get('balanced', 0),
-                    if_days['citescore_forecasts'].get('optimistic', 0)
+                    if_days.get('citescore_forecasts', {}).get('conservative', 0),
+                    if_days.get('citescore_forecasts', {}).get('balanced', 0),
+                    if_days.get('citescore_forecasts', {}).get('optimistic', 0)
                 ],
                 'Множитель': [
-                    if_days['multipliers'].get('conservative', 1),
-                    if_days['multipliers'].get('balanced', 1),
-                    if_days['multipliers'].get('optimistic', 1)
+                    if_days.get('multipliers', {}).get('conservative', 1),
+                    if_days.get('multipliers', {}).get('balanced', 1),
+                    if_days.get('multipliers', {}).get('optimistic', 1)
                 ]
             }
             cs_forecast_df = pd.DataFrame(cs_forecast_data)
@@ -2279,16 +2279,16 @@ def main():
             col1, col2 = st.columns(2)
             
             with col1:
-                st.metric("Impact Factor", f"{if_days['if_value']:.4f}")
-                st.metric("Числитель IF", if_days['c_num'])
-                st.metric("Знаменатель IF", if_days['p_den'])
-                st.metric("Годы публикаций IF", f"{if_days['publication_years'][0]}-{if_days['publication_years'][1]}")
+                st.metric("Impact Factor", f"{if_days.get('if_value', 0):.4f}")
+                st.metric("Числитель IF", if_days.get('c_num', 0))
+                st.metric("Знаменатель IF", if_days.get('p_den', 0))
+                st.metric("Годы публикаций IF", f"{if_days.get('publication_years', [0, 0])[0]}-{if_days.get('publication_years', [0, 0])[1]}")
                 
             with col2:
-                st.metric("CiteScore", f"{if_days['citescore_value']:.4f}")
-                st.metric("Числитель CiteScore", if_days['cs_c_num'])
-                st.metric("Знаменатель CiteScore", if_days['cs_p_den'])
-                st.metric("Годы публикаций CiteScore", f"{if_days['cs_publication_years'][0]}-{if_days['cs_publication_years'][-1]}")
+                st.metric("CiteScore", f"{if_days.get('citescore_value', 0):.4f}")
+                st.metric("Числитель CiteScore", if_days.get('cs_c_num', 0))
+                st.metric("Знаменатель CiteScore", if_days.get('cs_p_den', 0))
+                st.metric("Годы публикаций CiteScore", f"{if_days.get('cs_publication_years', [0, 0])[0]}-{if_days.get('cs_publication_years', [0, 0])[-1]}")
 
 # Запуск приложения
 if __name__ == "__main__":
