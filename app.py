@@ -1002,12 +1002,13 @@ def calculate_correct_impact_factor_and_citescore(issn, journal_name, analyzed_m
         st.info(f"📊 Расчет IF: публикации {if_publication_years}, цитирования в {if_citation_year}")
         st.info(f"📊 Расчет CiteScore: публикации {cs_publication_years}, цитирования в {cs_citation_years}")
 
-        # Фильтрация статей для IF
+        # === КОРРЕКТНЫЙ ПОДСЧЕТ СТАТЕЙ ДЛЯ IF ===
         if_items = []
         for meta in analyzed_metadata:
             if meta and meta.get('crossref'):
                 cr = meta['crossref']
                 pub_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
+                # Берем ТОЛЬКО статьи за нужные годы для IF
                 if pub_year in if_publication_years:
                     if_items.append({
                         'DOI': cr.get('DOI', 'N/A'),
@@ -1018,12 +1019,13 @@ def calculate_correct_impact_factor_and_citescore(issn, journal_name, analyzed_m
                         'metadata': meta
                     })
 
-        # Фильтрация статей для CiteScore
+        # === КОРРЕКТНЫЙ ПОДСЧЕТ СТАТЕЙ ДЛЯ CiteScore ===
         cs_items = []
         for meta in analyzed_metadata:
             if meta and meta.get('crossref'):
                 cr = meta['crossref']
                 pub_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
+                # Берем ТОЛЬКО статьи за нужные годы для CiteScore
                 if pub_year in cs_publication_years:
                     cs_items.append({
                         'DOI': cr.get('DOI', 'N/A'),
@@ -1040,11 +1042,15 @@ def calculate_correct_impact_factor_and_citescore(issn, journal_name, analyzed_m
         st.info(f"📊 Для расчета Impact Factor: {B_if} статей за {if_publication_years}")
         st.info(f"📊 Для расчета CiteScore: {B_cs} статей за {cs_publication_years}")
 
-        if B_if == 0 or B_cs == 0:
-            st.warning("❌ Недостаточно данных для расчета метрик")
+        if B_if == 0:
+            st.error(f"❌ Нет статей за годы {if_publication_years} для расчета IF")
+            return None
+            
+        if B_cs == 0:
+            st.error(f"❌ Нет статей за годы {cs_publication_years} для расчета CiteScore")
             return None
 
-        # === КОРРЕКТНЫЙ РАСЧЕТ IF ===
+        # === КОРРЕКТНЫЙ РАСЧЕТ ЦИТИРОВАНИЙ ДЛЯ IF ===
         A_if_current = 0
         if_citation_data = []
         
@@ -1083,7 +1089,7 @@ def calculate_correct_impact_factor_and_citescore(issn, journal_name, analyzed_m
         
         if_progress.empty()
 
-        # === КОРРЕКТНЫЙ РАСЧЕТ CiteScore ===
+        # === КОРРЕКТНЫЙ РАСЧЕТ ЦИТИРОВАНИЙ ДЛЯ CiteScore ===
         A_cs_current = 0
         cs_citation_data = []
         
@@ -1129,8 +1135,27 @@ def calculate_correct_impact_factor_and_citescore(issn, journal_name, analyzed_m
         current_if = A_if_current / B_if if B_if > 0 else 0
         current_citescore = A_cs_current / B_cs if B_cs > 0 else 0
 
-        st.success(f"✅ IF: {A_if_current} / {B_if} = {current_if:.4f}")
-        st.success(f"✅ CiteScore: {A_cs_current} / {B_cs} = {current_citescore:.4f}")
+        st.success(f"✅ IF: {A_if_current} цитирований / {B_if} статей = {current_if:.4f}")
+        st.success(f"✅ CiteScore: {A_cs_current} цитирований / {B_cs} статей = {current_citescore:.4f}")
+
+        # Детальная информация о статьях
+        st.subheader("📋 Детали по статьям:")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write(f"**Статьи для IF ({if_publication_years}):**")
+            for item in if_items[:10]:  # Показываем первые 10
+                st.write(f"- {item['DOI']} (год: {item['published']['date-parts'][0][0]})")
+            if len(if_items) > 10:
+                st.write(f"... и еще {len(if_items) - 10} статей")
+        
+        with col2:
+            st.write(f"**Статьи для CiteScore ({cs_publication_years}):**")
+            for item in cs_items[:10]:  # Показываем первые 10
+                st.write(f"- {item['DOI']} (год: {item['published']['date-parts'][0][0]})")
+            if len(cs_items) > 10:
+                st.write(f"... и еще {len(cs_items) - 10} статей")
 
         # Прогнозирование с учетом сезонности
         seasonal_coefficients = get_seasonal_coefficients(journal_field)
@@ -1164,6 +1189,8 @@ def calculate_correct_impact_factor_and_citescore(issn, journal_name, analyzed_m
             'total_articles_if': B_if,
             'total_cites_cs': A_cs_current,
             'total_articles_cs': B_cs,
+            'if_items_count': len(if_items),
+            'cs_items_count': len(cs_items),
             'citation_distribution': dict(seasonal_coefficients),
             'if_citation_data': if_citation_data,
             'cs_citation_data': cs_citation_data,
@@ -2401,3 +2428,4 @@ def main():
 # Запуск приложения
 if __name__ == "__main__":
     main()
+
