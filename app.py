@@ -1044,10 +1044,12 @@ def calculate_correct_impact_factor_and_citescore(issn, journal_name, analyzed_m
 
         if B_if == 0:
             st.error(f"❌ Нет статей за годы {if_publication_years} для расчета IF")
+            st.info("💡 Совет: выберите более широкий период анализа, включающий предыдущие годы")
             return None
             
         if B_cs == 0:
             st.error(f"❌ Нет статей за годы {cs_publication_years} для расчета CiteScore")
+            st.info("💡 Совет: выберите более широкий период анализа, включающий предыдущие годы")
             return None
 
         # === КОРРЕКТНЫЙ РАСЧЕТ ЦИТИРОВАНИЙ ДЛЯ IF ===
@@ -2081,8 +2083,20 @@ def analyze_journal(issn, period_str):
     years = parse_period(period_str)
     if not years:
         return
-    from_date = f"{min(years)}-01-01"
-    until_date = f"{max(years)}-12-31"
+    
+    # Расширяем период для корректного расчета IF и CiteScore
+    current_year = datetime.now().year
+    if_publication_years = [current_year - 2, current_year - 1]  # Для IF
+    cs_publication_years = list(range(current_year - 3, current_year + 1))  # Для CiteScore
+    
+    # Собираем статьи за все нужные годы для расчета метрик
+    all_years_needed = set(if_publication_years + cs_publication_years + years)
+    expanded_from_date = f"{min(all_years_needed)}-01-01"
+    expanded_until_date = f"{max(all_years_needed)}-12-31"
+    
+    st.info(f"📅 Анализируемый период: {min(years)}-{max(years)}")
+    st.info(f"📅 Расширенный период для метрик: {min(all_years_needed)}-{max(all_years_needed)}")
+    
     overall_progress.progress(0.1)
     
     # Название журнала
@@ -2091,9 +2105,9 @@ def analyze_journal(issn, period_str):
     st.success(f"📖 Журнал: **{journal_name}** (ISSN: {issn})")
     overall_progress.progress(0.2)
     
-    # Получение статей
-    overall_status.text("📥 Загрузка статей из Crossref...")
-    items = fetch_articles_by_issn_period(issn, from_date, until_date)
+    # Получение статей - используем расширенный период
+    overall_status.text("📥 Загрузка статей из Crossref (расширенный период для метрик)...")
+    items = fetch_articles_by_issn_period(issn, expanded_from_date, expanded_until_date)
     if not items:
         st.error("❌ Статьи не найдены.")
         return
@@ -2278,6 +2292,7 @@ def main():
         - Анализ может занять несколько минут
         - Убедитесь в корректности ISSN
         - Для больших периодов время анализа увеличивается
+        - Для расчета IF и CiteScore автоматически расширяется период анализа
         """)
     
     # Основная область
