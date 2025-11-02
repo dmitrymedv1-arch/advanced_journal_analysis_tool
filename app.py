@@ -567,9 +567,9 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
     pub_dates = []
     
     articles_with_10_citations = 0
+    articles_with_20_citations = 0
+    articles_with_30_citations = 0
     articles_with_50_citations = 0
-    articles_with_100_citations = 0
-    articles_with_200_citations = 0
 
     affiliations_freq = Counter()
     countries_freq = Counter()
@@ -664,12 +664,12 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
                 citation_count = oa.get('cited_by_count', 0)
                 if citation_count >= 10:
                     articles_with_10_citations += 1
+                if citation_count >= 20:
+                    articles_with_20_citations += 1
+                if citation_count >= 30:
+                    articles_with_30_citations += 1
                 if citation_count >= 50:
                     articles_with_50_citations += 1
-                if citation_count >= 100:
-                    articles_with_100_citations += 1
-                if citation_count >= 200:
-                    articles_with_200_citations += 1
 
     n_items = len(metadata_list)
 
@@ -712,9 +712,9 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
         'all_authors': all_authors_sorted,
         'pub_dates': pub_dates,
         'articles_with_10_citations': articles_with_10_citations,
+        'articles_with_20_citations': articles_with_20_citations,
+        'articles_with_30_citations': articles_with_30_citations,
         'articles_with_50_citations': articles_with_50_citations,
-        'articles_with_100_citations': articles_with_100_citations,
-        'articles_with_200_citations': articles_with_200_citations,
         'all_affiliations': all_affiliations_sorted,
         'all_countries': all_countries_sorted,
         'all_authors_list': all_authors,
@@ -990,9 +990,9 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     'Уникальных журналов',
                     'Уникальных издателей',
                     'Статьи с ≥10 цитированиями',
-                    'Статьи с ≥50 цитированиями',
-                    'Статьи с ≥100 цитированиями',
-                    'Статьи с ≥200 цитированиями'
+                    'Статьи с ≥20 цитированиями',
+                    'Статьи с ≥30 цитированиями',
+                    'Статьи с ≥50 цитированиями'
                 ],
                 'Значение': [
                     analyzed_stats['n_items'],
@@ -1019,9 +1019,9 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     analyzed_stats['unique_journals_count'],
                     analyzed_stats['unique_publishers_count'],
                     analyzed_stats['articles_with_10_citations'],
-                    analyzed_stats['articles_with_50_citations'],
-                    analyzed_stats['articles_with_100_citations'],
-                    analyzed_stats['articles_with_200_citations']
+                    analyzed_stats['articles_with_20_citations'],
+                    analyzed_stats['articles_with_30_citations'],
+                    analyzed_stats['articles_with_50_citations']
                 ]
             }
             analyzed_stats_df = pd.DataFrame(analyzed_stats_data)
@@ -1302,6 +1302,9 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, days_sta
             st.metric("Международные статьи", f"{analyzed_stats['multi_country_pct']:.1f}%")
         with col8:
             st.metric("Статьи с ≥10 цитированиями", analyzed_stats['articles_with_10_citations'])
+            st.metric("Статьи с ≥20 цитированиями", analyzed_stats['articles_with_20_citations'])
+            st.metric("Статьи с ≥30 цитированиями", analyzed_stats['articles_with_30_citations']) 
+            st.metric("Статьи с ≥50 цитированиями", analyzed_stats['articles_with_50_citations'])
         
         # График цитирований по годам
         if days_stats['yearly_citations']:
@@ -1419,12 +1422,12 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, days_sta
         with col1:
             # Цитирования по порогам
             citation_thresholds = {
-                'Порог': ['≥10', '≥50', '≥100', '≥200'],
+                'Порог': ['≥10', '≥20', '≥30', '≥50'],
                 'Статьи': [
                     analyzed_stats['articles_with_10_citations'],
-                    analyzed_stats['articles_with_50_citations'],
-                    analyzed_stats['articles_with_100_citations'],
-                    analyzed_stats['articles_with_200_citations']
+                    analyzed_stats['articles_with_20_citations'],
+                    analyzed_stats['articles_with_30_citations'],
+                    analyzed_stats['articles_with_50_citations']
                 ]
             }
             fig = px.bar(
@@ -1861,3 +1864,4 @@ def main():
 # Запуск приложения
 if __name__ == "__main__":
     main()
+
