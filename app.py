@@ -862,18 +862,15 @@ def calculate_citation_timing(analyzed_metadata, state):
 # === 17. Создание расширенного Excel отчета ===
 def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, excel_buffer):
     """Создание расширенного Excel отчета с обработкой ошибок для больших данных"""
-    
     try:
-        # Создаем Excel writer с настройками для больших файлов
-        with pd.ExcelWriter(
-            excel_buffer, 
-            engine='openpyxl',
-            options={'strings_to_urls': False}  # Отключаем преобразование строк в URL для экономии памяти
-        ) as writer:
-            
-            # Лист 1: Анализируемые статьи
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            # Лист 1: Анализируемые статьи (с оптимизацией)
             analyzed_list = []
-            for item in analyzed_data:
+            MAX_ROWS = 50000  # Ограничиваем для больших данных
+            
+            for i, item in enumerate(analyzed_data):
+                if i >= MAX_ROWS:
+                    break
                 if item and item.get('crossref'):
                     cr = item['crossref']
                     oa = item.get('openalex', {})
@@ -881,30 +878,32 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     journal_info = extract_journal_info(item)
                     
                     analyzed_list.append({
-                        'DOI': cr.get('DOI', ''),
-                        'Название': cr.get('title', [''])[0] if cr.get('title') else 'Без названия',
-                        'Авторы_Crossref': '; '.join([f"{a.get('given', '')} {a.get('family', '')}" for a in cr.get('author', [])]),
-                        'Авторы_OpenAlex': '; '.join(authors_list),
-                        'Аффилиации': '; '.join(affiliations_list),
-                        'Страны': '; '.join(countries_list),
+                        'DOI': cr.get('DOI', '')[:100],
+                        'Название': (cr.get('title', [''])[0] if cr.get('title') else 'Без названия')[:200],
+                        'Авторы_Crossref': '; '.join([f"{a.get('given', '')} {a.get('family', '')}" for a in cr.get('author', [])])[:300],
+                        'Авторы_OpenAlex': '; '.join(authors_list)[:300],
+                        'Аффилиации': '; '.join(affiliations_list)[:500],
+                        'Страны': '; '.join(countries_list)[:100],
                         'Год публикации': cr.get('published', {}).get('date-parts', [[0]])[0][0],
-                        'Журнал': journal_info['journal_name'],
-                        'Издатель': journal_info['publisher'],
-                        'ISSN': '; '.join(journal_info['issn']),
+                        'Журнал': journal_info['journal_name'][:100],
+                        'Издатель': journal_info['publisher'][:100],
+                        'ISSN': '; '.join(journal_info['issn'])[:50],
                         'Количество ссылок': cr.get('reference-count', 0),
                         'Цитирования Crossref': cr.get('is-referenced-by-count', 0),
-                        'Цитирования OpenAlex': oa.get('cited_by_count', 0),
+                        'Цитирования OpenAlex': oa.get('cited_by_count', 0) if oa else 0,
                         'Количество авторов': len(cr.get('author', [])),
-                        'Тип работы': cr.get('type', '')
+                        'Тип работы': cr.get('type', '')[:50]
                     })
             
             if analyzed_list:
                 analyzed_df = pd.DataFrame(analyzed_list)
                 analyzed_df.to_excel(writer, sheet_name='Анализируемые_статьи', index=False)
 
-            # Лист 2: Цитирующие работы
+            # Лист 2: Цитирующие работы (с оптимизацией)
             citing_list = []
-            for item in citing_data:
+            for i, item in enumerate(citing_data):
+                if i >= MAX_ROWS:
+                    break
                 if item and item.get('crossref'):
                     cr = item['crossref']
                     oa = item.get('openalex', {})
@@ -912,21 +911,21 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     journal_info = extract_journal_info(item)
                     
                     citing_list.append({
-                        'DOI': cr.get('DOI', ''),
-                        'Название': cr.get('title', [''])[0] if cr.get('title') else 'Без названия',
-                        'Авторы_Crossref': '; '.join([f"{a.get('given', '')} {a.get('family', '')}" for a in cr.get('author', [])]),
-                        'Авторы_OpenAlex': '; '.join(authors_list),
-                        'Аффилиации': '; '.join(affiliations_list),
-                        'Страны': '; '.join(countries_list),
+                        'DOI': cr.get('DOI', '')[:100],
+                        'Название': (cr.get('title', [''])[0] if cr.get('title') else 'Без названия')[:200],
+                        'Авторы_Crossref': '; '.join([f"{a.get('given', '')} {a.get('family', '')}" for a in cr.get('author', [])])[:300],
+                        'Авторы_OpenAlex': '; '.join(authors_list)[:300],
+                        'Аффилиации': '; '.join(affiliations_list)[:500],
+                        'Страны': '; '.join(countries_list)[:100],
                         'Год публикации': cr.get('published', {}).get('date-parts', [[0]])[0][0],
-                        'Журнал': journal_info['journal_name'],
-                        'Издатель': journal_info['publisher'],
-                        'ISSN': '; '.join(journal_info['issn']),
+                        'Журнал': journal_info['journal_name'][:100],
+                        'Издатель': journal_info['publisher'][:100],
+                        'ISSN': '; '.join(journal_info['issn'])[:50],
                         'Количество ссылок': cr.get('reference-count', 0),
                         'Цитирования Crossref': cr.get('is-referenced-by-count', 0),
-                        'Цитирования OpenAlex': oa.get('cited_by_count', 0),
+                        'Цитирования OpenAlex': oa.get('cited_by_count', 0) if oa else 0,
                         'Количество авторов': len(cr.get('author', [])),
-                        'Тип работы': cr.get('type', '')
+                        'Тип работы': cr.get('type', '')[:50]
                     })
             
             if citing_list:
@@ -937,11 +936,11 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             overlap_list = []
             for overlap in overlap_details:
                 overlap_list.append({
-                    'DOI анализируемой работы': overlap['analyzed_doi'],
-                    'DOI цитирующей работы': overlap['citing_doi'],
-                    'Совпадающие авторы': '; '.join(overlap['common_authors']),
+                    'DOI анализируемой работы': overlap['analyzed_doi'][:100],
+                    'DOI цитирующей работы': overlap['citing_doi'][:100],
+                    'Совпадающие авторы': '; '.join(overlap['common_authors'])[:300],
                     'Количество совпадающих авторов': overlap['common_authors_count'],
-                    'Совпадающие аффилиации': '; '.join(overlap['common_affiliations']),
+                    'Совпадающие аффилиации': '; '.join(overlap['common_affiliations'])[:500],
                     'Количество совпадающих аффилиаций': overlap['common_affiliations_count']
                 })
             
@@ -953,8 +952,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             first_citation_list = []
             for detail in citation_timing.get('first_citation_details', []):
                 first_citation_list.append({
-                    'DOI анализируемой работы': detail['analyzed_doi'],
-                    'DOI первой цитирующей работы': detail['citing_doi'],
+                    'DOI анализируемой работы': detail['analyzed_doi'][:100],
+                    'DOI первой цитирующей работы': detail['citing_doi'][:100],
                     'Дата публикации': detail['analyzed_date'].strftime('%Y-%m-%d'),
                     'Дата первого цитирования': detail['first_citation_date'].strftime('%Y-%m-%d'),
                     'Дней до первого цитирования': detail['days_to_first_citation']
@@ -1240,38 +1239,29 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 all_citing_publishers_df = pd.DataFrame(all_citing_publishers_data)
                 all_citing_publishers_df.to_excel(writer, sheet_name='Все_издатели_цитирующие', index=False)
 
-            # Принудительно сохраняем workbook
-            writer._save()
-            
+            # Гарантируем, что есть хотя бы один лист
+            if len(writer.sheets) == 0:
+                error_df = pd.DataFrame({'Сообщение': ['Нет данных для отчета']})
+                error_df.to_excel(writer, sheet_name='Информация', index=False)
+
+        excel_buffer.seek(0)
         return True
-        
+
     except Exception as e:
         st.error(f"❌ Ошибка при создании Excel отчета: {str(e)}")
-        # Создаем упрощенный отчет в случае ошибки
+        # Создаем минимальный отчет с ошибкой
         try:
             excel_buffer.seek(0)
             excel_buffer.truncate(0)
             
             with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                # Только основные листы
-                if analyzed_list:
-                    analyzed_df = pd.DataFrame(analyzed_list)
-                    analyzed_df.to_excel(writer, sheet_name='Анализируемые_статьи', index=False)
-                
-                if citing_list:
-                    citing_df = pd.DataFrame(citing_list)
-                    citing_df.to_excel(writer, sheet_name='Цитирующие_работы', index=False)
-                
-                # Основная статистика
-                basic_stats_data = {
-                    'Метрика': ['Всего статей', 'H-index', 'Общее количество цитирований'],
-                    'Значение': [analyzed_stats['n_items'], enhanced_stats['h_index'], enhanced_stats['total_citations']]
-                }
-                basic_stats_df = pd.DataFrame(basic_stats_data)
-                basic_stats_df.to_excel(writer, sheet_name='Основная_статистика', index=False)
-                
-                writer._save()
-                
+                error_df = pd.DataFrame({
+                    'Ошибка': [f'Не удалось создать полный отчет: {str(e)}'],
+                    'Рекомендация': ['Попробуйте уменьшить объем анализируемых данных или период анализа']
+                })
+                error_df.to_excel(writer, sheet_name='Информация', index=False)
+            
+            excel_buffer.seek(0)
             st.warning("⚠️ Создан упрощенный отчет из-за ограничений памяти")
             return True
             
@@ -1876,4 +1866,5 @@ def main():
 # Запуск приложения
 if __name__ == "__main__":
     main()
+
 
