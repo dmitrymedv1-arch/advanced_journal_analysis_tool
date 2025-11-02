@@ -861,11 +861,18 @@ def calculate_days_stats(analyzed_metadata, state):
 
 # === 17. Создание расширенного Excel отчета ===
 def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, days_stats, overlap_details, filename):
+    # Создаем новую книгу и явно устанавливаем активный лист
+    from openpyxl import Workbook
+    
+    # Создаем временную книгу для работы
+    wb = Workbook()
+    # Удаляем лист по умолчанию, созданный Workbook
+    wb.remove(wb.active)
+    
     with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-        # Создаем флаг для проверки, что хотя бы один лист создан
-        sheets_created = False
+        writer.book = wb
         
-        # Лист 1: Анализируемые статьи
+        # Лист 1: Анализируемые статьи (всегда создаем этот лист первым и делаем его активным)
         analyzed_list = []
         for item in analyzed_data:
             if item and item.get('crossref'):
@@ -895,12 +902,13 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         if analyzed_list:
             analyzed_df = pd.DataFrame(analyzed_list)
             analyzed_df.to_excel(writer, sheet_name='Анализируемые_статьи', index=False)
-            sheets_created = True
         else:
-            # Создаем пустой лист с анализируемыми статьями, если данных нет
             empty_analyzed_df = pd.DataFrame({'Сообщение': ['Нет данных об анализируемых статьях']})
             empty_analyzed_df.to_excel(writer, sheet_name='Анализируемые_статьи', index=False)
-            sheets_created = True
+        
+        # Явно устанавливаем первый лист как активный
+        writer.sheets['Анализируемые_статьи'].sheet_state = 'visible'
+        writer.book.active = 0  # Первый лист становится активным
 
         # Лист 2: Цитирующие работы
         citing_list = []
@@ -933,7 +941,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             citing_df = pd.DataFrame(citing_list)
             citing_df.to_excel(writer, sheet_name='Цитирующие_работы', index=False)
         else:
-            # Создаем пустой лист с цитирующими работами, если данных нет
             empty_citing_df = pd.DataFrame({'Сообщение': ['Нет данных о цитирующих работах']})
             empty_citing_df.to_excel(writer, sheet_name='Цитирующие_работы', index=False)
 
@@ -1284,7 +1291,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             empty_publishers_df.to_excel(writer, sheet_name='Все_издатели_цитирующие', index=False)
 
     return filename
-
+    
 # === 18. Визуализация данных ===
 def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, days_stats, overlap_details):
     """Создание визуализаций для дашборда"""
@@ -1885,5 +1892,6 @@ def main():
 # Запуск приложения
 if __name__ == "__main__":
     main()
+
 
 
