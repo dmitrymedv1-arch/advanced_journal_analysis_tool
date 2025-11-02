@@ -866,8 +866,9 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
     
     # Создаем временную книгу для работы
     wb = Workbook()
-    # Удаляем лист по умолчанию, созданный Workbook
-    wb.remove(wb.active)
+    # Оставляем лист по умолчанию как "заглушку"
+    default_sheet = wb.active
+    default_sheet.title = "Анализируемые_статьи"  # Переименуем сразу
     
     with pd.ExcelWriter(filename, engine='openpyxl') as writer:
         writer.book = wb
@@ -908,7 +909,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         
         # Явно устанавливаем первый лист как активный
         writer.sheets['Анализируемые_статьи'].sheet_state = 'visible'
-        writer.book.active = 0  # Первый лист становится активным
 
         # Лист 2: Цитирующие работы
         citing_list = []
@@ -1892,6 +1892,7 @@ def main():
 # Запуск приложения
 if __name__ == "__main__":
     main()
+
 
 
 
