@@ -16,6 +16,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import base64
 import os
+import random
 
 # --- Конфигурация страницы ---
 st.set_page_config(
@@ -46,10 +47,191 @@ class AnalysisState:
         self.analysis_complete = False
         self.excel_buffer = None
 
+# --- Словарь терминов ---
+class JournalAnalysisGlossary:
+    def __init__(self):
+        self.terms = {
+            'H-index': {
+                'definition': 'Индекс, показывающий количество статей h, которые получили не менее h цитирований',
+                'calculation': 'Статьи сортируются по убыванию цитирований, находится максимальное число h, где h-я статья имеет не менее h цитирований',
+                'interpretation': 'Выше = лучше. Показывает одновременно продуктивность и влияние автора/журнала',
+                'category': 'Цитирования',
+                'example': 'H-index 10 означает, что у ученого/журнала есть 10 статей, каждая из которых процитирована не менее 10 раз'
+            },
+            'Reference Age': {
+                'definition': 'Средний возраст ссылок в статьях журнала (медианное значение)',
+                'calculation': 'Разница между годом публикации статьи и годами публикации цитируемых работ',
+                'interpretation': 'Низкий возраст = журнал цитирует современные работы. Высокий возраст = опора на классические труды',
+                'category': 'Ссылки',
+                'example': 'Reference Age 8 лет означает, что половина ссылок в статьях моложе 8 лет, половина - старше'
+            },
+            'JSCR': {
+                'definition': 'Journal Self-Citation Rate - процент самоцитирований журнала',
+                'calculation': '(Количество цитирований статей этого же журнала / Общее количество цитирований) × 100%',
+                'interpretation': 'Норма: 10-20%. Выше 30% может указывать на изолированность. Ниже 5% - широкая цитируемость',
+                'category': 'Цитирования',
+                'example': 'JSCR 15% означает, что 15% всех цитирований журнала приходятся на его собственные статьи'
+            },
+            'Cited Half-Life': {
+                'definition': 'Период полуцитирования - время, за которое статья получает половину всех своих цитирований',
+                'calculation': 'Годы от публикации до момента, когда накоплено 50% от общего числа цитирований',
+                'interpretation': 'Короткий half-life = быстрая отдача (технические науки). Длинный = долгосрочное влияние (фундаментальные науки)',
+                'category': 'Цитирования',
+                'example': 'Cited Half-Life 4 года означает, что за первые 4 года статья получает половину всех своих цитирований'
+            },
+            'FWCI': {
+                'definition': 'Field-Weighted Citation Impact - взвешенный по тематике индекс цитирования',
+                'calculation': 'Фактические цитирования / Ожидаемые цитирования для данной тематики',
+                'interpretation': '1.0 = средний уровень. >1.2 = выше среднего. >1.5 = значительно выше среднего',
+                'category': 'Цитирования',
+                'example': 'FWCI 1.8 означает, что статьи цитируются на 80% чаще, чем в среднем по их тематике'
+            },
+            'Citation Velocity': {
+                'definition': 'Скорость цитирования - среднее количество цитирований в год за первые 2 года после публикации',
+                'calculation': 'Количество цитирований в первые 2 года / 2',
+                'interpretation': 'Выше = быстрее распознавание научным сообществом. Зависит от дисциплины',
+                'category': 'Цитирования',
+                'example': 'Velocity 3.5 означает, что в среднем статья получает 3.5 цитирования в год в первые два года'
+            },
+            'OA Impact Premium': {
+                'definition': 'Премия открытого доступа - разница в цитированиях между OA и не-OA статьями',
+                'calculation': '((Средние цитирования OA - Средние цитирования не-OA) / Средние цитирования не-OA) × 100%',
+                'interpretation': 'Положительная премия = OA статьи цитируются чаще. Обычно +10% до +50%',
+                'category': 'Цитирования',
+                'example': 'OA Premium 25% означает, что статьи в открытом доступе цитируются на 25% чаще'
+            },
+            'Elite Index': {
+                'definition': 'Процент статей журнала, входящих в топ-10% самых цитируемых работ в своей области',
+                'calculation': 'Количество статей в топ-10% по цитированиям / Общее количество статей × 100%',
+                'interpretation': 'Выше = больше высокоэффективных статей. Превосходный показатель >20%',
+                'category': 'Цитирования',
+                'example': 'Elite Index 15% означает, что 15% статей журнала входят в 10% самых цитируемых в своей области'
+            },
+            'Author Gini': {
+                'definition': 'Индекс Джини для авторов - мера неравенства распределения публикаций между авторами',
+                'calculation': 'Статистический показатель от 0 до 1, где 0 = полное равенство, 1 = максимальное неравенство',
+                'interpretation': 'Низкий (0.1-0.3) = равномерное распределение. Высокий (0.6+) = несколько авторов доминируют',
+                'category': 'Авторы',
+                'example': 'Gini 0.4 означает умеренное неравенство - некоторые авторы публикуются значительно чаще других'
+            },
+            'DBI': {
+                'definition': 'Diversity Balance Index - индекс диверсификации тематик',
+                'calculation': 'Нормализованный индекс Шеннона по тематическим концептам статей',
+                'interpretation': '0-1, где 0 = одна тематика, 1 = равномерное распределение по многим тематикам',
+                'category': 'Тематики',
+                'example': 'DBI 0.7 означает хорошую диверсификацию по нескольким тематическим направлениям'
+            },
+            'Self-Cites': {
+                'definition': 'Самоцитирования - ссылки на другие статьи того же журнала в библиографии',
+                'calculation': 'Количество ссылок с префиксом DOI этого журнала',
+                'interpretation': 'Умеренные самоцитирования нормальны. Чрезмерные могут искусственно завышать метрики',
+                'category': 'Ссылки',
+                'example': '15 самоцитирований из 100 ссылок = 15% самоцитирований'
+            },
+            'International Collaboration': {
+                'definition': 'Международная коллаборация - процент статей с авторами из разных стран',
+                'calculation': 'Статьи с авторами из ≥2 стран / Все статьи × 100%',
+                'interpretation': 'Выше = более международный журнал. Показатель глобализации исследований',
+                'category': 'Авторы',
+                'example': '60% международных статей означает, что в большинстве работ участвуют авторы из разных стран'
+            },
+            'ISSN': {
+                'definition': 'International Standard Serial Number - уникальный идентификатор сериальных изданий',
+                'calculation': '8-значный код формата XXXX-XXXX, присваивается журналам',
+                'interpretation': 'Используется для однозначной идентификации журнала в международных базах данных',
+                'category': 'Журнал',
+                'example': 'ISSN 2411-1414 идентифицирует журнал Chimica Techno Acta'
+            },
+            'DOI': {
+                'definition': 'Digital Object Identifier - постоянная ссылка на цифровой объект',
+                'calculation': 'Уникальный идентификатор формата 10.XXXX/XXXXX для научных статей',
+                'interpretation': 'Обеспечивает постоянную доступность и цитируемость научных работ',
+                'category': 'Технические',
+                'example': 'DOI 10.15826/chimtech.2024.11.1.01 однозначно идентифицирует конкретную статью'
+            },
+            'Crossref': {
+                'definition': 'Система взаимных ссылок между научными публикациями',
+                'calculation': 'База данных ссылок между статьями с метаданными',
+                'interpretation': 'Основной источник данных о цитированиях и метаданных статей',
+                'category': 'Базы данных',
+                'example': 'Crossref содержит информацию о 140+ миллионах научных работ'
+            },
+            'OpenAlex': {
+                'definition': 'Открытая база данных научных публикаций, авторов и институтов',
+                'calculation': 'Альтернатива Scopus/WoS с открытым доступом к данным',
+                'interpretation': 'Предоставляет расширенные метрики и связи между научными объектами',
+                'category': 'Базы данных',
+                'example': 'OpenAlex содержит данные о 200+ миллионах научных работ'
+            }
+        }
+        
+        self.category_colors = {
+            'Цитирования': '🔵',
+            'Ссылки': '🟢',
+            'Авторы': '🟠',
+            'Тематики': '🟣',
+            'Журнал': '🔴',
+            'Технические': '⚫',
+            'Базы данных': '🟤'
+        }
+    
+    def get_tooltip(self, term):
+        """Генерация текста для всплывающей подсказки"""
+        if term not in self.terms:
+            return f"Термин '{term}' не найден в словаре"
+        
+        info = self.terms[term]
+        tooltip = f"**{term}**\n\n{info['definition']}"
+        
+        if 'calculation' in info:
+            tooltip += f"\n\n**Расчет:** {info['calculation']}"
+        if 'interpretation' in info:
+            tooltip += f"\n\n**Интерпретация:** {info['interpretation']}"
+            
+        return tooltip
+    
+    def get_detailed_info(self, term):
+        """Полная информация о термине для расширенных подсказок"""
+        if term not in self.terms:
+            return None
+        
+        info = self.terms[term]
+        category_icon = self.category_colors.get(info['category'], '⚪')
+        
+        detailed = {
+            'term': term,
+            'definition': info['definition'],
+            'calculation': info.get('calculation', 'Не указано'),
+            'interpretation': info.get('interpretation', 'Не указано'),
+            'category': f"{category_icon} {info['category']}",
+            'example': info.get('example', 'Пример не предоставлен')
+        }
+        
+        return detailed
+    
+    def get_terms_by_category(self, category):
+        """Получить все термины категории"""
+        return [term for term, info in self.terms.items() if info['category'] == category]
+    
+    def get_random_term(self):
+        """Случайный термин для обучения"""
+        return random.choice(list(self.terms.keys()))
+
+# Инициализация глобального словаря
+glossary = JournalAnalysisGlossary()
+
 # --- Инициализация состояния ---
 def initialize_analysis_state():
     if 'analysis_state' not in st.session_state:
         st.session_state.analysis_state = AnalysisState()
+    
+    # Инициализация изученных терминов
+    if 'learned_terms' not in st.session_state:
+        st.session_state.learned_terms = set()
+    
+    # Инициализация просмотренных терминов в этой сессии
+    if 'viewed_terms' not in st.session_state:
+        st.session_state.viewed_terms = set()
 
 def get_analysis_state():
     return st.session_state.analysis_state
@@ -1673,24 +1855,66 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("H-index", enhanced_stats['h_index'])
+            st.metric(
+                "H-index", 
+                enhanced_stats['h_index'],
+                help=glossary.get_tooltip('H-index')
+            )
         with col2:
-            st.metric("Всего статей", analyzed_stats['n_items'])
+            st.metric(
+                "Всего статей", 
+                analyzed_stats['n_items'],
+                help=glossary.get_tooltip('Crossref')
+            )
         with col3:
-            st.metric("Всего цитирований", enhanced_stats['total_citations'])
+            st.metric(
+                "Всего цитирований", 
+                enhanced_stats['total_citations'],
+                help="Общее количество цитирований всех статей журнала"
+            )
         with col4:
-            st.metric("Среднее цитирований", f"{enhanced_stats['avg_citations_per_article']:.1f}")
+            st.metric(
+                "Среднее цитирований", 
+                f"{enhanced_stats['avg_citations_per_article']:.1f}",
+                help="Среднее количество цитирований на одну статью"
+            )
         
         col5, col6, col7, col8 = st.columns(4)
         
         with col5:
-            st.metric("Статьи с цитированиями", enhanced_stats['articles_with_citations'])
+            st.metric(
+                "Статьи с цитированиями", 
+                enhanced_stats['articles_with_citations'],
+                help="Количество статей, которые были процитированы хотя бы один раз"
+            )
         with col6:
-            st.metric("Самоцитирования", f"{analyzed_stats['self_cites_pct']:.1f}%")
+            st.metric(
+                "Самоцитирования", 
+                f"{analyzed_stats['self_cites_pct']:.1f}%",
+                help=glossary.get_tooltip('Self-Cites')
+            )
         with col7:
-            st.metric("Международные статьи", f"{analyzed_stats['multi_country_pct']:.1f}%")
+            st.metric(
+                "Международные статьи", 
+                f"{analyzed_stats['multi_country_pct']:.1f}%",
+                help=glossary.get_tooltip('International Collaboration')
+            )
         with col8:
-            st.metric("Уникальных аффилиаций", analyzed_stats['unique_affiliations_count'])
+            st.metric(
+                "Уникальных аффилиаций", 
+                analyzed_stats['unique_affiliations_count'],
+                help="Количество уникальных научных организаций, представленных в журнале"
+            )
+        
+        # Контекстная подсказка для H-index
+        with st.expander("❓ Что такое H-index и как его интерпретировать?", expanded=False):
+            h_info = glossary.get_detailed_info('H-index')
+            if h_info:
+                st.write(f"**{h_info['term']}** - {h_info['definition']}")
+                st.write(f"**Расчет:** {h_info['calculation']}")
+                st.write(f"**Интерпретация:** {h_info['interpretation']}")
+                st.write(f"**Пример:** {h_info['example']}")
+                st.write(f"**Категория:** {h_info['category']}")
         
         # График цитирований по годам
         if citation_timing['yearly_citations']:
@@ -1750,6 +1974,15 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
             )
             st.plotly_chart(fig, use_container_width=True)
         
+        # Контекстная подсказка для Author Gini
+        if fast_metrics.get('author_gini', 0) > 0:
+            with st.expander("🎯 Индекс Джини авторов - что это значит?", expanded=False):
+                gini_info = glossary.get_detailed_info('Author Gini')
+                if gini_info:
+                    st.write(f"**Текущее значение:** {fast_metrics['author_gini']}")
+                    st.write(f"**Интерпретация:** {gini_info['interpretation']}")
+                    st.progress(min(fast_metrics['author_gini'], 1.0))
+        
         # Топ аффилиаций
         if analyzed_stats['all_affiliations']:
             top_affiliations = analyzed_stats['all_affiliations'][:10]
@@ -1799,6 +2032,13 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
                 color='Тип'
             )
             st.plotly_chart(fig, use_container_width=True)
+        
+        # Контекстная подсказка для международного сотрудничества
+        with st.expander("🌐 О международном сотрудничестве", expanded=False):
+            collab_info = glossary.get_detailed_info('International Collaboration')
+            if collab_info:
+                st.write(f"**Определение:** {collab_info['definition']}")
+                st.write(f"**Значение для науки:** Высокий процент международных статей указывает на глобальную значимость журнала и широкое международное признание.")
     
     with tab4:
         st.subheader("📊 Анализ цитирований")
@@ -1841,6 +2081,25 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
                 title='Распределение статей по наличию цитирований'
             )
             st.plotly_chart(fig, use_container_width=True)
+        
+        # Контекстная подсказка для JSCR
+        if fast_metrics.get('JSCR', 0) > 0:
+            with st.expander("🔍 Journal Self-Citation Rate (JSCR)", expanded=False):
+                jscr_info = glossary.get_detailed_info('JSCR')
+                if jscr_info:
+                    st.write(f"**Текущее значение:** {fast_metrics['JSCR']}%")
+                    st.write(f"**Интерпретация:** {jscr_info['interpretation']}")
+                    
+                    # Визуальная индикация
+                    jscr_value = fast_metrics['JSCR']
+                    if jscr_value < 10:
+                        st.success("✅ Низкий уровень самоцитирований - отлично!")
+                    elif jscr_value < 20:
+                        st.info("ℹ️ Умеренный уровень самоцитирований - нормально")
+                    elif jscr_value < 30:
+                        st.warning("⚠️ Повышенный уровень самоцитирований - требует внимания")
+                    else:
+                        st.error("❌ Высокий уровень самоцитирований - может указывать на проблемы")
     
     with tab5:
         st.subheader("🔀 Пересечения между анализируемыми и цитирующими работами")
@@ -1891,6 +2150,15 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
         with col4:
             st.metric("Медиана дней", citation_timing['days_median'])
         
+        # Контекстная подсказка для Cited Half-Life
+        if fast_metrics.get('cited_half_life_median'):
+            with st.expander("⏳ Cited Half-Life - период полуцитирования", expanded=False):
+                chl_info = glossary.get_detailed_info('Cited Half-Life')
+                if chl_info:
+                    st.write(f"**Текущее значение:** {fast_metrics['cited_half_life_median']} лет")
+                    st.write(f"**Определение:** {chl_info['definition']}")
+                    st.write(f"**Интерпретация:** {chl_info['interpretation']}")
+        
         # Детали первых цитирований
         if citation_timing['first_citation_details']:
             st.subheader("Детали первых цитирований")
@@ -1913,24 +2181,56 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Reference Age", f"{fast_metrics.get('ref_median_age', 'N/A')} лет")
+            st.metric(
+                "Reference Age", 
+                f"{fast_metrics.get('ref_median_age', 'N/A')} лет",
+                help=glossary.get_tooltip('Reference Age')
+            )
         with col2:
-            st.metric("JSCR", f"{fast_metrics.get('JSCR', 0)}%")
+            st.metric(
+                "JSCR", 
+                f"{fast_metrics.get('JSCR', 0)}%",
+                help=glossary.get_tooltip('JSCR')
+            )
         with col3:
-            st.metric("Cited Half-Life", f"{fast_metrics.get('cited_half_life_median', 'N/A')} лет")
+            st.metric(
+                "Cited Half-Life", 
+                f"{fast_metrics.get('cited_half_life_median', 'N/A')} лет",
+                help=glossary.get_tooltip('Cited Half-Life')
+            )
         with col4:
-            st.metric("FWCI", fast_metrics.get('FWCI', 0))
+            st.metric(
+                "FWCI", 
+                fast_metrics.get('FWCI', 0),
+                help=glossary.get_tooltip('FWCI')
+            )
         
         col5, col6, col7, col8 = st.columns(4)
         
         with col5:
-            st.metric("Citation Velocity", fast_metrics.get('citation_velocity', 0))
+            st.metric(
+                "Citation Velocity", 
+                fast_metrics.get('citation_velocity', 0),
+                help=glossary.get_tooltip('Citation Velocity')
+            )
         with col6:
-            st.metric("OA Impact Premium", f"{fast_metrics.get('OA_impact_premium', 0)}%")
+            st.metric(
+                "OA Impact Premium", 
+                f"{fast_metrics.get('OA_impact_premium', 0)}%",
+                help=glossary.get_tooltip('OA Impact Premium')
+            )
         with col7:
-            st.metric("Elite Index", f"{fast_metrics.get('elite_index', 0)}%")
+            st.metric(
+                "Elite Index", 
+                f"{fast_metrics.get('elite_index', 0)}%",
+                help=glossary.get_tooltip('Elite Index')
+            )
         with col8:
-            st.metric("Author Gini", fast_metrics.get('author_gini', 0))
+            st.metric(
+                "Author Gini", 
+                fast_metrics.get('author_gini', 0),
+                help=glossary.get_tooltip('Author Gini')
+            )
         
         # Детальная информация о быстрых метриках
         st.subheader("📊 Детали быстрых метрик")
@@ -1945,6 +2245,13 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
                 st.write(f"- Среднее: {fast_metrics['ref_mean_age']} лет")
                 st.write(f"- 25-75 перцентиль: {fast_metrics['ref_ages_25_75'][0]}-{fast_metrics['ref_ages_25_75'][1]} лет")
                 st.write(f"- Проанализировано ссылок: {fast_metrics['total_refs_analyzed']}")
+                
+                # Контекстная подсказка
+                with st.expander("📚 Подробнее о Reference Age", expanded=False):
+                    ra_info = glossary.get_detailed_info('Reference Age')
+                    if ra_info:
+                        st.write(f"**Что это значит?** {ra_info['interpretation']}")
+                        st.write(f"**Пример:** {ra_info['example']}")
         
         with col2:
             # JSCR детали
@@ -1967,6 +2274,11 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
             st.write(f"- Премия: {fast_metrics.get('OA_impact_premium', 0)}%")
             st.write(f"- OA статей: {fast_metrics.get('OA_articles', 0)}")
             st.write(f"- Не-OA статей: {fast_metrics.get('non_OA_articles', 0)}")
+            
+            # Контекстная подсказка
+            if fast_metrics.get('OA_impact_premium', 0) > 0:
+                with st.expander("🔓 Премия открытого доступа", expanded=False):
+                    st.success("📈 Положительная премия указывает на то, что статьи в открытом доступе цитируются чаще, что подтверждает ценность OA публикаций!")
         
         # Топ концепты
         if fast_metrics.get('top_concepts'):
@@ -1981,6 +2293,15 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
                 color='Упоминаний'
             )
             st.plotly_chart(fig, use_container_width=True)
+            
+            # Контекстная подсказка для DBI
+            if fast_metrics.get('DBI', 0) > 0:
+                with st.expander("🎯 Diversity Balance Index (DBI)", expanded=False):
+                    dbi_info = glossary.get_detailed_info('DBI')
+                    if dbi_info:
+                        st.write(f"**Текущее значение DBI:** {fast_metrics['DBI']}")
+                        st.write(f"**Интерпретация:** {dbi_info['interpretation']}")
+                        st.progress(fast_metrics['DBI'])
 
 # === 19. Основная функция анализа ===
 def analyze_journal(issn, period_str):
@@ -2172,7 +2493,7 @@ def main():
         issn = st.text_input(
             "ISSN журнала:",
             value="2411-1414",
-            help="Введите ISSN журнала для анализа"
+            help=glossary.get_tooltip('ISSN')
         )
         
         period = st.text_input(
@@ -2180,6 +2501,54 @@ def main():
             value="2022-2024",
             help="Примеры: 2022, 2022-2024, 2022,2024"
         )
+        
+        st.markdown("---")
+        st.header("📚 Словарь терминов")
+        
+        # Поисковый виджет словаря терминов
+        search_term = st.selectbox(
+            "Выберите термин для изучения:",
+            options=[""] + list(glossary.terms.keys()),
+            format_func=lambda x: "Выберите термин..." if x == "" else f"{x} ({glossary.terms[x]['category']})",
+            help="Изучите значения метрик, используемых в анализе"
+        )
+        
+        if search_term:
+            term_info = glossary.get_detailed_info(search_term)
+            if term_info:
+                st.info(f"**{term_info['term']}**\n\n{term_info['definition']}")
+                st.caption(f"**Расчет:** {term_info['calculation']}")
+                st.caption(f"**Интерпретация:** {term_info['interpretation']}")
+                st.caption(f"**Пример:** {term_info['example']}")
+                st.caption(f"**Категория:** {term_info['category']}")
+                
+                # Отметка просмотренного термина
+                if search_term not in st.session_state.viewed_terms:
+                    st.session_state.viewed_terms.add(search_term)
+                    st.toast(f"📖 Вы изучили термин: {search_term}", icon="🎯")
+                
+                # Кнопка "Я разобрался"
+                if st.button("✅ Я разобрался с этим термином!", key=f"understand_{search_term}"):
+                    if search_term not in st.session_state.learned_terms:
+                        st.session_state.learned_terms.add(search_term)
+                        st.success(f"🎉 Отлично! Термин '{search_term}' добавлен в вашу коллекцию знаний!")
+                        st.balloons()
+        
+        # Статистика изученных терминов
+        if st.session_state.learned_terms:
+            st.markdown("---")
+            st.header("🎓 Ваш прогресс")
+            learned_count = len(st.session_state.learned_terms)
+            total_terms = len(glossary.terms)
+            progress = learned_count / total_terms
+            
+            st.write(f"Изучено терминов: **{learned_count}/{total_terms}**")
+            st.progress(progress)
+            
+            if learned_count >= 5:
+                st.success(f"🏆 Отличный результат! Вы изучили {learned_count} терминов!")
+            elif learned_count >= 2:
+                st.info(f"📚 Хороший старт! Продолжайте изучать термины.")
         
         st.markdown("---")
         st.header("💡 Информация")
@@ -2193,6 +2562,7 @@ def main():
         - ⏱️ Время до цитирования
         - 📈 Визуализация данных
         - 🚀 **НОВОЕ: Быстрые метрики без API**
+        - 📚 **НОВОЕ: Интерактивный словарь терминов**
         """)
         
         st.warning("""
@@ -2269,7 +2639,7 @@ def main():
         st.markdown("---")
         st.header("📈 Детальная статистика")
         
-        tab1, tab2, tab3, tab4 = st.tabs(["Анализируемые статьи", "Цитирующие работы", "Сравнительный анализ", "Быстрые метрики"])  # НОВАЯ ВКЛАДКА
+        tab1, tab2, tab3, tab4 = st.tabs(["Анализируемые статьи", "Цитирующие работы", "Сравнительный анализ", "Быстрые метрики"])
         
         with tab1:
             st.subheader("Статистика анализируемых статей")
@@ -2330,9 +2700,9 @@ def main():
                     f"{results['citing_stats']['ref_mean']:.1f}"
                 )
         
-        with tab4:  # НОВАЯ ВКЛАДКА
+        with tab4:
             st.subheader("🚀 Быстрые метрики (без API запросов)")
-            fast_metrics = results['fast_metrics']
+            fast_metrics = results.get('fast_metrics', {})
             
             col1, col2 = st.columns(2)
             
@@ -2379,4 +2749,3 @@ def main():
 # Запуск приложения
 if __name__ == "__main__":
     main()
-
