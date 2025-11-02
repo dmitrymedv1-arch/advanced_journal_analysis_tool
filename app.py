@@ -9,8 +9,6 @@ from urllib.parse import quote
 import re
 from collections import Counter, defaultdict
 import json
-from tqdm import tqdm
-import sys
 from datetime import datetime, timedelta
 import io
 import plotly.graph_objects as go
@@ -859,8 +857,328 @@ def calculate_citation_timing(analyzed_metadata, state):
         'total_years_covered': accumulation_stats['total_years_covered']
     }
 
+# === НОВЫЕ ФУНКЦИИ: БЫСТРЫЕ МЕТРИКИ БЕЗ API ЗАПРОСОВ ===
+
+def calculate_reference_age_fast(analyzed_metadata, state):
+    """Расчет возраста ссылок без дополнительных запросов к API"""
+    ref_ages = []
+    current_year = datetime.now().year
+    
+    for meta in analyzed_metadata:
+        cr = meta.get('crossref')
+        if not cr: 
+            continue
+        
+        pub_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
+        if not pub_year: 
+            continue
+        
+        for ref in cr.get('reference', []):
+            # 1. Пробуем year из unstructured
+            if 'year' in ref:
+                try:
+                    ref_year = int(ref['year'])
+                    if 1900 <= ref_year <= current_year + 1:
+                        ref_ages.append(current_year - ref_year)
+                        continue
+                except: 
+                    pass
+            
+            # 2. Пробуем DOI из кэша (уже загружено!)
+            doi = ref.get('DOI')
+            if doi and doi in state.crossref_cache:
+                cached = state.crossref_cache[doi]
+                date_parts = cached.get('published', {}).get('date-parts', [[0]])[0]
+                if date_parts and date_parts[0]:
+                    ref_year = date_parts[0]
+                    ref_ages.append(current_year - ref_year)
+    
+    if not ref_ages: 
+        return {
+            'ref_median_age': None,
+            'ref_mean_age': None,
+            'ref_ages_25_75': [None, None],
+            'total_refs_analyzed': 0
+        }
+    
+    return {
+        'ref_median_age': int(np.median(ref_ages)),
+        'ref_mean_age': round(np.mean(ref_ages), 1),
+        'ref_ages_25_75': [int(np.percentile(ref_ages, 25)), int(np.percentile(ref_ages, 75))],
+        'total_refs_analyzed': len(ref_ages)
+    }
+
+def calculate_jscr_fast(citing_metadata, journal_issn):
+    """Journal Self-Citation Rate - процент самоцитирований"""
+    total = len(citing_metadata)
+    if total == 0: 
+        return {
+            'JSCR': 0,
+            'self_cites': 0,
+            'total_cites': 0
+        }
+    
+    self_cites = 0
+    for c in citing_metadata:
+        oa = c.get('openalex')
+        if not oa: 
+            continue
+        issns = oa.get('host_venue', {}).get('issn', [])
+        if journal_issn in issns:
+            self_cites += 1
+    
+    return {
+        'JSCR': round(self_cites / total * 100, 2),
+        'self_cites': self_cites,
+        'total_cites': total
+    }
+
+def calculate_cited_half_life_fast(analyzed_metadata, state):
+    """Cited Half-Life - медианное время до получения половины цитирований"""
+    half_lives = []
+    
+    for meta in analyzed_metadata:
+        if not meta or not meta.get('crossref'):
+            continue
+            
+        doi = meta['crossref'].get('DOI')
+        pub_year = meta['crossref'].get('published', {}).get('date-parts', [[0]])[0][0]
+        if not doi or not pub_year: 
+            continue
+        
+        citings = state.citing_cache.get(doi, [])
+        if not citings: 
+            continue
+        
+        yearly = defaultdict(int)
+        for c in citings:
+            y = c.get('openalex', {}).get('publication_year')
+            if y: 
+                yearly[y] += 1
+        
+        total = sum(yearly.values())
+        if total == 0: 
+            continue
+            
+        cumulative = 0
+        target = total / 2
+        for y in range(pub_year, pub_year + 50):
+            cumulative += yearly[y]
+            if cumulative >= target:
+                half_lives.append(y - pub_year)
+                break
+    
+    return {
+        'cited_half_life_median': int(np.median(half_lives)) if half_lives else None,
+        'cited_half_life_mean': round(np.mean(half_lives), 1) if half_lives else None,
+        'articles_with_chl': len(half_lives)
+    }
+
+def calculate_fwci_fast(analyzed_metadata):
+    """Field-Weighted Citation Impact - взвешенный по тематике индекс цитирования"""
+    total_cites = 0
+    expected = 0.0
+    
+    for meta in analyzed_metadata:
+        oa = meta.get('openalex')
+        if not oa: 
+            continue
+            
+        cites = oa.get('cited_by_count', 0)
+        total_cites += cites
+        
+        concepts = oa.get('concepts', [])
+        if not concepts: 
+            continue
+            
+        main = max(concepts, key=lambda x: x.get('score', 0))
+        works = max(main.get('works_count', 1), 1)
+        field_cites = main.get('cited_by_count', 0)
+        expected += (field_cites / works)
+    
+    fwci = total_cites / expected if expected > 0 else 0
+    return {
+        'FWCI': round(fwci, 2),
+        'total_cites': total_cites,
+        'expected_cites': round(expected, 2)
+    }
+
+def calculate_citation_velocity_fast(analyzed_metadata, state):
+    """Citation Velocity - среднее цитирований в год за первые 2 года"""
+    velocities = []
+    current_year = datetime.now().year
+    
+    for meta in analyzed_metadata:
+        cr = meta.get('crossref')
+        if not cr: 
+            continue
+            
+        pub_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
+        if current_year - pub_year < 2: 
+            continue
+        
+        citings = state.citing_cache.get(cr.get('DOI'), [])
+        early = sum(1 for c in citings 
+                   if c.get('openalex', {}).get('publication_year', 0) <= pub_year + 2)
+        velocities.append(early / 2.0)
+    
+    return {
+        'citation_velocity': round(np.mean(velocities), 2) if velocities else 0,
+        'articles_with_velocity': len(velocities)
+    }
+
+def calculate_oa_impact_premium_fast(analyzed_metadata):
+    """Open Access Impact Premium - разница в цитированиях между OA и не-OA"""
+    oa_citations = []
+    non_oa_citations = []
+    
+    for meta in analyzed_metadata:
+        oa = meta.get('openalex')
+        if not oa: 
+            continue
+            
+        cites = oa.get('cited_by_count', 0)
+        is_oa = oa.get('open_access', {}).get('is_oa', False)
+        
+        if is_oa:
+            oa_citations.append(cites)
+        else:
+            non_oa_citations.append(cites)
+    
+    oa_avg = np.mean(oa_citations) if oa_citations else 0
+    non_oa_avg = np.mean(non_oa_citations) if non_oa_citations else 0
+    
+    premium = ((oa_avg - non_oa_avg) / non_oa_avg * 100) if non_oa_avg > 0 else 0
+    
+    return {
+        'OA_impact_premium': round(premium, 1),
+        'OA_articles': len(oa_citations),
+        'non_OA_articles': len(non_oa_citations),
+        'OA_avg_citations': round(oa_avg, 1),
+        'non_OA_avg_citations': round(non_oa_avg, 1)
+    }
+
+def calculate_elite_index_fast(analyzed_metadata):
+    """Elite Index - процент статей в топ-10% по цитированиям"""
+    if not analyzed_metadata:
+        return {'elite_index': 0}
+    
+    citations = []
+    for meta in analyzed_metadata:
+        oa = meta.get('openalex')
+        if oa:
+            cites = oa.get('cited_by_count', 0)
+            citations.append(cites)
+    
+    if not citations:
+        return {'elite_index': 0}
+    
+    threshold = np.percentile(citations, 90)
+    elite_count = sum(1 for c in citations if c >= threshold)
+    
+    return {
+        'elite_index': round(elite_count / len(citations) * 100, 2),
+        'elite_articles': elite_count,
+        'total_articles': len(citations),
+        'citation_threshold': int(threshold)
+    }
+
+def calculate_author_gini_fast(analyzed_metadata):
+    """Author Gini Index - индекс неравенства распределения публикаций по авторам"""
+    author_counts = Counter()
+    
+    for meta in analyzed_metadata:
+        oa = meta.get('openalex')
+        if oa and 'authorships' in oa:
+            for auth in oa['authorships']:
+                author_id = auth.get('author', {}).get('id')
+                if author_id:
+                    author_counts[author_id] += 1
+    
+    if len(author_counts) < 2:
+        return {'author_gini': 0}
+    
+    # Расчет индекса Джини
+    values = sorted(author_counts.values())
+    n = len(values)
+    cumulative = np.cumsum(values).astype(float)
+    gini = (n + 1 - 2 * np.sum(cumulative) / cumulative[-1]) / n
+    
+    return {
+        'author_gini': round(gini, 3),
+        'total_authors': len(author_counts),
+        'articles_per_author_avg': round(np.mean(values), 2),
+        'articles_per_author_median': int(np.median(values))
+    }
+
+def calculate_dbi_fast(analyzed_metadata):
+    """Diversity Balance Index - индекс диверсификации тематик"""
+    concept_freq = Counter()
+    total_concepts = 0
+    
+    for meta in analyzed_metadata:
+        oa = meta.get('openalex')
+        if oa and 'concepts' in oa:
+            concepts = oa['concepts']
+            for concept in concepts[:3]:  # Берем топ-3 концепта
+                concept_name = concept.get('display_name', '')
+                if concept_name:
+                    concept_freq[concept_name] += 1
+                    total_concepts += 1
+    
+    if total_concepts == 0:
+        return {'DBI': 0}
+    
+    # Индекс Шеннона
+    proportions = [count / total_concepts for count in concept_freq.values()]
+    shannon = -sum(p * np.log(p) for p in proportions if p > 0)
+    
+    # Нормализация (максимум = log(n))
+    max_shannon = np.log(len(concept_freq)) if concept_freq else 1
+    dbi = shannon / max_shannon if max_shannon > 0 else 0
+    
+    return {
+        'DBI': round(dbi, 3),
+        'unique_concepts': len(concept_freq),
+        'total_concept_mentions': total_concepts,
+        'top_concepts': concept_freq.most_common(5)
+    }
+
+def calculate_all_fast_metrics(analyzed_metadata, citing_metadata, state, journal_issn):
+    """Расчет всех быстрых метрик за один проход"""
+    fast_metrics = {}
+    
+    # Reference Age
+    fast_metrics.update(calculate_reference_age_fast(analyzed_metadata, state))
+    
+    # JSCR
+    fast_metrics.update(calculate_jscr_fast(citing_metadata, journal_issn))
+    
+    # Cited Half-Life
+    fast_metrics.update(calculate_cited_half_life_fast(analyzed_metadata, state))
+    
+    # FWCI
+    fast_metrics.update(calculate_fwci_fast(analyzed_metadata))
+    
+    # Citation Velocity
+    fast_metrics.update(calculate_citation_velocity_fast(analyzed_metadata, state))
+    
+    # OA Impact Premium
+    fast_metrics.update(calculate_oa_impact_premium_fast(analyzed_metadata))
+    
+    # Elite Index
+    fast_metrics.update(calculate_elite_index_fast(analyzed_metadata))
+    
+    # Author Gini
+    fast_metrics.update(calculate_author_gini_fast(analyzed_metadata))
+    
+    # DBI
+    fast_metrics.update(calculate_dbi_fast(analyzed_metadata))
+    
+    return fast_metrics
+
 # === 17. Создание расширенного Excel отчета ===
-def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, excel_buffer):
+def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer):
     """Создание расширенного Excel отчета с обработкой ошибок для больших данных"""
     try:
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
@@ -1239,6 +1557,71 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 all_citing_publishers_df = pd.DataFrame(all_citing_publishers_data)
                 all_citing_publishers_df.to_excel(writer, sheet_name='Все_издатели_цитирующие', index=False)
 
+            # Лист 20: Быстрые метрики (НОВЫЙ)
+            fast_metrics_data = {
+                'Метрика': [
+                    'Reference Age (медиана)', 'Reference Age (среднее)',
+                    'Reference Age (25-75 перцентиль)', 'Проанализировано ссылок',
+                    'Journal Self-Citation Rate (JSCR)', 'Самоцитирования журнала',
+                    'Всего цитирований для JSCR',
+                    'Cited Half-Life (медиана)', 'Cited Half-Life (среднее)',
+                    'Статьи с данными для CHL',
+                    'Field-Weighted Citation Impact (FWCI)', 'Общие цитирования',
+                    'Ожидаемые цитирования',
+                    'Citation Velocity', 'Статьи с данными для velocity',
+                    'OA Impact Premium', 'OA статей', 'Не-OA статей',
+                    'Средние цитирования OA', 'Средние цитирования не-OA',
+                    'Elite Index', 'Элитные статьи', 'Порог цитирований',
+                    'Author Gini Index', 'Всего авторов',
+                    'Среднее статей на автора', 'Медиана статей на автора',
+                    'Diversity Balance Index (DBI)', 'Уникальных концептов',
+                    'Всего упоминаний концептов'
+                ],
+                'Значение': [
+                    fast_metrics.get('ref_median_age', 'N/A'),
+                    fast_metrics.get('ref_mean_age', 'N/A'),
+                    f"{fast_metrics.get('ref_ages_25_75', ['N/A', 'N/A'])[0]}-{fast_metrics.get('ref_ages_25_75', ['N/A', 'N/A'])[1]}",
+                    fast_metrics.get('total_refs_analyzed', 0),
+                    f"{fast_metrics.get('JSCR', 0)}%",
+                    fast_metrics.get('self_cites', 0),
+                    fast_metrics.get('total_cites', 0),
+                    fast_metrics.get('cited_half_life_median', 'N/A'),
+                    fast_metrics.get('cited_half_life_mean', 'N/A'),
+                    fast_metrics.get('articles_with_chl', 0),
+                    fast_metrics.get('FWCI', 0),
+                    fast_metrics.get('total_cites', 0),
+                    fast_metrics.get('expected_cites', 0),
+                    fast_metrics.get('citation_velocity', 0),
+                    fast_metrics.get('articles_with_velocity', 0),
+                    f"{fast_metrics.get('OA_impact_premium', 0)}%",
+                    fast_metrics.get('OA_articles', 0),
+                    fast_metrics.get('non_OA_articles', 0),
+                    fast_metrics.get('OA_avg_citations', 0),
+                    fast_metrics.get('non_OA_avg_citations', 0),
+                    f"{fast_metrics.get('elite_index', 0)}%",
+                    fast_metrics.get('elite_articles', 0),
+                    fast_metrics.get('citation_threshold', 0),
+                    fast_metrics.get('author_gini', 0),
+                    fast_metrics.get('total_authors', 0),
+                    fast_metrics.get('articles_per_author_avg', 0),
+                    fast_metrics.get('articles_per_author_median', 0),
+                    fast_metrics.get('DBI', 0),
+                    fast_metrics.get('unique_concepts', 0),
+                    fast_metrics.get('total_concept_mentions', 0)
+                ]
+            }
+            fast_metrics_df = pd.DataFrame(fast_metrics_data)
+            fast_metrics_df.to_excel(writer, sheet_name='Быстрые_метрики', index=False)
+
+            # Лист 21: Топ концепты (НОВЫЙ)
+            if fast_metrics.get('top_concepts'):
+                top_concepts_data = {
+                    'Концепт': [concept[0] for concept in fast_metrics['top_concepts']],
+                    'Количество упоминаний': [concept[1] for concept in fast_metrics['top_concepts']]
+                }
+                top_concepts_df = pd.DataFrame(top_concepts_data)
+                top_concepts_df.to_excel(writer, sheet_name='Топ_концепты', index=False)
+
             # Гарантируем, что есть хотя бы один лист
             if len(writer.sheets) == 0:
                 error_df = pd.DataFrame({'Сообщение': ['Нет данных для отчета']})
@@ -1270,17 +1653,18 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             return False
 
 # === 18. Визуализация данных ===
-def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details):
+def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics):
     """Создание визуализаций для дашборда"""
     
     # Создаем вкладки для разных типов визуализаций
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📈 Основные метрики", 
         "👥 Авторы и организации", 
         "🌍 География", 
         "📊 Цитирования",
         "🔀 Пересечения",
-        "⏱️ Время цитирования"
+        "⏱️ Время цитирования",
+        "🚀 Быстрые метрики"  # НОВАЯ ВКЛАДКА
     ])
     
     with tab1:
@@ -1522,6 +1906,82 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
             )
             st.plotly_chart(fig, use_container_width=True)
 
+    with tab7:
+        st.subheader("🚀 Быстрые метрики (рассчитано без API запросов)")
+        
+        # Основные быстрые метрики
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Reference Age", f"{fast_metrics.get('ref_median_age', 'N/A')} лет")
+        with col2:
+            st.metric("JSCR", f"{fast_metrics.get('JSCR', 0)}%")
+        with col3:
+            st.metric("Cited Half-Life", f"{fast_metrics.get('cited_half_life_median', 'N/A')} лет")
+        with col4:
+            st.metric("FWCI", fast_metrics.get('FWCI', 0))
+        
+        col5, col6, col7, col8 = st.columns(4)
+        
+        with col5:
+            st.metric("Citation Velocity", fast_metrics.get('citation_velocity', 0))
+        with col6:
+            st.metric("OA Impact Premium", f"{fast_metrics.get('OA_impact_premium', 0)}%")
+        with col7:
+            st.metric("Elite Index", f"{fast_metrics.get('elite_index', 0)}%")
+        with col8:
+            st.metric("Author Gini", fast_metrics.get('author_gini', 0))
+        
+        # Детальная информация о быстрых метриках
+        st.subheader("📊 Детали быстрых метрик")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Reference Age распределение
+            if fast_metrics.get('ref_median_age') is not None:
+                st.write("**Reference Age:**")
+                st.write(f"- Медиана: {fast_metrics['ref_median_age']} лет")
+                st.write(f"- Среднее: {fast_metrics['ref_mean_age']} лет")
+                st.write(f"- 25-75 перцентиль: {fast_metrics['ref_ages_25_75'][0]}-{fast_metrics['ref_ages_25_75'][1]} лет")
+                st.write(f"- Проанализировано ссылок: {fast_metrics['total_refs_analyzed']}")
+        
+        with col2:
+            # JSCR детали
+            st.write("**Journal Self-Citation Rate:**")
+            st.write(f"- Самоцитирования: {fast_metrics.get('self_cites', 0)}")
+            st.write(f"- Всего цитирований: {fast_metrics.get('total_cites', 0)}")
+            st.write(f"- Процент: {fast_metrics.get('JSCR', 0)}%")
+        
+        col3, col4 = st.columns(2)
+        
+        with col3:
+            # Citation Velocity
+            st.write("**Citation Velocity:**")
+            st.write(f"- Среднее цитирований/год: {fast_metrics.get('citation_velocity', 0)}")
+            st.write(f"- Статьи с данными: {fast_metrics.get('articles_with_velocity', 0)}")
+        
+        with col4:
+            # OA Impact Premium
+            st.write("**OA Impact Premium:**")
+            st.write(f"- Премия: {fast_metrics.get('OA_impact_premium', 0)}%")
+            st.write(f"- OA статей: {fast_metrics.get('OA_articles', 0)}")
+            st.write(f"- Не-OA статей: {fast_metrics.get('non_OA_articles', 0)}")
+        
+        # Топ концепты
+        if fast_metrics.get('top_concepts'):
+            st.subheader("🏷️ Топ-5 тематических концептов")
+            concepts_df = pd.DataFrame(fast_metrics['top_concepts'], columns=['Концепт', 'Упоминаний'])
+            fig = px.bar(
+                concepts_df,
+                x='Упоминаний',
+                y='Концепт',
+                orientation='h',
+                title='Топ тематических концептов',
+                color='Упоминаний'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
 # === 19. Основная функция анализа ===
 def analyze_journal(issn, period_str):
     global delayer
@@ -1653,6 +2113,10 @@ def analyze_journal(issn, period_str):
     
     citation_timing = calculate_citation_timing(analyzed_metadata, state)
     
+    # Расчет быстрых метрик (НОВОЕ)
+    overall_status.text("🚀 Расчет быстрых метрик...")
+    fast_metrics = calculate_all_fast_metrics(analyzed_metadata, all_citing_metadata, state, issn)
+    
     overall_progress.progress(0.9)
     
     # Создание отчета
@@ -1663,7 +2127,7 @@ def analyze_journal(issn, period_str):
     
     # Создаем Excel файл в памяти
     excel_buffer = io.BytesIO()
-    create_enhanced_excel_report(analyzed_metadata, all_citing_metadata, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, excel_buffer)
+    create_enhanced_excel_report(analyzed_metadata, all_citing_metadata, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer)
     
     excel_buffer.seek(0)
     state.excel_buffer = excel_buffer
@@ -1678,6 +2142,7 @@ def analyze_journal(issn, period_str):
         'enhanced_stats': enhanced_stats,
         'citation_timing': citation_timing,
         'overlap_details': overlap_details,
+        'fast_metrics': fast_metrics,  # НОВОЕ
         'journal_name': journal_name,
         'issn': issn,
         'period': period_str,
@@ -1727,6 +2192,7 @@ def main():
         - 🔗 Пересечения между работами
         - ⏱️ Время до цитирования
         - 📈 Визуализация данных
+        - 🚀 **НОВОЕ: Быстрые метрики без API**
         """)
         
         st.warning("""
@@ -1795,14 +2261,15 @@ def main():
             results['citing_stats'], 
             results['enhanced_stats'],
             results['citation_timing'],
-            results['overlap_details']
+            results['overlap_details'],
+            results['fast_metrics']  # НОВОЕ
         )
         
         # Детальная статистика
         st.markdown("---")
         st.header("📈 Детальная статистика")
         
-        tab1, tab2, tab3 = st.tabs(["Анализируемые статьи", "Цитирующие работы", "Сравнительный анализ"])
+        tab1, tab2, tab3, tab4 = st.tabs(["Анализируемые статьи", "Цитирующие работы", "Сравнительный анализ", "Быстрые метрики"])  # НОВАЯ ВКЛАДКА
         
         with tab1:
             st.subheader("Статистика анализируемых статей")
@@ -1862,9 +2329,53 @@ def main():
                     "Среднее ссылок на статью (цитирующие)", 
                     f"{results['citing_stats']['ref_mean']:.1f}"
                 )
+        
+        with tab4:  # НОВАЯ ВКЛАДКА
+            st.subheader("🚀 Быстрые метрики (без API запросов)")
+            fast_metrics = results['fast_metrics']
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.metric("Reference Age", f"{fast_metrics.get('ref_median_age', 'N/A')} лет")
+                st.metric("JSCR", f"{fast_metrics.get('JSCR', 0)}%")
+                st.metric("Cited Half-Life", f"{fast_metrics.get('cited_half_life_median', 'N/A')} лет")
+                st.metric("FWCI", fast_metrics.get('FWCI', 0))
+                
+            with col2:
+                st.metric("Citation Velocity", fast_metrics.get('citation_velocity', 0))
+                st.metric("OA Impact Premium", f"{fast_metrics.get('OA_impact_premium', 0)}%")
+                st.metric("Elite Index", f"{fast_metrics.get('elite_index', 0)}%")
+                st.metric("Author Gini", fast_metrics.get('author_gini', 0))
+            
+            # Детальная информация
+            st.subheader("Детали быстрых метрик")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**Reference Age:**")
+                st.write(f"- Медиана: {fast_metrics.get('ref_median_age', 'N/A')} лет")
+                st.write(f"- Среднее: {fast_metrics.get('ref_mean_age', 'N/A')} лет")
+                st.write(f"- 25-75 перцентиль: {fast_metrics.get('ref_ages_25_75', ['N/A', 'N/A'])[0]}-{fast_metrics.get('ref_ages_25_75', ['N/A', 'N/A'])[1]} лет")
+                st.write(f"- Проанализировано ссылок: {fast_metrics.get('total_refs_analyzed', 0)}")
+                
+                st.write("**Journal Self-Citation Rate:**")
+                st.write(f"- Самоцитирования: {fast_metrics.get('self_cites', 0)}")
+                st.write(f"- Всего цитирований: {fast_metrics.get('total_cites', 0)}")
+                st.write(f"- Процент: {fast_metrics.get('JSCR', 0)}%")
+            
+            with col2:
+                st.write("**Field-Weighted Citation Impact:**")
+                st.write(f"- FWCI: {fast_metrics.get('FWCI', 0)}")
+                st.write(f"- Общие цитирования: {fast_metrics.get('total_cites', 0)}")
+                st.write(f"- Ожидаемые цитирования: {fast_metrics.get('expected_cites', 0)}")
+                
+                st.write("**Diversity Balance Index:**")
+                st.write(f"- DBI: {fast_metrics.get('DBI', 0)}")
+                st.write(f"- Уникальных концептов: {fast_metrics.get('unique_concepts', 0)}")
+                st.write(f"- Всего упоминаний: {fast_metrics.get('total_concept_mentions', 0)}")
 
 # Запуск приложения
 if __name__ == "__main__":
     main()
-
-
