@@ -567,9 +567,9 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
     pub_dates = []
     
     articles_with_10_citations = 0
-    articles_with_20_citations = 0
-    articles_with_30_citations = 0
     articles_with_50_citations = 0
+    articles_with_100_citations = 0
+    articles_with_200_citations = 0
 
     affiliations_freq = Counter()
     countries_freq = Counter()
@@ -664,12 +664,12 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
                 citation_count = oa.get('cited_by_count', 0)
                 if citation_count >= 10:
                     articles_with_10_citations += 1
-                if citation_count >= 20:
-                    articles_with_20_citations += 1
-                if citation_count >= 30:
-                    articles_with_30_citations += 1
                 if citation_count >= 50:
                     articles_with_50_citations += 1
+                if citation_count >= 100:
+                    articles_with_100_citations += 1
+                if citation_count >= 200:
+                    articles_with_200_citations += 1
 
     n_items = len(metadata_list)
 
@@ -712,9 +712,9 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
         'all_authors': all_authors_sorted,
         'pub_dates': pub_dates,
         'articles_with_10_citations': articles_with_10_citations,
-        'articles_with_20_citations': articles_with_20_citations,
-        'articles_with_30_citations': articles_with_30_citations,
         'articles_with_50_citations': articles_with_50_citations,
+        'articles_with_100_citations': articles_with_100_citations,
+        'articles_with_200_citations': articles_with_200_citations,
         'all_affiliations': all_affiliations_sorted,
         'all_countries': all_countries_sorted,
         'all_authors_list': all_authors,
@@ -842,12 +842,71 @@ def calculate_citation_timing_stats(analyzed_metadata, state):
     
     return citation_timing_stats
 
-# === 16. Расчет дней до цитирования ===
-def calculate_days_stats(analyzed_metadata, state):
+# === 16. Расчет Impact Factor ===
+def calculate_impact_factor(analyzed_metadata, current_date, state):
+    current_year = current_date.year
+    citation_years = [current_year - 1, current_year - 2]
+    publication_years = [current_year - 3, current_year - 4]
+    
+    publications_count = 0
+    publications_list = []
+    
+    for meta in analyzed_metadata:
+        if meta and meta.get('crossref'):
+            pub_year = meta['crossref'].get('published', {}).get('date-parts', [[0]])[0][0]
+            if pub_year in publication_years:
+                publications_count += 1
+                publications_list.append({
+                    'doi': meta['crossref'].get('DOI'),
+                    'year': pub_year,
+                    'title': meta['crossref'].get('title', [''])[0]
+                })
+    
+    citations_count = 0
+    citations_details = []
+    
+    for pub in publications_list:
+        if pub['doi']:
+            citings = get_citing_dois_and_metadata((pub['doi'], state))
+            for citing in citings:
+                if citing.get('openalex'):
+                    cite_year = citing['openalex'].get('publication_year', 0)
+                    if cite_year in citation_years:
+                        citations_count += 1
+                        citations_details.append({
+                            'cited_doi': pub['doi'],
+                            'cited_year': pub['year'],
+                            'citing_doi': citing['doi'],
+                            'citing_year': cite_year
+                        })
+    
+    if publications_count > 0:
+        impact_factor = citations_count / publications_count
+    else:
+        impact_factor = 0.0
+    
+    return {
+        'impact_factor': impact_factor,
+        'citations_count': citations_count,
+        'publications_count': publications_count,
+        'citation_years': citation_years,
+        'publication_years': publication_years,
+        'publications_list': publications_list,
+        'citations_details': citations_details
+    }
+
+# === 17. Расчет IF и дней ===
+def calculate_if_and_days(analyzed_metadata, all_citing_metadata, current_date, state):
+    if_data = calculate_impact_factor(analyzed_metadata, current_date, state)
     timing_stats = calculate_citation_timing_stats(analyzed_metadata, state)
     accumulation_stats = analyze_citation_accumulation(analyzed_metadata, state)
     
     return {
+        'if_value': if_data['impact_factor'],
+        'c_num': if_data['citations_count'],
+        'p_den': if_data['publications_count'],
+        'citation_years': if_data['citation_years'],
+        'publication_years': if_data['publication_years'],
         'days_min': timing_stats['min_days_to_first_citation'],
         'days_max': timing_stats['max_days_to_first_citation'],
         'days_mean': timing_stats['mean_days_to_first_citation'],
@@ -859,21 +918,10 @@ def calculate_days_stats(analyzed_metadata, state):
         'total_years_covered': accumulation_stats['total_years_covered']
     }
 
-# === 17. Создание расширенного Excel отчета ===
-def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, days_stats, overlap_details, filename):
-    # Создаем новую книгу и явно устанавливаем активный лист
-    from openpyxl import Workbook
-    
-    # Создаем временную книгу для работы
-    wb = Workbook()
-    # Оставляем лист по умолчанию как "заглушку"
-    default_sheet = wb.active
-    default_sheet.title = "Анализируемые_статьи"  # Переименуем сразу
-    
+# === 18. Создание расширенного Excel отчета ===
+def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, if_days, overlap_details, filename):
     with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-        writer.book = wb
-        
-        # Лист 1: Анализируемые статьи (всегда создаем этот лист первым и делаем его активным)
+        # Лист 1: Анализируемые статьи
         analyzed_list = []
         for item in analyzed_data:
             if item and item.get('crossref'):
@@ -903,12 +951,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         if analyzed_list:
             analyzed_df = pd.DataFrame(analyzed_list)
             analyzed_df.to_excel(writer, sheet_name='Анализируемые_статьи', index=False)
-        else:
-            empty_analyzed_df = pd.DataFrame({'Сообщение': ['Нет данных об анализируемых статьях']})
-            empty_analyzed_df.to_excel(writer, sheet_name='Анализируемые_статьи', index=False)
-        
-        # Явно устанавливаем первый лист как активный
-        writer.sheets['Анализируемые_статьи'].sheet_state = 'visible'
 
         # Лист 2: Цитирующие работы
         citing_list = []
@@ -940,9 +982,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         if citing_list:
             citing_df = pd.DataFrame(citing_list)
             citing_df.to_excel(writer, sheet_name='Цитирующие_работы', index=False)
-        else:
-            empty_citing_df = pd.DataFrame({'Сообщение': ['Нет данных о цитирующих работах']})
-            empty_citing_df.to_excel(writer, sheet_name='Цитирующие_работы', index=False)
 
         # Лист 3: Пересечения анализируемых и цитирующих работ
         overlap_list = []
@@ -959,13 +998,10 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         if overlap_list:
             overlap_df = pd.DataFrame(overlap_list)
             overlap_df.to_excel(writer, sheet_name='Пересечения_работ', index=False)
-        else:
-            empty_overlap_df = pd.DataFrame({'Сообщение': ['Нет данных о пересечениях']})
-            empty_overlap_df.to_excel(writer, sheet_name='Пересечения_работ', index=False)
 
         # Лист 4: Время до первого цитирования
         first_citation_list = []
-        for detail in days_stats.get('first_citation_details', []):
+        for detail in if_days.get('first_citation_details', []):
             first_citation_list.append({
                 'DOI анализируемой работы': detail['analyzed_doi'],
                 'DOI первой цитирующей работы': detail['citing_doi'],
@@ -977,9 +1013,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         if first_citation_list:
             first_citation_df = pd.DataFrame(first_citation_list)
             first_citation_df.to_excel(writer, sheet_name='Первые_цитирования', index=False)
-        else:
-            empty_first_citation_df = pd.DataFrame({'Сообщение': ['Нет данных о первых цитированиях']})
-            empty_first_citation_df.to_excel(writer, sheet_name='Первые_цитирования', index=False)
 
         # Лист 5: Статистика анализируемых статей
         analyzed_stats_data = {
@@ -1008,9 +1041,9 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 'Уникальных журналов',
                 'Уникальных издателей',
                 'Статьи с ≥10 цитированиями',
-                'Статьи с ≥20 цитированиями',
-                'Статьи с ≥30 цитированиями',
-                'Статьи с ≥50 цитированиями'
+                'Статьи с ≥50 цитированиями',
+                'Статьи с ≥100 цитированиями',
+                'Статьи с ≥200 цитированиями'
             ],
             'Значение': [
                 analyzed_stats['n_items'],
@@ -1037,9 +1070,9 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 analyzed_stats['unique_journals_count'],
                 analyzed_stats['unique_publishers_count'],
                 analyzed_stats['articles_with_10_citations'],
-                analyzed_stats['articles_with_20_citations'],
-                analyzed_stats['articles_with_30_citations'],
-                analyzed_stats['articles_with_50_citations']
+                analyzed_stats['articles_with_50_citations'],
+                analyzed_stats['articles_with_100_citations'],
+                analyzed_stats['articles_with_200_citations']
             ]
         }
         analyzed_stats_df = pd.DataFrame(analyzed_stats_data)
@@ -1122,31 +1155,36 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         enhanced_stats_df = pd.DataFrame(enhanced_stats_data)
         enhanced_stats_df.to_excel(writer, sheet_name='Расширенная_статистика', index=False)
 
-        # Лист 8: Время цитирования
-        days_stats_data = {
+        # Лист 8: Impact Factor и время цитирования
+        if_days_data = {
             'Метрика': [
-                'Минимальные дни до первого цитирования',
-                'Максимальные дни до первого цитирования', 
-                'Средние дни до первого цитирования',
-                'Медиана дней до первого цитирования', 
-                'Статьи с данными о времени цитирования',
+                'Impact Factor', 'Числитель (цитирования)', 
+                'Знаменатель (публикации)', 'Годы цитирований',
+                'Годы публикаций', 'Минимальные дни до первого цитирования',
+                'Максимальные дни до первого цитирования', 'Средние дни до первого цитирования',
+                'Медиана дней до первого цитирования', 'Статьи с данными о времени цитирования',
                 'Всего лет покрыто данными о цитированиях'
             ],
             'Значение': [
-                days_stats['days_min'],
-                days_stats['days_max'],
-                f"{days_stats['days_mean']:.1f}",
-                days_stats['days_median'],
-                days_stats['articles_with_timing_data'],
-                days_stats['total_years_covered']
+                f"{if_days['if_value']:.4f}",
+                if_days['c_num'],
+                if_days['p_den'],
+                f"{if_days['citation_years'][0]}-{if_days['citation_years'][1]}",
+                f"{if_days['publication_years'][0]}-{if_days['publication_years'][1]}",
+                if_days['days_min'],
+                if_days['days_max'],
+                f"{if_days['days_mean']:.1f}",
+                if_days['days_median'],
+                if_days['articles_with_timing_data'],
+                if_days['total_years_covered']
             ]
         }
-        days_stats_df = pd.DataFrame(days_stats_data)
-        days_stats_df.to_excel(writer, sheet_name='Время_цитирования', index=False)
+        if_days_df = pd.DataFrame(if_days_data)
+        if_days_df.to_excel(writer, sheet_name='Impact_Factor_Время_цитирования', index=False)
 
         # Лист 9: Цитирования по годам
         yearly_citations_data = []
-        for yearly_stat in days_stats['yearly_citations']:
+        for yearly_stat in if_days['yearly_citations']:
             yearly_citations_data.append({
                 'Год': yearly_stat['year'],
                 'Количество цитирований': yearly_stat['citations_count']
@@ -1155,13 +1193,10 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         if yearly_citations_data:
             yearly_citations_df = pd.DataFrame(yearly_citations_data)
             yearly_citations_df.to_excel(writer, sheet_name='Цитирования_по_годам', index=False)
-        else:
-            empty_yearly_df = pd.DataFrame({'Сообщение': ['Нет данных о цитированиях по годам']})
-            empty_yearly_df.to_excel(writer, sheet_name='Цитирования_по_годам', index=False)
 
         # Лист 10: Кривые накопления цитирований
         accumulation_data = []
-        for pub_year, curve_data in days_stats['accumulation_curves'].items():
+        for pub_year, curve_data in if_days['accumulation_curves'].items():
             for data_point in curve_data:
                 accumulation_data.append({
                     'Год публикации': pub_year,
@@ -1172,9 +1207,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         if accumulation_data:
             accumulation_df = pd.DataFrame(accumulation_data)
             accumulation_df.to_excel(writer, sheet_name='Кривые_накопления_цитирований', index=False)
-        else:
-            empty_accumulation_df = pd.DataFrame({'Сообщение': ['Нет данных о кривых накопления цитирований']})
-            empty_accumulation_df.to_excel(writer, sheet_name='Кривые_накопления_цитирований', index=False)
 
         # Лист 11: Сеть цитирований
         citation_network_data = []
@@ -1190,110 +1222,75 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         if citation_network_data:
             citation_network_df = pd.DataFrame(citation_network_data)
             citation_network_df.to_excel(writer, sheet_name='Сеть_цитирований', index=False)
-        else:
-            empty_network_df = pd.DataFrame({'Сообщение': ['Нет данных о сети цитирований']})
-            empty_network_df.to_excel(writer, sheet_name='Сеть_цитирований', index=False)
 
         # Лист 12: Все авторы анализируемых
-        if analyzed_stats['all_authors']:
-            all_authors_data = {
-                'Автор': [author[0] for author in analyzed_stats['all_authors']],
-                'Количество статей': [author[1] for author in analyzed_stats['all_authors']]
-            }
-            all_authors_df = pd.DataFrame(all_authors_data)
-            all_authors_df.to_excel(writer, sheet_name='Все_авторы_анализируемые', index=False)
-        else:
-            empty_authors_df = pd.DataFrame({'Сообщение': ['Нет данных об авторах анализируемых статей']})
-            empty_authors_df.to_excel(writer, sheet_name='Все_авторы_анализируемые', index=False)
+        all_authors_data = {
+            'Автор': [author[0] for author in analyzed_stats['all_authors']],
+            'Количество статей': [author[1] for author in analyzed_stats['all_authors']]
+        }
+        all_authors_df = pd.DataFrame(all_authors_data)
+        all_authors_df.to_excel(writer, sheet_name='Все_авторы_анализируемые', index=False)
 
         # Лист 13: Все авторы цитирующих
-        if citing_stats['all_authors']:
-            all_citing_authors_data = {
-                'Автор': [author[0] for author in citing_stats['all_authors']],
-                'Количество статей': [author[1] for author in citing_stats['all_authors']]
-            }
-            all_citing_authors_df = pd.DataFrame(all_citing_authors_data)
-            all_citing_authors_df.to_excel(writer, sheet_name='Все_авторы_цитирующие', index=False)
-        else:
-            empty_citing_authors_df = pd.DataFrame({'Сообщение': ['Нет данных об авторах цитирующих статей']})
-            empty_citing_authors_df.to_excel(writer, sheet_name='Все_авторы_цитирующие', index=False)
+        all_citing_authors_data = {
+            'Автор': [author[0] for author in citing_stats['all_authors']],
+            'Количество статей': [author[1] for author in citing_stats['all_authors']]
+        }
+        all_citing_authors_df = pd.DataFrame(all_citing_authors_data)
+        all_citing_authors_df.to_excel(writer, sheet_name='Все_авторы_цитирующие', index=False)
 
         # Лист 14: Все аффилиации анализируемых
-        if analyzed_stats['all_affiliations']:
-            all_affiliations_data = {
-                'Аффилиация': [aff[0] for aff in analyzed_stats['all_affiliations']],
-                'Количество упоминаний': [aff[1] for aff in analyzed_stats['all_affiliations']]
-            }
-            all_affiliations_df = pd.DataFrame(all_affiliations_data)
-            all_affiliations_df.to_excel(writer, sheet_name='Все_аффилиации_анализируемые', index=False)
-        else:
-            empty_affiliations_df = pd.DataFrame({'Сообщение': ['Нет данных об аффилиациях анализируемых статей']})
-            empty_affiliations_df.to_excel(writer, sheet_name='Все_аффилиации_анализируемые', index=False)
+        all_affiliations_data = {
+            'Аффилиация': [aff[0] for aff in analyzed_stats['all_affiliations']],
+            'Количество упоминаний': [aff[1] for aff in analyzed_stats['all_affiliations']]
+        }
+        all_affiliations_df = pd.DataFrame(all_affiliations_data)
+        all_affiliations_df.to_excel(writer, sheet_name='Все_аффилиации_анализируемые', index=False)
 
         # Лист 15: Все аффилиации цитирующих
-        if citing_stats['all_affiliations']:
-            all_citing_affiliations_data = {
-                'Аффилиация': [aff[0] for aff in citing_stats['all_affiliations']],
-                'Количество упоминаний': [aff[1] for aff in citing_stats['all_affiliations']]
-            }
-            all_citing_affiliations_df = pd.DataFrame(all_citing_affiliations_data)
-            all_citing_affiliations_df.to_excel(writer, sheet_name='Все_аффилиации_цитирующие', index=False)
-        else:
-            empty_citing_affiliations_df = pd.DataFrame({'Сообщение': ['Нет данных об аффилиациях цитирующих статей']})
-            empty_citing_affiliations_df.to_excel(writer, sheet_name='Все_аффилиации_цитирующие', index=False)
+        all_citing_affiliations_data = {
+            'Аффилиация': [aff[0] for aff in citing_stats['all_affiliations']],
+            'Количество упоминаний': [aff[1] for aff in citing_stats['all_affiliations']]
+        }
+        all_citing_affiliations_df = pd.DataFrame(all_citing_affiliations_data)
+        all_citing_affiliations_df.to_excel(writer, sheet_name='Все_аффилиации_цитирующие', index=False)
 
         # Лист 16: Все страны анализируемых
-        if analyzed_stats['all_countries']:
-            all_countries_data = {
-                'Страна': [country[0] for country in analyzed_stats['all_countries']],
-                'Количество упоминаний': [country[1] for country in analyzed_stats['all_countries']]
-            }
-            all_countries_df = pd.DataFrame(all_countries_data)
-            all_countries_df.to_excel(writer, sheet_name='Все_страны_анализируемые', index=False)
-        else:
-            empty_countries_df = pd.DataFrame({'Сообщение': ['Нет данных о странах анализируемых статей']})
-            empty_countries_df.to_excel(writer, sheet_name='Все_страны_анализируемые', index=False)
+        all_countries_data = {
+            'Страна': [country[0] for country in analyzed_stats['all_countries']],
+            'Количество упоминаний': [country[1] for country in analyzed_stats['all_countries']]
+        }
+        all_countries_df = pd.DataFrame(all_countries_data)
+        all_countries_df.to_excel(writer, sheet_name='Все_страны_анализируемые', index=False)
 
         # Лист 17: Все страны цитирующих
-        if citing_stats['all_countries']:
-            all_citing_countries_data = {
-                'Страна': [country[0] for country in citing_stats['all_countries']],
-                'Количество упоминаний': [country[1] for country in citing_stats['all_countries']]
-            }
-            all_citing_countries_df = pd.DataFrame(all_citing_countries_data)
-            all_citing_countries_df.to_excel(writer, sheet_name='Все_страны_цитирующие', index=False)
-        else:
-            empty_citing_countries_df = pd.DataFrame({'Сообщение': ['Нет данных о странах цитирующих статей']})
-            empty_citing_countries_df.to_excel(writer, sheet_name='Все_страны_цитирующие', index=False)
+        all_citing_countries_data = {
+            'Страна': [country[0] for country in citing_stats['all_countries']],
+            'Количество упоминаний': [country[1] for country in citing_stats['all_countries']]
+        }
+        all_citing_countries_df = pd.DataFrame(all_citing_countries_data)
+        all_citing_countries_df.to_excel(writer, sheet_name='Все_страны_цитирующие', index=False)
 
         # Лист 18: Все журналы цитирующих
-        if citing_stats['all_journals']:
-            all_citing_journals_data = {
-                'Журнал': [journal[0] for journal in citing_stats['all_journals']],
-                'Количество статей': [journal[1] for journal in citing_stats['all_journals']]
-            }
-            all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
-            all_citing_journals_df.to_excel(writer, sheet_name='Все_журналы_цитирующие', index=False)
-        else:
-            empty_journals_df = pd.DataFrame({'Сообщение': ['Нет данных о журналах цитирующих статей']})
-            empty_journals_df.to_excel(writer, sheet_name='Все_журналы_цитирующие', index=False)
+        all_citing_journals_data = {
+            'Журнал': [journal[0] for journal in citing_stats['all_journals']],
+            'Количество статей': [journal[1] for journal in citing_stats['all_journals']]
+        }
+        all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
+        all_citing_journals_df.to_excel(writer, sheet_name='Все_журналы_цитирующие', index=False)
 
         # Лист 19: Все издатели цитирующих
-        if citing_stats['all_publishers']:
-            all_citing_publishers_data = {
-                'Издатель': [publisher[0] for publisher in citing_stats['all_publishers']],
-                'Количество статей': [publisher[1] for publisher in citing_stats['all_publishers']]
-            }
-            all_citing_publishers_df = pd.DataFrame(all_citing_publishers_data)
-            all_citing_publishers_df.to_excel(writer, sheet_name='Все_издатели_цитирующие', index=False)
-        else:
-            empty_publishers_df = pd.DataFrame({'Сообщение': ['Нет данных об издателях цитирующих статей']})
-            empty_publishers_df.to_excel(writer, sheet_name='Все_издатели_цитирующие', index=False)
+        all_citing_publishers_data = {
+            'Издатель': [publisher[0] for publisher in citing_stats['all_publishers']],
+            'Количество статей': [publisher[1] for publisher in citing_stats['all_publishers']]
+        }
+        all_citing_publishers_df = pd.DataFrame(all_citing_publishers_data)
+        all_citing_publishers_df.to_excel(writer, sheet_name='Все_издатели_цитирующие', index=False)
 
     return filename
-    
-# === 18. Визуализация данных ===
-def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, days_stats, overlap_details):
+
+# === 19. Визуализация данных ===
+def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days, overlap_details):
     """Создание визуализаций для дашборда"""
     
     # Создаем вкладки для разных типов визуализаций
@@ -1312,32 +1309,33 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, days_sta
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("H-index", enhanced_stats['h_index'])
+            st.metric(
+                "Impact Factor", 
+                f"{if_days['if_value']:.4f}",
+                help=f"Расчет для публикаций {if_days['publication_years'][0]}-{if_days['publication_years'][1]} и цитирований {if_days['citation_years'][0]}-{if_days['citation_years'][1]}"
+            )
         with col2:
-            st.metric("Всего статей", analyzed_stats['n_items'])
+            st.metric("H-index", enhanced_stats['h_index'])
         with col3:
-            st.metric("Всего цитирований", enhanced_stats['total_citations'])
+            st.metric("Всего статей", analyzed_stats['n_items'])
         with col4:
-            st.metric("Среднее цитирований", f"{enhanced_stats['avg_citations_per_article']:.1f}")
+            st.metric("Всего цитирований", enhanced_stats['total_citations'])
         
         col5, col6, col7, col8 = st.columns(4)
         
         with col5:
-            st.metric("Статьи с цитированиями", enhanced_stats['articles_with_citations'])
+            st.metric("Среднее цитирований", f"{enhanced_stats['avg_citations_per_article']:.1f}")
         with col6:
-            st.metric("Самоцитирования", f"{analyzed_stats['self_cites_pct']:.1f}%")
+            st.metric("Статьи с цитированиями", enhanced_stats['articles_with_citations'])
         with col7:
-            st.metric("Международные статьи", f"{analyzed_stats['multi_country_pct']:.1f}%")
+            st.metric("Самоцитирования", f"{analyzed_stats['self_cites_pct']:.1f}%")
         with col8:
-            st.metric("Статьи с ≥10 цитированиями", analyzed_stats['articles_with_10_citations'])
-            st.metric("Статьи с ≥20 цитированиями", analyzed_stats['articles_with_20_citations'])
-            st.metric("Статьи с ≥30 цитированиями", analyzed_stats['articles_with_30_citations']) 
-            st.metric("Статьи с ≥50 цитированиями", analyzed_stats['articles_with_50_citations'])
+            st.metric("Международные статьи", f"{analyzed_stats['multi_country_pct']:.1f}%")
         
         # График цитирований по годам
-        if days_stats['yearly_citations']:
-            years = [item['year'] for item in days_stats['yearly_citations']]
-            citations = [item['citations_count'] for item in days_stats['yearly_citations']]
+        if if_days['yearly_citations']:
+            years = [item['year'] for item in if_days['yearly_citations']]
+            citations = [item['citations_count'] for item in if_days['yearly_citations']]
             
             fig = go.Figure()
             fig.add_trace(go.Bar(
@@ -1450,12 +1448,12 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, days_sta
         with col1:
             # Цитирования по порогам
             citation_thresholds = {
-                'Порог': ['≥10', '≥20', '≥30', '≥50'],
+                'Порог': ['≥10', '≥50', '≥100', '≥200'],
                 'Статьи': [
                     analyzed_stats['articles_with_10_citations'],
-                    analyzed_stats['articles_with_20_citations'],
-                    analyzed_stats['articles_with_30_citations'],
-                    analyzed_stats['articles_with_50_citations']
+                    analyzed_stats['articles_with_50_citations'],
+                    analyzed_stats['articles_with_100_citations'],
+                    analyzed_stats['articles_with_200_citations']
                 ]
             }
             fig = px.bar(
@@ -1525,22 +1523,22 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, days_sta
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Мин. дней до цитирования", days_stats['days_min'])
+            st.metric("Мин. дней до цитирования", if_days['days_min'])
         with col2:
-            st.metric("Макс. дней до цитирования", days_stats['days_max'])
+            st.metric("Макс. дней до цитирования", if_days['days_max'])
         with col3:
-            st.metric("Среднее дней", f"{days_stats['days_mean']:.1f}")
+            st.metric("Среднее дней", f"{if_days['days_mean']:.1f}")
         with col4:
-            st.metric("Медиана дней", days_stats['days_median'])
+            st.metric("Медиана дней", if_days['days_median'])
         
         # Детали первых цитирований
-        if days_stats['first_citation_details']:
+        if if_days['first_citation_details']:
             st.subheader("Детали первых цитирований")
-            first_citation_df = pd.DataFrame(days_stats['first_citation_details'])
+            first_citation_df = pd.DataFrame(if_days['first_citation_details'])
             st.dataframe(first_citation_df)
             
             # Гистограмма времени до первого цитирования
-            days_data = [d['days_to_first_citation'] for d in days_stats['first_citation_details']]
+            days_data = [d['days_to_first_citation'] for d in if_days['first_citation_details']]
             fig = px.histogram(
                 x=days_data,
                 title='Распределение времени до первого цитирования (дни)',
@@ -1548,7 +1546,7 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, days_sta
             )
             st.plotly_chart(fig, use_container_width=True)
 
-# === 19. Основная функция анализа ===
+# === 20. Основная функция анализа ===
 def analyze_journal(issn, period_str):
     global delayer
     delayer = AdaptiveDelayer()
@@ -1677,7 +1675,8 @@ def analyze_journal(issn, period_str):
     # Анализ пересечений
     overlap_details = analyze_overlaps(analyzed_metadata, all_citing_metadata, state)
     
-    days_stats = calculate_days_stats(analyzed_metadata, state)
+    current_date = datetime.now()
+    if_days = calculate_if_and_days(analyzed_metadata, all_citing_metadata, current_date, state)
     
     overall_progress.progress(0.9)
     
@@ -1689,7 +1688,7 @@ def analyze_journal(issn, period_str):
     
     # Создаем Excel файл в памяти
     excel_buffer = io.BytesIO()
-    create_enhanced_excel_report(analyzed_metadata, all_citing_metadata, analyzed_stats, citing_stats, enhanced_stats, days_stats, overlap_details, excel_buffer)
+    create_enhanced_excel_report(analyzed_metadata, all_citing_metadata, analyzed_stats, citing_stats, enhanced_stats, if_days, overlap_details, excel_buffer)
     
     excel_buffer.seek(0)
     state.excel_buffer = excel_buffer
@@ -1702,7 +1701,7 @@ def analyze_journal(issn, period_str):
         'analyzed_stats': analyzed_stats,
         'citing_stats': citing_stats,
         'enhanced_stats': enhanced_stats,
-        'days_stats': days_stats,
+        'if_days': if_days,
         'overlap_details': overlap_details,
         'journal_name': journal_name,
         'issn': issn,
@@ -1717,13 +1716,13 @@ def analyze_journal(issn, period_str):
     overall_progress.empty()
     overall_status.empty()
 
-# === 20. Главный интерфейс ===
+# === 21. Главный интерфейс ===
 def main():
     initialize_analysis_state()
     state = get_analysis_state()
     
     # Заголовок
-    st.title("🔬 Advanced Journal Analysis Tool")
+    st.title("🔬 Комплексный анализатор научных журналов")
     st.markdown("---")
     
     # Боковая панель с вводом данных
@@ -1747,7 +1746,7 @@ def main():
         
         st.info("""
         **Возможности анализа:**
-        - 📊 H-index и метрики цитирования
+        - 📊 Impact Factor и H-index
         - 👥 Анализ авторов и аффилиаций
         - 🌍 Географическое распределение
         - 🔗 Пересечения между работами
@@ -1760,8 +1759,6 @@ def main():
         - Анализ может занять несколько минут
         - Убедитесь в корректности ISSN
         - Для больших периодов время анализа увеличивается
-        - Данное приложение не рассчитывает IF и CiteScore. Обратитесь к https://journal-metrics-app.streamlit.app для получения полной информации по интересующему журналу
-        - ©Chimica Techno Acta, https://chimicatechnoacta.ru / ©developed by daM
         """)
     
     # Основная область
@@ -1820,7 +1817,7 @@ def main():
             results['analyzed_stats'],
             results['citing_stats'], 
             results['enhanced_stats'],
-            results['days_stats'],
+            results['if_days'],
             results['overlap_details']
         )
         
@@ -1892,7 +1889,4 @@ def main():
 # Запуск приложения
 if __name__ == "__main__":
     main()
-
-
-
 
