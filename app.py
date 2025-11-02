@@ -567,9 +567,9 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
     pub_dates = []
     
     articles_with_10_citations = 0
+    articles_with_20_citations = 0
+    articles_with_30_citations = 0
     articles_with_50_citations = 0
-    articles_with_100_citations = 0
-    articles_with_200_citations = 0
 
     affiliations_freq = Counter()
     countries_freq = Counter()
@@ -664,12 +664,12 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
                 citation_count = oa.get('cited_by_count', 0)
                 if citation_count >= 10:
                     articles_with_10_citations += 1
+                if citation_count >= 20:
+                    articles_with_20_citations += 1
+                if citation_count >= 30:
+                    articles_with_30_citations += 1
                 if citation_count >= 50:
                     articles_with_50_citations += 1
-                if citation_count >= 100:
-                    articles_with_100_citations += 1
-                if citation_count >= 200:
-                    articles_with_200_citations += 1
 
     n_items = len(metadata_list)
 
@@ -712,9 +712,9 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
         'all_authors': all_authors_sorted,
         'pub_dates': pub_dates,
         'articles_with_10_citations': articles_with_10_citations,
+        'articles_with_20_citations': articles_with_20_citations,
+        'articles_with_30_citations': articles_with_30_citations,
         'articles_with_50_citations': articles_with_50_citations,
-        'articles_with_100_citations': articles_with_100_citations,
-        'articles_with_200_citations': articles_with_200_citations,
         'all_affiliations': all_affiliations_sorted,
         'all_countries': all_countries_sorted,
         'all_authors_list': all_authors,
@@ -842,71 +842,12 @@ def calculate_citation_timing_stats(analyzed_metadata, state):
     
     return citation_timing_stats
 
-# === 16. Расчет Impact Factor ===
-def calculate_impact_factor(analyzed_metadata, current_date, state):
-    current_year = current_date.year
-    citation_years = [current_year - 1, current_year - 2]
-    publication_years = [current_year - 3, current_year - 4]
-    
-    publications_count = 0
-    publications_list = []
-    
-    for meta in analyzed_metadata:
-        if meta and meta.get('crossref'):
-            pub_year = meta['crossref'].get('published', {}).get('date-parts', [[0]])[0][0]
-            if pub_year in publication_years:
-                publications_count += 1
-                publications_list.append({
-                    'doi': meta['crossref'].get('DOI'),
-                    'year': pub_year,
-                    'title': meta['crossref'].get('title', [''])[0]
-                })
-    
-    citations_count = 0
-    citations_details = []
-    
-    for pub in publications_list:
-        if pub['doi']:
-            citings = get_citing_dois_and_metadata((pub['doi'], state))
-            for citing in citings:
-                if citing.get('openalex'):
-                    cite_year = citing['openalex'].get('publication_year', 0)
-                    if cite_year in citation_years:
-                        citations_count += 1
-                        citations_details.append({
-                            'cited_doi': pub['doi'],
-                            'cited_year': pub['year'],
-                            'citing_doi': citing['doi'],
-                            'citing_year': cite_year
-                        })
-    
-    if publications_count > 0:
-        impact_factor = citations_count / publications_count
-    else:
-        impact_factor = 0.0
-    
-    return {
-        'impact_factor': impact_factor,
-        'citations_count': citations_count,
-        'publications_count': publications_count,
-        'citation_years': citation_years,
-        'publication_years': publication_years,
-        'publications_list': publications_list,
-        'citations_details': citations_details
-    }
-
-# === 17. Расчет IF и дней ===
-def calculate_if_and_days(analyzed_metadata, all_citing_metadata, current_date, state):
-    if_data = calculate_impact_factor(analyzed_metadata, current_date, state)
+# === 16. Расчет времени цитирования ===
+def calculate_citation_timing(analyzed_metadata, state):
     timing_stats = calculate_citation_timing_stats(analyzed_metadata, state)
     accumulation_stats = analyze_citation_accumulation(analyzed_metadata, state)
     
     return {
-        'if_value': if_data['impact_factor'],
-        'c_num': if_data['citations_count'],
-        'p_den': if_data['publications_count'],
-        'citation_years': if_data['citation_years'],
-        'publication_years': if_data['publication_years'],
         'days_min': timing_stats['min_days_to_first_citation'],
         'days_max': timing_stats['max_days_to_first_citation'],
         'days_mean': timing_stats['mean_days_to_first_citation'],
@@ -918,8 +859,8 @@ def calculate_if_and_days(analyzed_metadata, all_citing_metadata, current_date, 
         'total_years_covered': accumulation_stats['total_years_covered']
     }
 
-# === 18. Создание расширенного Excel отчета ===
-def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, if_days, overlap_details, filename):
+# === 17. Создание расширенного Excel отчета ===
+def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, filename):
     with pd.ExcelWriter(filename, engine='openpyxl') as writer:
         # Лист 1: Анализируемые статьи
         analyzed_list = []
@@ -1001,7 +942,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
 
         # Лист 4: Время до первого цитирования
         first_citation_list = []
-        for detail in if_days.get('first_citation_details', []):
+        for detail in citation_timing.get('first_citation_details', []):
             first_citation_list.append({
                 'DOI анализируемой работы': detail['analyzed_doi'],
                 'DOI первой цитирующей работы': detail['citing_doi'],
@@ -1041,9 +982,9 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 'Уникальных журналов',
                 'Уникальных издателей',
                 'Статьи с ≥10 цитированиями',
-                'Статьи с ≥50 цитированиями',
-                'Статьи с ≥100 цитированиями',
-                'Статьи с ≥200 цитированиями'
+                'Статьи с ≥20 цитированиями',
+                'Статьи с ≥30 цитированиями',
+                'Статьи с ≥50 цитированиями'
             ],
             'Значение': [
                 analyzed_stats['n_items'],
@@ -1070,9 +1011,9 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 analyzed_stats['unique_journals_count'],
                 analyzed_stats['unique_publishers_count'],
                 analyzed_stats['articles_with_10_citations'],
-                analyzed_stats['articles_with_50_citations'],
-                analyzed_stats['articles_with_100_citations'],
-                analyzed_stats['articles_with_200_citations']
+                analyzed_stats['articles_with_20_citations'],
+                analyzed_stats['articles_with_30_citations'],
+                analyzed_stats['articles_with_50_citations']
             ]
         }
         analyzed_stats_df = pd.DataFrame(analyzed_stats_data)
@@ -1155,36 +1096,31 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         enhanced_stats_df = pd.DataFrame(enhanced_stats_data)
         enhanced_stats_df.to_excel(writer, sheet_name='Расширенная_статистика', index=False)
 
-        # Лист 8: Impact Factor и время цитирования
-        if_days_data = {
+        # Лист 8: Время цитирования
+        citation_timing_data = {
             'Метрика': [
-                'Impact Factor', 'Числитель (цитирования)', 
-                'Знаменатель (публикации)', 'Годы цитирований',
-                'Годы публикаций', 'Минимальные дни до первого цитирования',
-                'Максимальные дни до первого цитирования', 'Средние дни до первого цитирования',
-                'Медиана дней до первого цитирования', 'Статьи с данными о времени цитирования',
+                'Минимальные дни до первого цитирования',
+                'Максимальные дни до первого цитирования', 
+                'Средние дни до первого цитирования',
+                'Медиана дней до первого цитирования', 
+                'Статьи с данными о времени цитирования',
                 'Всего лет покрыто данными о цитированиях'
             ],
             'Значение': [
-                f"{if_days['if_value']:.4f}",
-                if_days['c_num'],
-                if_days['p_den'],
-                f"{if_days['citation_years'][0]}-{if_days['citation_years'][1]}",
-                f"{if_days['publication_years'][0]}-{if_days['publication_years'][1]}",
-                if_days['days_min'],
-                if_days['days_max'],
-                f"{if_days['days_mean']:.1f}",
-                if_days['days_median'],
-                if_days['articles_with_timing_data'],
-                if_days['total_years_covered']
+                citation_timing['days_min'],
+                citation_timing['days_max'],
+                f"{citation_timing['days_mean']:.1f}",
+                citation_timing['days_median'],
+                citation_timing['articles_with_timing_data'],
+                citation_timing['total_years_covered']
             ]
         }
-        if_days_df = pd.DataFrame(if_days_data)
-        if_days_df.to_excel(writer, sheet_name='Impact_Factor_Время_цитирования', index=False)
+        citation_timing_df = pd.DataFrame(citation_timing_data)
+        citation_timing_df.to_excel(writer, sheet_name='Время_цитирования', index=False)
 
         # Лист 9: Цитирования по годам
         yearly_citations_data = []
-        for yearly_stat in if_days['yearly_citations']:
+        for yearly_stat in citation_timing['yearly_citations']:
             yearly_citations_data.append({
                 'Год': yearly_stat['year'],
                 'Количество цитирований': yearly_stat['citations_count']
@@ -1196,7 +1132,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
 
         # Лист 10: Кривые накопления цитирований
         accumulation_data = []
-        for pub_year, curve_data in if_days['accumulation_curves'].items():
+        for pub_year, curve_data in citation_timing['accumulation_curves'].items():
             for data_point in curve_data:
                 accumulation_data.append({
                     'Год публикации': pub_year,
@@ -1289,8 +1225,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
 
     return filename
 
-# === 19. Визуализация данных ===
-def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days, overlap_details):
+# === 18. Визуализация данных ===
+def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details):
     """Создание визуализаций для дашборда"""
     
     # Создаем вкладки для разных типов визуализаций
@@ -1309,33 +1245,29 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric(
-                "Impact Factor", 
-                f"{if_days['if_value']:.4f}",
-                help=f"Расчет для публикаций {if_days['publication_years'][0]}-{if_days['publication_years'][1]} и цитирований {if_days['citation_years'][0]}-{if_days['citation_years'][1]}"
-            )
-        with col2:
             st.metric("H-index", enhanced_stats['h_index'])
-        with col3:
+        with col2:
             st.metric("Всего статей", analyzed_stats['n_items'])
-        with col4:
+        with col3:
             st.metric("Всего цитирований", enhanced_stats['total_citations'])
+        with col4:
+            st.metric("Среднее цитирований", f"{enhanced_stats['avg_citations_per_article']:.1f}")
         
         col5, col6, col7, col8 = st.columns(4)
         
         with col5:
-            st.metric("Среднее цитирований", f"{enhanced_stats['avg_citations_per_article']:.1f}")
-        with col6:
             st.metric("Статьи с цитированиями", enhanced_stats['articles_with_citations'])
-        with col7:
+        with col6:
             st.metric("Самоцитирования", f"{analyzed_stats['self_cites_pct']:.1f}%")
-        with col8:
+        with col7:
             st.metric("Международные статьи", f"{analyzed_stats['multi_country_pct']:.1f}%")
+        with col8:
+            st.metric("Уникальных аффилиаций", analyzed_stats['unique_affiliations_count'])
         
         # График цитирований по годам
-        if if_days['yearly_citations']:
-            years = [item['year'] for item in if_days['yearly_citations']]
-            citations = [item['citations_count'] for item in if_days['yearly_citations']]
+        if citation_timing['yearly_citations']:
+            years = [item['year'] for item in citation_timing['yearly_citations']]
+            citations = [item['citations_count'] for item in citation_timing['yearly_citations']]
             
             fig = go.Figure()
             fig.add_trace(go.Bar(
@@ -1448,12 +1380,12 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
         with col1:
             # Цитирования по порогам
             citation_thresholds = {
-                'Порог': ['≥10', '≥50', '≥100', '≥200'],
+                'Порог': ['≥10', '≥20', '≥30', '≥50'],
                 'Статьи': [
                     analyzed_stats['articles_with_10_citations'],
-                    analyzed_stats['articles_with_50_citations'],
-                    analyzed_stats['articles_with_100_citations'],
-                    analyzed_stats['articles_with_200_citations']
+                    analyzed_stats['articles_with_20_citations'],
+                    analyzed_stats['articles_with_30_citations'],
+                    analyzed_stats['articles_with_50_citations']
                 ]
             }
             fig = px.bar(
@@ -1523,22 +1455,22 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Мин. дней до цитирования", if_days['days_min'])
+            st.metric("Мин. дней до цитирования", citation_timing['days_min'])
         with col2:
-            st.metric("Макс. дней до цитирования", if_days['days_max'])
+            st.metric("Макс. дней до цитирования", citation_timing['days_max'])
         with col3:
-            st.metric("Среднее дней", f"{if_days['days_mean']:.1f}")
+            st.metric("Среднее дней", f"{citation_timing['days_mean']:.1f}")
         with col4:
-            st.metric("Медиана дней", if_days['days_median'])
+            st.metric("Медиана дней", citation_timing['days_median'])
         
         # Детали первых цитирований
-        if if_days['first_citation_details']:
+        if citation_timing['first_citation_details']:
             st.subheader("Детали первых цитирований")
-            first_citation_df = pd.DataFrame(if_days['first_citation_details'])
+            first_citation_df = pd.DataFrame(citation_timing['first_citation_details'])
             st.dataframe(first_citation_df)
             
             # Гистограмма времени до первого цитирования
-            days_data = [d['days_to_first_citation'] for d in if_days['first_citation_details']]
+            days_data = [d['days_to_first_citation'] for d in citation_timing['first_citation_details']]
             fig = px.histogram(
                 x=days_data,
                 title='Распределение времени до первого цитирования (дни)',
@@ -1546,7 +1478,7 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, if_days,
             )
             st.plotly_chart(fig, use_container_width=True)
 
-# === 20. Основная функция анализа ===
+# === 19. Основная функция анализа ===
 def analyze_journal(issn, period_str):
     global delayer
     delayer = AdaptiveDelayer()
@@ -1675,8 +1607,7 @@ def analyze_journal(issn, period_str):
     # Анализ пересечений
     overlap_details = analyze_overlaps(analyzed_metadata, all_citing_metadata, state)
     
-    current_date = datetime.now()
-    if_days = calculate_if_and_days(analyzed_metadata, all_citing_metadata, current_date, state)
+    citation_timing = calculate_citation_timing(analyzed_metadata, state)
     
     overall_progress.progress(0.9)
     
@@ -1688,7 +1619,7 @@ def analyze_journal(issn, period_str):
     
     # Создаем Excel файл в памяти
     excel_buffer = io.BytesIO()
-    create_enhanced_excel_report(analyzed_metadata, all_citing_metadata, analyzed_stats, citing_stats, enhanced_stats, if_days, overlap_details, excel_buffer)
+    create_enhanced_excel_report(analyzed_metadata, all_citing_metadata, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, excel_buffer)
     
     excel_buffer.seek(0)
     state.excel_buffer = excel_buffer
@@ -1701,7 +1632,7 @@ def analyze_journal(issn, period_str):
         'analyzed_stats': analyzed_stats,
         'citing_stats': citing_stats,
         'enhanced_stats': enhanced_stats,
-        'if_days': if_days,
+        'citation_timing': citation_timing,
         'overlap_details': overlap_details,
         'journal_name': journal_name,
         'issn': issn,
@@ -1716,7 +1647,7 @@ def analyze_journal(issn, period_str):
     overall_progress.empty()
     overall_status.empty()
 
-# === 21. Главный интерфейс ===
+# === 20. Главный интерфейс ===
 def main():
     initialize_analysis_state()
     state = get_analysis_state()
@@ -1746,7 +1677,7 @@ def main():
         
         st.info("""
         **Возможности анализа:**
-        - 📊 Impact Factor и H-index
+        - 📊 H-index и метрики цитирования
         - 👥 Анализ авторов и аффилиаций
         - 🌍 Географическое распределение
         - 🔗 Пересечения между работами
@@ -1819,7 +1750,7 @@ def main():
             results['analyzed_stats'],
             results['citing_stats'], 
             results['enhanced_stats'],
-            results['if_days'],
+            results['citation_timing'],
             results['overlap_details']
         )
         
@@ -1891,5 +1822,3 @@ def main():
 # Запуск приложения
 if __name__ == "__main__":
     main()
-
-
