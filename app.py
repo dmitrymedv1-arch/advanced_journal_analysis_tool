@@ -2262,7 +2262,7 @@ def main():
             results['enhanced_stats'],
             results['citation_timing'],
             results['overlap_details'],
-            results['fast_metrics']  # НОВОЕ
+            results.get('fast_metrics', {})
         )
         
         # Детальная статистика
@@ -2379,3 +2379,4 @@ def main():
 # Запуск приложения
 if __name__ == "__main__":
     main()
+
