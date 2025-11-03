@@ -18,21 +18,24 @@ import base64
 import os
 import random
 
-# --- Конфигурация страницы ---
+# Import translation manager
+from languages import translation_manager
+
+# --- Page Configuration ---
 st.set_page_config(
-    page_title="Комплексный анализатор научных журналов",
+    page_title="Advanced Journal Analysis Tool",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- Глобальные настройки ---
+# --- Global Settings ---
 EMAIL = st.secrets.get("EMAIL", "your.email@example.com") if hasattr(st, 'secrets') else "your.email@example.com"
 MAX_WORKERS = 5
 RETRIES = 3
 DELAYS = [0.2, 0.5, 0.7, 1.0, 1.3, 1.5, 2.0]
 
-# --- Классы для хранения состояния ---
+# --- State Storage Classes ---
 class AnalysisState:
     def __init__(self):
         self.crossref_cache = {}
@@ -47,151 +50,151 @@ class AnalysisState:
         self.analysis_complete = False
         self.excel_buffer = None
 
-# --- Словарь терминов ---
+# --- Terms Dictionary ---
 class JournalAnalysisGlossary:
     def __init__(self):
         self.terms = {
             'H-index': {
-                'definition': 'Индекс, показывающий количество статей h, которые получили не менее h цитирований',
-                'calculation': 'Статьи сортируются по убыванию цитирований, находится максимальное число h, где h-я статья имеет не менее h цитирований',
-                'interpretation': 'Выше = лучше. Показывает одновременно продуктивность и влияние автора/журнала',
-                'category': 'Цитирования',
-                'example': 'H-index 10 означает, что у ученого/журнала есть 10 статей, каждая из которых процитирована не менее 10 раз'
+                'definition': translation_manager.get_text('h_index_tooltip'),
+                'calculation': 'Articles are sorted in descending order of citations, the maximum number h is found where the h-th article has at least h citations',
+                'interpretation': 'Higher = better. Shows both productivity and influence of author/journal',
+                'category': 'Citations',
+                'example': 'H-index 10 means that a scientist/journal has 10 articles, each of which has been cited at least 10 times'
             },
             'Reference Age': {
-                'definition': 'Средний возраст ссылок в статьях журнала (медианное значение)',
-                'calculation': 'Разница между годом публикации статьи и годами публикации цитируемых работ',
-                'interpretation': 'Низкий возраст = журнал цитирует современные работы. Высокий возраст = опора на классические труды',
-                'category': 'Ссылки',
-                'example': 'Reference Age 8 лет означает, что половина ссылок в статьях моложе 8 лет, половина - старше'
+                'definition': 'Average age of references in journal articles (median value)',
+                'calculation': 'Difference between article publication year and publication years of cited works',
+                'interpretation': 'Low age = journal cites contemporary works. High age = reliance on classical works',
+                'category': 'References',
+                'example': 'Reference Age 8 years means that half of references in articles are younger than 8 years, half are older'
             },
             'JSCR': {
-                'definition': 'Journal Self-Citation Rate - процент самоцитирований журнала',
-                'calculation': '(Количество цитирований статей этого же журнала / Общее количество цитирований) × 100%',
-                'interpretation': 'Норма: 10-20%. Выше 30% может указывать на изолированность. Ниже 5% - широкая цитируемость',
-                'category': 'Цитирования',
-                'example': 'JSCR 15% означает, что 15% всех цитирований журнала приходятся на его собственные статьи'
+                'definition': 'Journal Self-Citation Rate - percentage of journal self-citations',
+                'calculation': '(Number of citations to articles of this same journal / Total number of citations) × 100%',
+                'interpretation': 'Normal: 10-20%. Above 30% may indicate isolation. Below 5% - wide citability',
+                'category': 'Citations',
+                'example': 'JSCR 15% means that 15% of all journal citations are to its own articles'
             },
             'Cited Half-Life': {
-                'definition': 'Период полуцитирования - время, за которое статья получает половину всех своих цитирований',
-                'calculation': 'Годы от публикации до момента, когда накоплено 50% от общего числа цитирований',
-                'interpretation': 'Короткий half-life = быстрая отдача (технические науки). Длинный = долгосрочное влияние (фундаментальные науки)',
-                'category': 'Цитирования',
-                'example': 'Cited Half-Life 4 года означает, что за первые 4 года статья получает половину всех своих цитирований'
+                'definition': 'Citation half-life - time during which an article receives half of all its citations',
+                'calculation': 'Years from publication to moment when 50% of total citations are accumulated',
+                'interpretation': 'Short half-life = quick return (technical sciences). Long = long-term influence (fundamental sciences)',
+                'category': 'Citations',
+                'example': 'Cited Half-Life 4 years means that in the first 4 years the article receives half of all its citations'
             },
             'FWCI': {
-                'definition': 'Field-Weighted Citation Impact - взвешенный по тематике индекс цитирования',
-                'calculation': 'Фактические цитирования / Ожидаемые цитирования для данной тематики',
-                'interpretation': '1.0 = средний уровень. >1.2 = выше среднего. >1.5 = значительно выше среднего',
-                'category': 'Цитирования',
-                'example': 'FWCI 1.8 означает, что статьи цитируются на 80% чаще, чем в среднем по их тематике'
+                'definition': 'Field-Weighted Citation Impact - field-weighted citation index',
+                'calculation': 'Actual citations / Expected citations for this field',
+                'interpretation': '1.0 = average level. >1.2 = above average. >1.5 = significantly above average',
+                'category': 'Citations',
+                'example': 'FWCI 1.8 means that articles are cited 80% more often than average in their field'
             },
             'Citation Velocity': {
-                'definition': 'Скорость цитирования - среднее количество цитирований в год за первые 2 года после публикации',
-                'calculation': 'Количество цитирований в первые 2 года / 2',
-                'interpretation': 'Выше = быстрее распознавание научным сообществом. Зависит от дисциплины',
-                'category': 'Цитирования',
-                'example': 'Velocity 3.5 означает, что в среднем статья получает 3.5 цитирования в год в первые два года'
+                'definition': 'Citation velocity - average number of citations per year for first 2 years after publication',
+                'calculation': 'Number of citations in first 2 years / 2',
+                'interpretation': 'Higher = faster recognition by scientific community. Depends on discipline',
+                'category': 'Citations',
+                'example': 'Velocity 3.5 means that on average an article receives 3.5 citations per year in first two years'
             },
             'OA Impact Premium': {
-                'definition': 'Премия открытого доступа - разница в цитированиях между OA и не-OA статьями',
-                'calculation': '((Средние цитирования OA - Средние цитирования не-OA) / Средние цитирования не-OA) × 100%',
-                'interpretation': 'Положительная премия = OA статьи цитируются чаще. Обычно +10% до +50%',
-                'category': 'Цитирования',
-                'example': 'OA Premium 25% означает, что статьи в открытом доступе цитируются на 25% чаще'
+                'definition': 'Open Access premium - difference in citations between OA and non-OA articles',
+                'calculation': '((Average OA citations - Average non-OA citations) / Average non-OA citations) × 100%',
+                'interpretation': 'Positive premium = OA articles are cited more frequently. Usually +10% to +50%',
+                'category': 'Citations',
+                'example': 'OA Premium 25% means that open access articles are cited 25% more frequently'
             },
             'Elite Index': {
-                'definition': 'Процент статей журнала, входящих в топ-10% самых цитируемых работ в своей области',
-                'calculation': 'Количество статей в топ-10% по цитированиям / Общее количество статей × 100%',
-                'interpretation': 'Выше = больше высокоэффективных статей. Превосходный показатель >20%',
-                'category': 'Цитирования',
-                'example': 'Elite Index 15% означает, что 15% статей журнала входят в 10% самых цитируемых в своей области'
+                'definition': 'Percentage of journal articles in top-10% most cited works in their field',
+                'calculation': 'Number of articles in top-10% by citations / Total number of articles × 100%',
+                'interpretation': 'Higher = more high-performance articles. Excellent indicator >20%',
+                'category': 'Citations',
+                'example': 'Elite Index 15% means that 15% of journal articles are in 10% most cited in their field'
             },
             'Author Gini': {
-                'definition': 'Индекс Джини для авторов - мера неравенства распределения публикаций между авторами',
-                'calculation': 'Статистический показатель от 0 до 1, где 0 = полное равенство, 1 = максимальное неравенство',
-                'interpretation': 'Низкий (0.1-0.3) = равномерное распределение. Высокий (0.6+) = несколько авторов доминируют',
-                'category': 'Авторы',
-                'example': 'Gini 0.4 означает умеренное неравенство - некоторые авторы публикуются значительно чаще других'
+                'definition': 'Gini index for authors - measure of inequality in publication distribution among authors',
+                'calculation': 'Statistical indicator from 0 to 1, where 0 = complete equality, 1 = maximum inequality',
+                'interpretation': 'Low (0.1-0.3) = uniform distribution. High (0.6+) = few authors dominate',
+                'category': 'Authors',
+                'example': 'Gini 0.4 means moderate inequality - some authors publish significantly more frequently than others'
             },
             'DBI': {
-                'definition': 'Diversity Balance Index - индекс диверсификации тематик',
-                'calculation': 'Нормализованный индекс Шеннона по тематическим концептам статей',
-                'interpretation': '0-1, где 0 = одна тематика, 1 = равномерное распределение по многим тематикам',
-                'category': 'Тематики',
-                'example': 'DBI 0.7 означает хорошую диверсификацию по нескольким тематическим направлениям'
+                'definition': 'Diversity Balance Index - thematic diversification index',
+                'calculation': 'Normalized Shannon index by thematic concepts of articles',
+                'interpretation': '0-1, where 0 = one theme, 1 = uniform distribution across many themes',
+                'category': 'Themes',
+                'example': 'DBI 0.7 means good diversification across several thematic directions'
             },
             'Self-Cites': {
-                'definition': 'Самоцитирования - ссылки на другие статьи того же журнала в библиографии',
-                'calculation': 'Количество ссылок с префиксом DOI этого журнала',
-                'interpretation': 'Умеренные самоцитирования нормальны. Чрезмерные могут искусственно завышать метрики',
-                'category': 'Ссылки',
-                'example': '15 самоцитирований из 100 ссылок = 15% самоцитирований'
+                'definition': 'Self-citations - references to other articles of the same journal in bibliography',
+                'calculation': 'Number of references with DOI prefix of this journal',
+                'interpretation': 'Moderate self-citations are normal. Excessive may artificially inflate metrics',
+                'category': 'References',
+                'example': '15 self-citations out of 100 references = 15% self-citations'
             },
             'International Collaboration': {
-                'definition': 'Международная коллаборация - процент статей с авторами из разных стран',
-                'calculation': 'Статьи с авторами из ≥2 стран / Все статьи × 100%',
-                'interpretation': 'Выше = более международный журнал. Показатель глобализации исследований',
-                'category': 'Авторы',
-                'example': '60% международных статей означает, что в большинстве работ участвуют авторы из разных стран'
+                'definition': 'International collaboration - percentage of articles with authors from different countries',
+                'calculation': 'Articles with authors from ≥2 countries / All articles × 100%',
+                'interpretation': 'Higher = more international journal. Indicator of research globalization',
+                'category': 'Authors',
+                'example': '60% international articles means that in most works authors from different countries participate'
             },
             'ISSN': {
-                'definition': 'International Standard Serial Number - уникальный идентификатор сериальных изданий',
-                'calculation': '8-значный код формата XXXX-XXXX, присваивается журналам',
-                'interpretation': 'Используется для однозначной идентификации журнала в международных базах данных',
-                'category': 'Журнал',
-                'example': 'ISSN 2411-1414 идентифицирует журнал Chimica Techno Acta'
+                'definition': 'International Standard Serial Number - unique identifier for serial publications',
+                'calculation': '8-digit code format XXXX-XXXX, assigned to journals',
+                'interpretation': 'Used for unambiguous journal identification in international databases',
+                'category': 'Journal',
+                'example': 'ISSN 2411-1414 identifies journal Chimica Techno Acta'
             },
             'DOI': {
-                'definition': 'Digital Object Identifier - постоянная ссылка на цифровой объект',
-                'calculation': 'Уникальный идентификатор формата 10.XXXX/XXXXX для научных статей',
-                'interpretation': 'Обеспечивает постоянную доступность и цитируемость научных работ',
-                'category': 'Технические',
-                'example': 'DOI 10.15826/chimtech.2024.11.1.01 однозначно идентифицирует конкретную статью'
+                'definition': 'Digital Object Identifier - permanent link to digital object',
+                'calculation': 'Unique identifier format 10.XXXX/XXXXX for scientific articles',
+                'interpretation': 'Provides permanent availability and citability of scientific works',
+                'category': 'Technical',
+                'example': 'DOI 10.15826/chimtech.2024.11.1.01 unambiguously identifies specific article'
             },
             'Crossref': {
-                'definition': 'Система взаимных ссылок между научными публикациями',
-                'calculation': 'База данных ссылок между статьями с метаданными',
-                'interpretation': 'Основной источник данных о цитированиях и метаданных статей',
-                'category': 'Базы данных',
-                'example': 'Crossref содержит информацию о 140+ миллионах научных работ'
+                'definition': 'System of mutual references between scientific publications',
+                'calculation': 'Database of references between articles with metadata',
+                'interpretation': 'Main source of citation data and article metadata',
+                'category': 'Databases',
+                'example': 'Crossref contains information about 140+ million scientific works'
             },
             'OpenAlex': {
-                'definition': 'Открытая база данных научных публикаций, авторов и институтов',
-                'calculation': 'Альтернатива Scopus/WoS с открытым доступом к данным',
-                'interpretation': 'Предоставляет расширенные метрики и связи между научными объектами',
-                'category': 'Базы данных',
-                'example': 'OpenAlex содержит данные о 200+ миллионах научных работ'
+                'definition': 'Open database of scientific publications, authors and institutions',
+                'calculation': 'Alternative to Scopus/WoS with open access to data',
+                'interpretation': 'Provides extended metrics and connections between scientific objects',
+                'category': 'Databases',
+                'example': 'OpenAlex contains data about 200+ million scientific works'
             }
         }
         
         self.category_colors = {
-            'Цитирования': '🔵',
-            'Ссылки': '🟢',
-            'Авторы': '🟠',
-            'Тематики': '🟣',
-            'Журнал': '🔴',
-            'Технические': '⚫',
-            'Базы данных': '🟤'
+            'Citations': '🔵',
+            'References': '🟢',
+            'Authors': '🟠',
+            'Themes': '🟣',
+            'Journal': '🔴',
+            'Technical': '⚫',
+            'Databases': '🟤'
         }
     
     def get_tooltip(self, term):
-        """Генерация текста для всплывающей подсказки"""
+        """Generate text for tooltip"""
         if term not in self.terms:
-            return f"Термин '{term}' не найден в словаре"
+            return f"Term '{term}' not found in dictionary"
         
         info = self.terms[term]
         tooltip = f"**{term}**\n\n{info['definition']}"
         
         if 'calculation' in info:
-            tooltip += f"\n\n**Расчет:** {info['calculation']}"
+            tooltip += f"\n\n**Calculation:** {info['calculation']}"
         if 'interpretation' in info:
-            tooltip += f"\n\n**Интерпретация:** {info['interpretation']}"
+            tooltip += f"\n\n**Interpretation:** {info['interpretation']}"
             
         return tooltip
     
     def get_detailed_info(self, term):
-        """Полная информация о термине для расширенных подсказок"""
+        """Complete term information for extended tooltips"""
         if term not in self.terms:
             return None
         
@@ -201,35 +204,35 @@ class JournalAnalysisGlossary:
         detailed = {
             'term': term,
             'definition': info['definition'],
-            'calculation': info.get('calculation', 'Не указано'),
-            'interpretation': info.get('interpretation', 'Не указано'),
+            'calculation': info.get('calculation', 'Not specified'),
+            'interpretation': info.get('interpretation', 'Not specified'),
             'category': f"{category_icon} {info['category']}",
-            'example': info.get('example', 'Пример не предоставлен')
+            'example': info.get('example', 'Example not provided')
         }
         
         return detailed
     
     def get_terms_by_category(self, category):
-        """Получить все термины категории"""
+        """Get all terms of category"""
         return [term for term, info in self.terms.items() if info['category'] == category]
     
     def get_random_term(self):
-        """Случайный термин для обучения"""
+        """Random term for learning"""
         return random.choice(list(self.terms.keys()))
 
-# Инициализация глобального словаря
+# Initialize global dictionary
 glossary = JournalAnalysisGlossary()
 
-# --- Инициализация состояния ---
+# --- State Initialization ---
 def initialize_analysis_state():
     if 'analysis_state' not in st.session_state:
         st.session_state.analysis_state = AnalysisState()
     
-    # Инициализация изученных терминов
+    # Initialize learned terms
     if 'learned_terms' not in st.session_state:
         st.session_state.learned_terms = set()
     
-    # Инициализация просмотренных терминов в этой сессии
+    # Initialize viewed terms in this session
     if 'viewed_terms' not in st.session_state:
         st.session_state.viewed_terms = set()
 
@@ -258,7 +261,7 @@ class RateLimiter:
 
 rate_limiter = RateLimiter(calls_per_second=8)
 
-# --- Адаптивная задержка ---
+# --- Adaptive Delay ---
 class AdaptiveDelayer:
     def __init__(self):
         self.lock = threading.Lock()
@@ -276,7 +279,7 @@ class AdaptiveDelayer:
 
 delayer = AdaptiveDelayer()
 
-# --- Конфигурация ---
+# --- Configuration ---
 class JournalAnalyzerConfig:
     def __init__(self):
         self.email = EMAIL
@@ -295,13 +298,13 @@ class JournalAnalyzerConfig:
 
 config = JournalAnalyzerConfig()
 
-# --- Вспомогательные функции ---
+# --- Helper Functions ---
 def update_progress(progress, text):
     state = get_analysis_state()
     state.current_progress = progress
     state.progress_text = text
 
-# --- Валидация и парсинг периода ---
+# --- Period Validation and Parsing ---
 def parse_period(period_str):
     years = set()
     parts = [p.strip() for p in period_str.replace(' ', '').split(',') if p.strip()]
@@ -312,24 +315,24 @@ def parse_period(period_str):
                 if 1900 <= s <= 2100 and 1900 <= e <= 2100 and s <= e:
                     years.update(range(s, e + 1))
                 else:
-                    st.warning(f"⚠️ Диапазон вне 1900–2100 или некорректный: {part}")
+                    st.warning(translation_manager.get_text('range_out_of_bounds').format(part=part))
             except ValueError:
-                st.warning(f"⚠️ Ошибка парсинга диапазона: {part}")
+                st.warning(translation_manager.get_text('range_parsing_error').format(part=part))
         else:
             try:
                 y = int(part)
                 if 1900 <= y <= 2100:
                     years.add(y)
                 else:
-                    st.warning(f"⚠️ Год вне 1900–2100: {y}")
+                    st.warning(translation_manager.get_text('year_out_of_bounds').format(year=y))
             except ValueError:
-                st.warning(f"⚠️ Не год: {part}")
+                st.warning(translation_manager.get_text('not_a_year').format(part=part))
     if not years:
-        st.error("❌ Нет корректных годов.")
+        st.error(translation_manager.get_text('no_correct_years'))
         return []
     return sorted(years)
 
-# --- Валидация данных ---
+# --- Data Validation ---
 def validate_and_clean_data(items):
     validated = []
     skipped_count = 0
@@ -353,10 +356,10 @@ def validate_and_clean_data(items):
         validated.append(item)
     
     if skipped_count > 0:
-        st.warning(f"⚠️ Пропущено {skipped_count} статей из-за проблем с данными")
+        st.warning(translation_manager.get_text('articles_skipped').format(count=skipped_count))
     return validated
 
-# === 1. Название журнала ===
+# === 1. Journal Name ===
 def get_journal_name(issn):
     state = get_analysis_state()
     if issn in state.crossref_cache.get('journals', {}):
@@ -378,9 +381,9 @@ def get_journal_name(issn):
         except:
             pass
         delayer.wait(success=False)
-    return "Журнал не найден"
+    return translation_manager.get_text('journal_not_found')
 
-# === 2. Получение Crossref metadata ===
+# === 2. Crossref Metadata Retrieval ===
 def get_crossref_metadata(doi, state):
     if doi in state.crossref_cache:
         return state.crossref_cache[doi]
@@ -402,7 +405,7 @@ def get_crossref_metadata(doi, state):
         delayer.wait(success=False)
     return None
 
-# === 3. Получение OpenAlex metadata ===
+# === 3. OpenAlex Metadata Retrieval ===
 def get_openalex_metadata(doi, state):
     if doi in state.openalex_cache:
         return state.openalex_cache[doi]
@@ -424,7 +427,7 @@ def get_openalex_metadata(doi, state):
         delayer.wait(success=False)
     return None
 
-# === 4. Унифицированные метаданные ===
+# === 4. Unified Metadata ===
 def get_unified_metadata(args):
     doi, state = args
     if doi in state.unified_cache:
@@ -440,7 +443,7 @@ def get_unified_metadata(args):
     state.unified_cache[doi] = result
     return result
 
-# === 5. Получение цитирующих DOI и их metadata ===
+# === 5. Citing DOI Retrieval and Their Metadata ===
 def get_citing_dois_and_metadata(args):
     analyzed_doi, state = args
     if analyzed_doi in state.citing_cache:
@@ -487,7 +490,7 @@ def get_citing_dois_and_metadata(args):
     state.citing_cache[analyzed_doi] = citing_list
     return citing_list
 
-# === 6. Извлечение аффилиаций и стран ===
+# === 6. Affiliation and Country Extraction ===
 def extract_affiliations_and_countries(openalex_data):
     affiliations = set()
     countries = set()
@@ -512,7 +515,7 @@ def extract_affiliations_and_countries(openalex_data):
     
     return authors_list, list(affiliations), list(countries)
 
-# === 7. Извлечение информации о журнале ===
+# === 7. Journal Information Extraction ===
 def extract_journal_info(metadata):
     journal_info = {
         'issn': [],
@@ -542,7 +545,7 @@ def extract_journal_info(metadata):
     
     return journal_info
 
-# === 8. Получение статей из Crossref ===
+# === 8. Article Retrieval from Crossref ===
 def fetch_articles_by_issn_period(issn, from_date, until_date):
     base_url = "https://api.crossref.org/works"
     items = []
@@ -559,7 +562,7 @@ def fetch_articles_by_issn_period(issn, from_date, until_date):
     progress_container = st.container()
     
     with progress_container:
-        st.info("📥 Начинается загрузка информации из баз данных **Crossref** и **OpenAlex**. Анализ может занять длительное время в случае большого числа анализируемых статей или цитирований. Для получения 'быстрой' статистики рекомендуется уменьшить период анализа...")
+        st.info("📥 " + translation_manager.get_text('loading_articles') + " **Crossref** " + translation_manager.get_text('and') + " **OpenAlex**. " + translation_manager.get_text('analysis_may_take_time') + " " + translation_manager.get_text('reduce_period_recommended'))
     
     while cursor:
         params['cursor'] = cursor
@@ -574,7 +577,7 @@ def fetch_articles_by_issn_period(issn, from_date, until_date):
                     items.extend(new_items)
                     cursor = data['message'].get('next-cursor')
                     
-                    status_text.text(f"📥 Загружено {len(items)} статей...")
+                    status_text.text(f"📥 {translation_manager.get_text('loaded_articles').format(count=len(items))}")
                     if cursor:
                         progress = min(len(items) / (len(items) + 100), 0.95)
                         progress_bar.progress(progress)
@@ -583,7 +586,7 @@ def fetch_articles_by_issn_period(issn, from_date, until_date):
                     success = True
                     break
             except Exception as e:
-                st.error(f"Ошибка при загрузке: {e}")
+                st.error(translation_manager.get_text('loading_error').format(error=e))
             delayer.wait(success=False)
         if not success:
             break
@@ -591,7 +594,7 @@ def fetch_articles_by_issn_period(issn, from_date, until_date):
             break
     
     progress_bar.progress(1.0)
-    status_text.text(f"✅ Загружено {len(items)} статей")
+    status_text.text(f"✅ {translation_manager.get_text('articles_loaded').format(count=len(items))}")
     time.sleep(0.5)
     progress_bar.empty()
     status_text.empty()
@@ -599,14 +602,14 @@ def fetch_articles_by_issn_period(issn, from_date, until_date):
     
     return items
 
-# === 9. Извлечение префикса DOI ===
+# === 9. DOI Prefix Extraction ===
 def get_doi_prefix(doi):
     if not doi or doi == 'N/A':
         return ''
     return doi.split('/')[0] if '/' in doi else doi[:7]
 
-# === 10. Обработка с прогресс-баром ===
-def process_with_progress(items, func, desc="Обработка", unit="элементов"):
+# === 10. Processing with Progress Bar ===
+def process_with_progress(items, func, desc="Processing", unit="items"):
     results = []
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -618,7 +621,7 @@ def process_with_progress(items, func, desc="Обработка", unit="элем
             try:
                 results.append(future.result())
             except Exception as e:
-                st.error(f"Ошибка в {desc}: {e}")
+                st.error(f"Error in {desc}: {e}")
                 results.append(None)
             
             progress = (i + 1) / len(items)
@@ -629,9 +632,9 @@ def process_with_progress(items, func, desc="Обработка", unit="элем
     status_text.empty()
     return results
 
-# === 11. Анализ пересечений между анализируемыми и цитирующими работами ===
+# === 11. Analysis of Overlaps Between Analyzed and Citing Works ===
 def analyze_overlaps(analyzed_metadata, citing_metadata, state):
-    """Анализ пересечений между анализируемыми и цитирующими работами"""
+    """Analysis of overlaps between analyzed and citing works"""
     
     overlap_details = []
     
@@ -643,12 +646,12 @@ def analyze_overlaps(analyzed_metadata, citing_metadata, state):
         if not analyzed_doi:
             continue
             
-        # Получаем авторов и аффилиации анализируемой работы
+        # Get authors and affiliations of analyzed work
         analyzed_authors, analyzed_affiliations, _ = extract_affiliations_and_countries(analyzed.get('openalex'))
         analyzed_authors_set = set(analyzed_authors)
         analyzed_affiliations_set = set(analyzed_affiliations)
         
-        # Получаем цитирующие работы
+        # Get citing works
         citings = get_citing_dois_and_metadata((analyzed_doi, state))
         
         for citing in citings:
@@ -659,12 +662,12 @@ def analyze_overlaps(analyzed_metadata, citing_metadata, state):
             if not citing_doi:
                 continue
             
-            # Получаем авторов и аффилиации цитирующей работы
+            # Get authors and affiliations of citing work
             citing_authors, citing_affiliations, _ = extract_affiliations_and_countries(citing.get('openalex'))
             citing_authors_set = set(citing_authors)
             citing_affiliations_set = set(citing_affiliations)
             
-            # Находим пересечения
+            # Find overlaps
             common_authors = analyzed_authors_set.intersection(citing_authors_set)
             common_affiliations = analyzed_affiliations_set.intersection(citing_affiliations_set)
             
@@ -680,7 +683,7 @@ def analyze_overlaps(analyzed_metadata, citing_metadata, state):
     
     return overlap_details
 
-# === 12. Анализ скорости накопления цитирований ===
+# === 12. Citation Accumulation Speed Analysis ===
 def analyze_citation_accumulation(analyzed_metadata, state):
     accumulation_data = defaultdict(lambda: defaultdict(int))
     yearly_citations = defaultdict(int)
@@ -733,7 +736,7 @@ def analyze_citation_accumulation(analyzed_metadata, state):
         'total_years_covered': len(yearly_citations)
     }
 
-# === 13. Обработка метаданных для статистики ===
+# === 13. Metadata Processing for Statistics ===
 def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=''):
     total_refs = 0
     refs_with_doi = 0
@@ -915,7 +918,7 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
         'unique_publishers_count': len(publisher_freq)
     }
 
-# === 14. Расчет расширенной статистики ===
+# === 14. Enhanced Statistics Calculation ===
 def enhanced_stats_calculation(analyzed_metadata, citing_metadata, state):
     citation_network = defaultdict(list)
     citation_counts = []
@@ -952,7 +955,7 @@ def enhanced_stats_calculation(analyzed_metadata, citing_metadata, state):
         'articles_without_citations': len([c for c in citation_counts if c == 0])
     }
 
-# === 15. Расчет времени до первого цитирования ===
+# === 15. Time to First Citation Calculation ===
 def calculate_citation_timing_stats(analyzed_metadata, state):
     all_days_to_first_citation = []
     citation_timing_stats = {}
@@ -1022,7 +1025,7 @@ def calculate_citation_timing_stats(analyzed_metadata, state):
     
     return citation_timing_stats
 
-# === 16. Расчет времени цитирования ===
+# === 16. Citation Timing Calculation ===
 def calculate_citation_timing(analyzed_metadata, state):
     timing_stats = calculate_citation_timing_stats(analyzed_metadata, state)
     accumulation_stats = analyze_citation_accumulation(analyzed_metadata, state)
@@ -1039,10 +1042,10 @@ def calculate_citation_timing(analyzed_metadata, state):
         'total_years_covered': accumulation_stats['total_years_covered']
     }
 
-# === НОВЫЕ ФУНКЦИИ: БЫСТРЫЕ МЕТРИКИ БЕЗ API ЗАПРОСОВ ===
+# === NEW FUNCTIONS: FAST METRICS WITHOUT API REQUESTS ===
 
 def calculate_reference_age_fast(analyzed_metadata, state):
-    """Расчет возраста ссылок без дополнительных запросов к API"""
+    """Reference age calculation without additional API requests"""
     ref_ages = []
     current_year = datetime.now().year
     
@@ -1056,7 +1059,7 @@ def calculate_reference_age_fast(analyzed_metadata, state):
             continue
         
         for ref in cr.get('reference', []):
-            # 1. Пробуем year из unstructured
+            # 1. Try year from unstructured
             if 'year' in ref:
                 try:
                     ref_year = int(ref['year'])
@@ -1066,7 +1069,7 @@ def calculate_reference_age_fast(analyzed_metadata, state):
                 except: 
                     pass
             
-            # 2. Пробуем DOI из кэша (уже загружено!)
+            # 2. Try DOI from cache (already loaded!)
             doi = ref.get('DOI')
             if doi and doi in state.crossref_cache:
                 cached = state.crossref_cache[doi]
@@ -1091,7 +1094,7 @@ def calculate_reference_age_fast(analyzed_metadata, state):
     }
 
 def calculate_jscr_fast(citing_metadata, journal_issn):
-    """Journal Self-Citation Rate - процент самоцитирований"""
+    """Journal Self-Citation Rate - percentage of journal self-citations"""
     total = len(citing_metadata)
     if total == 0: 
         return {
@@ -1116,7 +1119,7 @@ def calculate_jscr_fast(citing_metadata, journal_issn):
     }
 
 def calculate_cited_half_life_fast(analyzed_metadata, state):
-    """Cited Half-Life - медианное время до получения половины цитирований"""
+    """Cited Half-Life - median time to receive half of citations"""
     half_lives = []
     
     for meta in analyzed_metadata:
@@ -1157,7 +1160,7 @@ def calculate_cited_half_life_fast(analyzed_metadata, state):
     }
 
 def calculate_fwci_fast(analyzed_metadata):
-    """Field-Weighted Citation Impact - взвешенный по тематике индекс цитирования"""
+    """Field-Weighted Citation Impact - field-weighted citation index"""
     total_cites = 0
     expected = 0.0
     
@@ -1186,7 +1189,7 @@ def calculate_fwci_fast(analyzed_metadata):
     }
 
 def calculate_citation_velocity_fast(analyzed_metadata, state):
-    """Citation Velocity - среднее цитирований в год за первые 2 года"""
+    """Citation Velocity - average citations per year for first 2 years"""
     velocities = []
     current_year = datetime.now().year
     
@@ -1210,7 +1213,7 @@ def calculate_citation_velocity_fast(analyzed_metadata, state):
     }
 
 def calculate_oa_impact_premium_fast(analyzed_metadata):
-    """Open Access Impact Premium - разница в цитированиях между OA и не-OA"""
+    """Open Access Impact Premium - citation difference between OA and non-OA"""
     oa_citations = []
     non_oa_citations = []
     
@@ -1241,7 +1244,7 @@ def calculate_oa_impact_premium_fast(analyzed_metadata):
     }
 
 def calculate_elite_index_fast(analyzed_metadata):
-    """Elite Index - процент статей в топ-10% по цитированиям"""
+    """Elite Index - percentage of articles in top-10% by citations"""
     if not analyzed_metadata:
         return {'elite_index': 0}
     
@@ -1266,7 +1269,7 @@ def calculate_elite_index_fast(analyzed_metadata):
     }
 
 def calculate_author_gini_fast(analyzed_metadata):
-    """Author Gini Index - индекс неравенства распределения публикаций по авторам"""
+    """Author Gini Index - inequality index of publication distribution among authors"""
     author_counts = Counter()
     
     for meta in analyzed_metadata:
@@ -1280,7 +1283,7 @@ def calculate_author_gini_fast(analyzed_metadata):
     if len(author_counts) < 2:
         return {'author_gini': 0}
     
-    # Расчет индекса Джини
+    # Gini index calculation
     values = sorted(author_counts.values())
     n = len(values)
     cumulative = np.cumsum(values).astype(float)
@@ -1294,7 +1297,7 @@ def calculate_author_gini_fast(analyzed_metadata):
     }
 
 def calculate_dbi_fast(analyzed_metadata):
-    """Diversity Balance Index - индекс диверсификации тематик"""
+    """Diversity Balance Index - thematic diversification index"""
     concept_freq = Counter()
     total_concepts = 0
     
@@ -1302,7 +1305,7 @@ def calculate_dbi_fast(analyzed_metadata):
         oa = meta.get('openalex')
         if oa and 'concepts' in oa:
             concepts = oa['concepts']
-            for concept in concepts[:3]:  # Берем топ-3 концепта
+            for concept in concepts[:3]:  # Take top-3 concepts
                 concept_name = concept.get('display_name', '')
                 if concept_name:
                     concept_freq[concept_name] += 1
@@ -1311,11 +1314,11 @@ def calculate_dbi_fast(analyzed_metadata):
     if total_concepts == 0:
         return {'DBI': 0}
     
-    # Индекс Шеннона
+    # Shannon index
     proportions = [count / total_concepts for count in concept_freq.values()]
     shannon = -sum(p * np.log(p) for p in proportions if p > 0)
     
-    # Нормализация (максимум = log(n))
+    # Normalization (maximum = log(n))
     max_shannon = np.log(len(concept_freq)) if concept_freq else 1
     dbi = shannon / max_shannon if max_shannon > 0 else 0
     
@@ -1327,7 +1330,7 @@ def calculate_dbi_fast(analyzed_metadata):
     }
 
 def calculate_all_fast_metrics(analyzed_metadata, citing_metadata, state, journal_issn):
-    """Расчет всех быстрых метрик за один проход"""
+    """Calculation of all fast metrics in one pass"""
     fast_metrics = {}
     
     # Reference Age
@@ -1359,14 +1362,14 @@ def calculate_all_fast_metrics(analyzed_metadata, citing_metadata, state, journa
     
     return fast_metrics
 
-# === 17. Создание расширенного Excel отчета ===
+# === 17. Enhanced Excel Report Creation ===
 def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer):
-    """Создание расширенного Excel отчета с обработкой ошибок для больших данных"""
+    """Create enhanced Excel report with error handling for large data"""
     try:
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-            # Лист 1: Анализируемые статьи (с оптимизацией)
+            # Sheet 1: Analyzed articles (with optimization)
             analyzed_list = []
-            MAX_ROWS = 50000  # Ограничиваем для больших данных
+            MAX_ROWS = 50000  # Limit for large data
             
             for i, item in enumerate(analyzed_data):
                 if i >= MAX_ROWS:
@@ -1379,27 +1382,27 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     
                     analyzed_list.append({
                         'DOI': cr.get('DOI', '')[:100],
-                        'Название': (cr.get('title', [''])[0] if cr.get('title') else 'Без названия')[:200],
-                        'Авторы_Crossref': '; '.join([f"{a.get('given', '')} {a.get('family', '')}" for a in cr.get('author', [])])[:300],
-                        'Авторы_OpenAlex': '; '.join(authors_list)[:300],
-                        'Аффилиации': '; '.join(affiliations_list)[:500],
-                        'Страны': '; '.join(countries_list)[:100],
-                        'Год публикации': cr.get('published', {}).get('date-parts', [[0]])[0][0],
-                        'Журнал': journal_info['journal_name'][:100],
-                        'Издатель': journal_info['publisher'][:100],
+                        'Title': (cr.get('title', [''])[0] if cr.get('title') else 'No title')[:200],
+                        'Authors_Crossref': '; '.join([f"{a.get('given', '')} {a.get('family', '')}" for a in cr.get('author', [])])[:300],
+                        'Authors_OpenAlex': '; '.join(authors_list)[:300],
+                        'Affiliations': '; '.join(affiliations_list)[:500],
+                        'Countries': '; '.join(countries_list)[:100],
+                        'Publication_Year': cr.get('published', {}).get('date-parts', [[0]])[0][0],
+                        'Journal': journal_info['journal_name'][:100],
+                        'Publisher': journal_info['publisher'][:100],
                         'ISSN': '; '.join(journal_info['issn'])[:50],
-                        'Количество ссылок': cr.get('reference-count', 0),
-                        'Цитирования Crossref': cr.get('is-referenced-by-count', 0),
-                        'Цитирования OpenAlex': oa.get('cited_by_count', 0) if oa else 0,
-                        'Количество авторов': len(cr.get('author', [])),
-                        'Тип работы': cr.get('type', '')[:50]
+                        'Reference_Count': cr.get('reference-count', 0),
+                        'Citations_Crossref': cr.get('is-referenced-by-count', 0),
+                        'Citations_OpenAlex': oa.get('cited_by_count', 0) if oa else 0,
+                        'Author_Count': len(cr.get('author', [])),
+                        'Work_Type': cr.get('type', '')[:50]
                     })
             
             if analyzed_list:
                 analyzed_df = pd.DataFrame(analyzed_list)
-                analyzed_df.to_excel(writer, sheet_name='Анализируемые_статьи', index=False)
+                analyzed_df.to_excel(writer, sheet_name='Analyzed_Articles', index=False)
 
-            # Лист 2: Цитирующие работы (с оптимизацией)
+            # Sheet 2: Citing works (with optimization)
             citing_list = []
             for i, item in enumerate(citing_data):
                 if i >= MAX_ROWS:
@@ -1412,94 +1415,94 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     
                     citing_list.append({
                         'DOI': cr.get('DOI', '')[:100],
-                        'Название': (cr.get('title', [''])[0] if cr.get('title') else 'Без названия')[:200],
-                        'Авторы_Crossref': '; '.join([f"{a.get('given', '')} {a.get('family', '')}" for a in cr.get('author', [])])[:300],
-                        'Авторы_OpenAlex': '; '.join(authors_list)[:300],
-                        'Аффилиации': '; '.join(affiliations_list)[:500],
-                        'Страны': '; '.join(countries_list)[:100],
-                        'Год публикации': cr.get('published', {}).get('date-parts', [[0]])[0][0],
-                        'Журнал': journal_info['journal_name'][:100],
-                        'Издатель': journal_info['publisher'][:100],
+                        'Title': (cr.get('title', [''])[0] if cr.get('title') else 'No title')[:200],
+                        'Authors_Crossref': '; '.join([f"{a.get('given', '')} {a.get('family', '')}" for a in cr.get('author', [])])[:300],
+                        'Authors_OpenAlex': '; '.join(authors_list)[:300],
+                        'Affiliations': '; '.join(affiliations_list)[:500],
+                        'Countries': '; '.join(countries_list)[:100],
+                        'Publication_Year': cr.get('published', {}).get('date-parts', [[0]])[0][0],
+                        'Journal': journal_info['journal_name'][:100],
+                        'Publisher': journal_info['publisher'][:100],
                         'ISSN': '; '.join(journal_info['issn'])[:50],
-                        'Количество ссылок': cr.get('reference-count', 0),
-                        'Цитирования Crossref': cr.get('is-referenced-by-count', 0),
-                        'Цитирования OpenAlex': oa.get('cited_by_count', 0) if oa else 0,
-                        'Количество авторов': len(cr.get('author', [])),
-                        'Тип работы': cr.get('type', '')[:50]
+                        'Reference_Count': cr.get('reference-count', 0),
+                        'Citations_Crossref': cr.get('is-referenced-by-count', 0),
+                        'Citations_OpenAlex': oa.get('cited_by_count', 0) if oa else 0,
+                        'Author_Count': len(cr.get('author', [])),
+                        'Work_Type': cr.get('type', '')[:50]
                     })
             
             if citing_list:
                 citing_df = pd.DataFrame(citing_list)
-                citing_df.to_excel(writer, sheet_name='Цитирующие_работы', index=False)
+                citing_df.to_excel(writer, sheet_name='Citing_Works', index=False)
 
-            # Лист 3: Пересечения анализируемых и цитирующих работ
+            # Sheet 3: Overlaps between analyzed and citing works
             overlap_list = []
             for overlap in overlap_details:
                 overlap_list.append({
-                    'DOI анализируемой работы': overlap['analyzed_doi'][:100],
-                    'DOI цитирующей работы': overlap['citing_doi'][:100],
-                    'Совпадающие авторы': '; '.join(overlap['common_authors'])[:300],
-                    'Количество совпадающих авторов': overlap['common_authors_count'],
-                    'Совпадающие аффилиации': '; '.join(overlap['common_affiliations'])[:500],
-                    'Количество совпадающих аффилиаций': overlap['common_affiliations_count']
+                    'Analyzed_DOI': overlap['analyzed_doi'][:100],
+                    'Citing_DOI': overlap['citing_doi'][:100],
+                    'Common_Authors': '; '.join(overlap['common_authors'])[:300],
+                    'Common_Authors_Count': overlap['common_authors_count'],
+                    'Common_Affiliations': '; '.join(overlap['common_affiliations'])[:500],
+                    'Common_Affiliations_Count': overlap['common_affiliations_count']
                 })
             
             if overlap_list:
                 overlap_df = pd.DataFrame(overlap_list)
-                overlap_df.to_excel(writer, sheet_name='Пересечения_работ', index=False)
+                overlap_df.to_excel(writer, sheet_name='Work_Overlaps', index=False)
 
-            # Лист 4: Время до первого цитирования
+            # Sheet 4: Time to first citation
             first_citation_list = []
             for detail in citation_timing.get('first_citation_details', []):
                 first_citation_list.append({
-                    'DOI анализируемой работы': detail['analyzed_doi'][:100],
-                    'DOI первой цитирующей работы': detail['citing_doi'][:100],
-                    'Дата публикации': detail['analyzed_date'].strftime('%Y-%m-%d'),
-                    'Дата первого цитирования': detail['first_citation_date'].strftime('%Y-%m-%d'),
-                    'Дней до первого цитирования': detail['days_to_first_citation']
+                    'Analyzed_DOI': detail['analyzed_doi'][:100],
+                    'First_Citing_DOI': detail['citing_doi'][:100],
+                    'Publication_Date': detail['analyzed_date'].strftime('%Y-%m-%d'),
+                    'First_Citation_Date': detail['first_citation_date'].strftime('%Y-%m-%d'),
+                    'Days_to_First_Citation': detail['days_to_first_citation']
                 })
             
             if first_citation_list:
                 first_citation_df = pd.DataFrame(first_citation_list)
-                first_citation_df.to_excel(writer, sheet_name='Первые_цитирования', index=False)
+                first_citation_df.to_excel(writer, sheet_name='First_Citations', index=False)
 
-            # Лист 5: Статистика анализируемых статей
+            # Sheet 5: Analyzed articles statistics
             analyzed_stats_data = {
-                'Метрика': [
-                    'Всего статей', 
-                    'Общее количество ссылок', 
-                    'Ссылки с DOI', 'Количество ссылок с DOI', 'Процент ссылок с DOI',
-                    'Ссылки без DOI', 'Количество ссылок без DOI', 'Процент ссылок без DOI',
-                    'Самоцитирования', 'Количество самоцитирований', 'Процент самоцитирований',
-                    'Статьи с одним автором',
-                    'Статьи с >10 авторами', 
-                    'Минимальное число ссылок', 
-                    'Максимальное число ссылок', 
-                    'Среднее число ссылок',
-                    'Медиана ссылок', 
-                    'Минимальное число авторов',
-                    'Максимальное число авторов', 
-                    'Среднее число авторов',
-                    'Медиана авторов', 
-                    'Статьи из одной страны', 'Процент статей из одной страны',
-                    'Статьи из нескольких стран', 'Процент статей из нескольких стран',
-                    'Статьи без данных о странах', 'Процент статей без данных о странах',
-                    'Всего аффилиаций',
-                    'Уникальных аффилиаций', 
-                    'Уникальных стран',
-                    'Уникальных журналов',
-                    'Уникальных издателей',
-                    'Статьи с ≥10 цитированиями',
-                    'Статьи с ≥20 цитированиями',
-                    'Статьи с ≥30 цитированиями',
-                    'Статьи с ≥50 цитированиями'
+                'Metric': [
+                    'Total Articles', 
+                    'Total References', 
+                    'References with DOI', 'References with DOI Count', 'References with DOI Percentage',
+                    'References without DOI', 'References without DOI Count', 'References without DOI Percentage',
+                    'Self-Citations', 'Self-Citations Count', 'Self-Citations Percentage',
+                    'Single Author Articles',
+                    'Articles with >10 Authors', 
+                    'Minimum References', 
+                    'Maximum References', 
+                    'Average References',
+                    'Median References', 
+                    'Minimum Authors',
+                    'Maximum Authors', 
+                    'Average Authors',
+                    'Median Authors', 
+                    'Single Country Articles', 'Single Country Articles Percentage',
+                    'Multiple Country Articles', 'Multiple Country Articles Percentage',
+                    'No Country Data Articles', 'No Country Data Articles Percentage',
+                    'Total Affiliations',
+                    'Unique Affiliations', 
+                    'Unique Countries',
+                    'Unique Journals',
+                    'Unique Publishers',
+                    'Articles with ≥10 citations',
+                    'Articles with ≥20 citations',
+                    'Articles with ≥30 citations',
+                    'Articles with ≥50 citations'
                 ],
-                'Значение': [
+                'Value': [
                     analyzed_stats['n_items'],
                     analyzed_stats['total_refs'],
-                    'Ссылки с DOI', analyzed_stats['refs_with_doi'], f"{analyzed_stats['refs_with_doi_pct']:.1f}%",
-                    'Ссылки без DOI', analyzed_stats['refs_without_doi'], f"{analyzed_stats['refs_without_doi_pct']:.1f}%",
-                    'Самоцитирования', analyzed_stats['self_cites'], f"{analyzed_stats['self_cites_pct']:.1f}%",
+                    'References with DOI', analyzed_stats['refs_with_doi'], f"{analyzed_stats['refs_with_doi_pct']:.1f}%",
+                    'References without DOI', analyzed_stats['refs_without_doi'], f"{analyzed_stats['refs_without_doi_pct']:.1f}%",
+                    'Self-Citations', analyzed_stats['self_cites'], f"{analyzed_stats['self_cites_pct']:.1f}%",
                     analyzed_stats['single_authors'],
                     analyzed_stats['multi_authors_gt10'],
                     analyzed_stats['ref_min'],
@@ -1525,41 +1528,41 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 ]
             }
             analyzed_stats_df = pd.DataFrame(analyzed_stats_data)
-            analyzed_stats_df.to_excel(writer, sheet_name='Статистика_анализируемых', index=False)
+            analyzed_stats_df.to_excel(writer, sheet_name='Analyzed_Statistics', index=False)
 
-            # Лист 6: Статистика цитирующих статей
+            # Sheet 6: Citing works statistics
             citing_stats_data = {
-                'Метрика': [
-                    'Всего цитирующих статей', 
-                    'Общее количество ссылок', 
-                    'Ссылки с DOI', 'Количество ссылок с DOI', 'Процент ссылок с DOI',
-                    'Ссылки без DOI', 'Количество ссылок без DOI', 'Процент ссылок без DOI',
-                    'Самоцитирования', 'Количество самоцитирований', 'Процент самоцитирований',
-                    'Статьи с одним автором',
-                    'Статьи с >10 авторами', 
-                    'Минимальное число ссылок', 
-                    'Максимальное число ссылок', 
-                    'Среднее число ссылок',
-                    'Медиана ссылок', 
-                    'Минимальное число авторов',
-                    'Максимальное число авторов', 
-                    'Среднее число авторов',
-                    'Медиана авторов', 
-                    'Статьи из одной страны', 'Процент статей из одной страны',
-                    'Статьи из нескольких стран', 'Процент статей из нескольких стран',
-                    'Статьи без данных о странах', 'Процент статей без данных о странах',
-                    'Всего аффилиаций',
-                    'Уникальных аффилиаций', 
-                    'Уникальных стран',
-                    'Уникальных журналов',
-                    'Уникальных издателей'
+                'Metric': [
+                    'Total Citing Articles', 
+                    'Total References', 
+                    'References with DOI', 'References with DOI Count', 'References with DOI Percentage',
+                    'References without DOI', 'References without DOI Count', 'References without DOI Percentage',
+                    'Self-Citations', 'Self-Citations Count', 'Self-Citations Percentage',
+                    'Single Author Articles',
+                    'Articles with >10 Authors', 
+                    'Minimum References', 
+                    'Maximum References', 
+                    'Average References',
+                    'Median References', 
+                    'Minimum Authors',
+                    'Maximum Authors', 
+                    'Average Authors',
+                    'Median Authors', 
+                    'Single Country Articles', 'Single Country Articles Percentage',
+                    'Multiple Country Articles', 'Multiple Country Articles Percentage',
+                    'No Country Data Articles', 'No Country Data Articles Percentage',
+                    'Total Affiliations',
+                    'Unique Affiliations', 
+                    'Unique Countries',
+                    'Unique Journals',
+                    'Unique Publishers'
                 ],
-                'Значение': [
+                'Value': [
                     citing_stats['n_items'],
                     citing_stats['total_refs'],
-                    'Ссылки с DOI', citing_stats['refs_with_doi'], f"{citing_stats['refs_with_doi_pct']:.1f}%",
-                    'Ссылки без DOI', citing_stats['refs_without_doi'], f"{citing_stats['refs_without_doi_pct']:.1f}%",
-                    'Самоцитирования', citing_stats['self_cites'], f"{citing_stats['self_cites_pct']:.1f}%",
+                    'References with DOI', citing_stats['refs_with_doi'], f"{citing_stats['refs_with_doi_pct']:.1f}%",
+                    'References without DOI', citing_stats['refs_without_doi'], f"{citing_stats['refs_without_doi_pct']:.1f}%",
+                    'Self-Citations', citing_stats['self_cites'], f"{citing_stats['self_cites_pct']:.1f}%",
                     citing_stats['single_authors'],
                     citing_stats['multi_authors_gt10'],
                     citing_stats['ref_min'],
@@ -1581,17 +1584,17 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 ]
             }
             citing_stats_df = pd.DataFrame(citing_stats_data)
-            citing_stats_df.to_excel(writer, sheet_name='Статистика_цитирующих', index=False)
+            citing_stats_df.to_excel(writer, sheet_name='Citing_Statistics', index=False)
 
-            # Лист 7: Расширенная статистика
+            # Sheet 7: Enhanced statistics
             enhanced_stats_data = {
-                'Метрика': [
-                    'H-index', 'Общее количество цитирований',
-                    'Среднее цитирований на статью', 'Максимальное цитирований',
-                    'Минимальное цитирований', 'Статьи с цитированиями',
-                    'Статьи без цитирований'
+                'Metric': [
+                    'H-index', 'Total Citations',
+                    'Average Citations per Article', 'Maximum Citations',
+                    'Minimum Citations', 'Articles with Citations',
+                    'Articles without Citations'
                 ],
-                'Значение': [
+                'Value': [
                     enhanced_stats['h_index'],
                     enhanced_stats['total_citations'],
                     f"{enhanced_stats['avg_citations_per_article']:.1f}",
@@ -1602,19 +1605,19 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 ]
             }
             enhanced_stats_df = pd.DataFrame(enhanced_stats_data)
-            enhanced_stats_df.to_excel(writer, sheet_name='Расширенная_статистика', index=False)
+            enhanced_stats_df.to_excel(writer, sheet_name='Enhanced_Statistics', index=False)
 
-            # Лист 8: Время цитирования
+            # Sheet 8: Citation timing
             citation_timing_data = {
-                'Метрика': [
-                    'Минимальные дни до первого цитирования',
-                    'Максимальные дни до первого цитирования', 
-                    'Средние дни до первого цитирования',
-                    'Медиана дней до первого цитирования', 
-                    'Статьи с данными о времени цитирования',
-                    'Всего лет покрыто данными о цитированиях'
+                'Metric': [
+                    'Minimum Days to First Citation',
+                    'Maximum Days to First Citation', 
+                    'Average Days to First Citation',
+                    'Median Days to First Citation', 
+                    'Articles with Citation Timing Data',
+                    'Total Years Covered by Citation Data'
                 ],
-                'Значение': [
+                'Value': [
                     citation_timing['days_min'],
                     citation_timing['days_max'],
                     f"{citation_timing['days_mean']:.1f}",
@@ -1624,142 +1627,142 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 ]
             }
             citation_timing_df = pd.DataFrame(citation_timing_data)
-            citation_timing_df.to_excel(writer, sheet_name='Время_цитирования', index=False)
+            citation_timing_df.to_excel(writer, sheet_name='Citation_Timing', index=False)
 
-            # Лист 9: Цитирования по годам
+            # Sheet 9: Citations by year
             yearly_citations_data = []
             for yearly_stat in citation_timing['yearly_citations']:
                 yearly_citations_data.append({
-                    'Год': yearly_stat['year'],
-                    'Количество цитирований': yearly_stat['citations_count']
+                    'Year': yearly_stat['year'],
+                    'Citations_Count': yearly_stat['citations_count']
                 })
             
             if yearly_citations_data:
                 yearly_citations_df = pd.DataFrame(yearly_citations_data)
-                yearly_citations_df.to_excel(writer, sheet_name='Цитирования_по_годам', index=False)
+                yearly_citations_df.to_excel(writer, sheet_name='Citations_by_Year', index=False)
 
-            # Лист 10: Кривые накопления цитирований
+            # Sheet 10: Citation accumulation curves
             accumulation_data = []
             for pub_year, curve_data in citation_timing['accumulation_curves'].items():
                 for data_point in curve_data:
                     accumulation_data.append({
-                        'Год публикации': pub_year,
-                        'Лет после публикации': data_point['years_since_publication'],
-                        'Накопительные цитирования': data_point['cumulative_citations']
+                        'Publication_Year': pub_year,
+                        'Years_Since_Publication': data_point['years_since_publication'],
+                        'Cumulative_Citations': data_point['cumulative_citations']
                     })
             
             if accumulation_data:
                 accumulation_df = pd.DataFrame(accumulation_data)
-                accumulation_df.to_excel(writer, sheet_name='Кривые_накопления_цитирований', index=False)
+                accumulation_df.to_excel(writer, sheet_name='Citation_Accumulation_Curves', index=False)
 
-            # Лист 11: Сеть цитирований
+            # Sheet 11: Citation network
             citation_network_data = []
             for year, citing_years in enhanced_stats.get('citation_network', {}).items():
                 year_counts = Counter(citing_years)
                 for citing_year, count in year_counts.items():
                     citation_network_data.append({
-                        'Год публикации': year,
-                        'Год цитирования': citing_year,
-                        'Количество цитирований': count
+                        'Publication_Year': year,
+                        'Citation_Year': citing_year,
+                        'Citations_Count': count
                     })
             
             if citation_network_data:
                 citation_network_df = pd.DataFrame(citation_network_data)
-                citation_network_df.to_excel(writer, sheet_name='Сеть_цитирований', index=False)
+                citation_network_df.to_excel(writer, sheet_name='Citation_Network', index=False)
 
-            # Лист 12: Все авторы анализируемых
+            # Sheet 12: All authors analyzed
             if analyzed_stats['all_authors']:
                 all_authors_data = {
-                    'Автор': [author[0] for author in analyzed_stats['all_authors']],
-                    'Количество статей': [author[1] for author in analyzed_stats['all_authors']]
+                    'Author': [author[0] for author in analyzed_stats['all_authors']],
+                    'Articles_Count': [author[1] for author in analyzed_stats['all_authors']]
                 }
                 all_authors_df = pd.DataFrame(all_authors_data)
-                all_authors_df.to_excel(writer, sheet_name='Все_авторы_анализируемые', index=False)
+                all_authors_df.to_excel(writer, sheet_name='All_Authors_Analyzed', index=False)
 
-            # Лист 13: Все авторы цитирующих
+            # Sheet 13: All authors citing
             if citing_stats['all_authors']:
                 all_citing_authors_data = {
-                    'Автор': [author[0] for author in citing_stats['all_authors']],
-                    'Количество статей': [author[1] for author in citing_stats['all_authors']]
+                    'Author': [author[0] for author in citing_stats['all_authors']],
+                    'Articles_Count': [author[1] for author in citing_stats['all_authors']]
                 }
                 all_citing_authors_df = pd.DataFrame(all_citing_authors_data)
-                all_citing_authors_df.to_excel(writer, sheet_name='Все_авторы_цитирующие', index=False)
+                all_citing_authors_df.to_excel(writer, sheet_name='All_Authors_Citing', index=False)
 
-            # Лист 14: Все аффилиации анализируемых
+            # Sheet 14: All affiliations analyzed
             if analyzed_stats['all_affiliations']:
                 all_affiliations_data = {
-                    'Аффилиация': [aff[0] for aff in analyzed_stats['all_affiliations']],
-                    'Количество упоминаний': [aff[1] for aff in analyzed_stats['all_affiliations']]
+                    'Affiliation': [aff[0] for aff in analyzed_stats['all_affiliations']],
+                    'Mentions_Count': [aff[1] for aff in analyzed_stats['all_affiliations']]
                 }
                 all_affiliations_df = pd.DataFrame(all_affiliations_data)
-                all_affiliations_df.to_excel(writer, sheet_name='Все_аффилиации_анализируемые', index=False)
+                all_affiliations_df.to_excel(writer, sheet_name='All_Affiliations_Analyzed', index=False)
 
-            # Лист 15: Все аффилиации цитирующих
+            # Sheet 15: All affiliations citing
             if citing_stats['all_affiliations']:
                 all_citing_affiliations_data = {
-                    'Аффилиация': [aff[0] for aff in citing_stats['all_affiliations']],
-                    'Количество упоминаний': [aff[1] for aff in citing_stats['all_affiliations']]
+                    'Affiliation': [aff[0] for aff in citing_stats['all_affiliations']],
+                    'Mentions_Count': [aff[1] for aff in citing_stats['all_affiliations']]
                 }
                 all_citing_affiliations_df = pd.DataFrame(all_citing_affiliations_data)
-                all_citing_affiliations_df.to_excel(writer, sheet_name='Все_аффилиации_цитирующие', index=False)
+                all_citing_affiliations_df.to_excel(writer, sheet_name='All_Affiliations_Citing', index=False)
 
-            # Лист 16: Все страны анализируемых
+            # Sheet 16: All countries analyzed
             if analyzed_stats['all_countries']:
                 all_countries_data = {
-                    'Страна': [country[0] for country in analyzed_stats['all_countries']],
-                    'Количество упоминаний': [country[1] for country in analyzed_stats['all_countries']]
+                    'Country': [country[0] for country in analyzed_stats['all_countries']],
+                    'Mentions_Count': [country[1] for country in analyzed_stats['all_countries']]
                 }
                 all_countries_df = pd.DataFrame(all_countries_data)
-                all_countries_df.to_excel(writer, sheet_name='Все_страны_анализируемые', index=False)
+                all_countries_df.to_excel(writer, sheet_name='All_Countries_Analyzed', index=False)
 
-            # Лист 17: Все страны цитирующих
+            # Sheet 17: All countries citing
             if citing_stats['all_countries']:
                 all_citing_countries_data = {
-                    'Страна': [country[0] for country in citing_stats['all_countries']],
-                    'Количество упоминаний': [country[1] for country in citing_stats['all_countries']]
+                    'Country': [country[0] for country in citing_stats['all_countries']],
+                    'Mentions_Count': [country[1] for country in citing_stats['all_countries']]
                 }
                 all_citing_countries_df = pd.DataFrame(all_citing_countries_data)
-                all_citing_countries_df.to_excel(writer, sheet_name='Все_страны_цитирующие', index=False)
+                all_citing_countries_df.to_excel(writer, sheet_name='All_Countries_Citing', index=False)
 
-            # Лист 18: Все журналы цитирующих
+            # Sheet 18: All journals citing
             if citing_stats['all_journals']:
                 all_citing_journals_data = {
-                    'Журнал': [journal[0] for journal in citing_stats['all_journals']],
-                    'Количество статей': [journal[1] for journal in citing_stats['all_journals']]
+                    'Journal': [journal[0] for journal in citing_stats['all_journals']],
+                    'Articles_Count': [journal[1] for journal in citing_stats['all_journals']]
                 }
                 all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
-                all_citing_journals_df.to_excel(writer, sheet_name='Все_журналы_цитирующие', index=False)
+                all_citing_journals_df.to_excel(writer, sheet_name='All_Journals_Citing', index=False)
 
-            # Лист 19: Все издатели цитирующих
+            # Sheet 19: All publishers citing
             if citing_stats['all_publishers']:
                 all_citing_publishers_data = {
-                    'Издатель': [publisher[0] for publisher in citing_stats['all_publishers']],
-                    'Количество статей': [publisher[1] for publisher in citing_stats['all_publishers']]
+                    'Publisher': [publisher[0] for publisher in citing_stats['all_publishers']],
+                    'Articles_Count': [publisher[1] for publisher in citing_stats['all_publishers']]
                 }
                 all_citing_publishers_df = pd.DataFrame(all_citing_publishers_data)
-                all_citing_publishers_df.to_excel(writer, sheet_name='Все_издатели_цитирующие', index=False)
+                all_citing_publishers_df.to_excel(writer, sheet_name='All_Publishers_Citing', index=False)
 
-            # Лист 20: Быстрые метрики (НОВЫЙ)
+            # Sheet 20: Fast metrics (NEW)
             fast_metrics_data = {
-                'Метрика': [
-                    'Reference Age (медиана)', 'Reference Age (среднее)',
-                    'Reference Age (25-75 перцентиль)', 'Проанализировано ссылок',
-                    'Journal Self-Citation Rate (JSCR)', 'Самоцитирования журнала',
-                    'Всего цитирований для JSCR',
-                    'Cited Half-Life (медиана)', 'Cited Half-Life (среднее)',
-                    'Статьи с данными для CHL',
-                    'Field-Weighted Citation Impact (FWCI)', 'Общие цитирования',
-                    'Ожидаемые цитирования',
-                    'Citation Velocity', 'Статьи с данными для velocity',
-                    'OA Impact Premium', 'OA статей', 'Не-OA статей',
-                    'Средние цитирования OA', 'Средние цитирования не-OA',
-                    'Elite Index', 'Элитные статьи', 'Порог цитирований',
-                    'Author Gini Index', 'Всего авторов',
-                    'Среднее статей на автора', 'Медиана статей на автора',
-                    'Diversity Balance Index (DBI)', 'Уникальных концептов',
-                    'Всего упоминаний концептов'
+                'Metric': [
+                    'Reference Age (median)', 'Reference Age (mean)',
+                    'Reference Age (25-75 percentile)', 'References Analyzed',
+                    'Journal Self-Citation Rate (JSCR)', 'Journal Self-Citations',
+                    'Total Citations for JSCR',
+                    'Cited Half-Life (median)', 'Cited Half-Life (mean)',
+                    'Articles with CHL Data',
+                    'Field-Weighted Citation Impact (FWCI)', 'Total Citations',
+                    'Expected Citations',
+                    'Citation Velocity', 'Articles with Velocity Data',
+                    'OA Impact Premium', 'OA Articles', 'Non-OA Articles',
+                    'Average OA Citations', 'Average Non-OA Citations',
+                    'Elite Index', 'Elite Articles', 'Citation Threshold',
+                    'Author Gini Index', 'Total Authors',
+                    'Average Articles per Author', 'Median Articles per Author',
+                    'Diversity Balance Index (DBI)', 'Unique Concepts',
+                    'Total Concept Mentions'
                 ],
-                'Значение': [
+                'Value': [
                     fast_metrics.get('ref_median_age', 'N/A'),
                     fast_metrics.get('ref_mean_age', 'N/A'),
                     f"{fast_metrics.get('ref_ages_25_75', ['N/A', 'N/A'])[0]}-{fast_metrics.get('ref_ages_25_75', ['N/A', 'N/A'])[1]}",
@@ -1793,130 +1796,130 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 ]
             }
             fast_metrics_df = pd.DataFrame(fast_metrics_data)
-            fast_metrics_df.to_excel(writer, sheet_name='Быстрые_метрики', index=False)
+            fast_metrics_df.to_excel(writer, sheet_name='Fast_Metrics', index=False)
 
-            # Лист 21: Топ концепты (НОВЫЙ)
+            # Sheet 21: Top concepts (NEW)
             if fast_metrics.get('top_concepts'):
                 top_concepts_data = {
-                    'Концепт': [concept[0] for concept in fast_metrics['top_concepts']],
-                    'Количество упоминаний': [concept[1] for concept in fast_metrics['top_concepts']]
+                    'Concept': [concept[0] for concept in fast_metrics['top_concepts']],
+                    'Mentions_Count': [concept[1] for concept in fast_metrics['top_concepts']]
                 }
                 top_concepts_df = pd.DataFrame(top_concepts_data)
-                top_concepts_df.to_excel(writer, sheet_name='Топ_концепты', index=False)
+                top_concepts_df.to_excel(writer, sheet_name='Top_Concepts', index=False)
 
-            # Гарантируем, что есть хотя бы один лист
+            # Ensure at least one sheet exists
             if len(writer.sheets) == 0:
-                error_df = pd.DataFrame({'Сообщение': ['Нет данных для отчета']})
-                error_df.to_excel(writer, sheet_name='Информация', index=False)
+                error_df = pd.DataFrame({'Message': [translation_manager.get_text('no_data_for_report')]})
+                error_df.to_excel(writer, sheet_name='Information', index=False)
 
         excel_buffer.seek(0)
         return True
 
     except Exception as e:
-        st.error(f"❌ Ошибка при создании Excel отчета: {str(e)}")
-        # Создаем минимальный отчет с ошибкой
+        st.error(translation_manager.get_text('excel_creation_error').format(error=str(e)))
+        # Create minimal report with error
         try:
             excel_buffer.seek(0)
             excel_buffer.truncate(0)
             
             with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                 error_df = pd.DataFrame({
-                    'Ошибка': [f'Не удалось создать полный отчет: {str(e)}'],
-                    'Рекомендация': ['Попробуйте уменьшить объем анализируемых данных или период анализа']
+                    'Error': [f'{translation_manager.get_text("failed_create_full_report")}: {str(e)}'],
+                    'Recommendation': [translation_manager.get_text('try_reduce_data_or_period')]
                 })
-                error_df.to_excel(writer, sheet_name='Информация', index=False)
+                error_df.to_excel(writer, sheet_name='Information', index=False)
             
             excel_buffer.seek(0)
-            st.warning("⚠️ Создан упрощенный отчет из-за ограничений памяти")
+            st.warning(translation_manager.get_text('simplified_report_created'))
             return True
             
         except Exception as e2:
-            st.error(f"❌ Критическая ошибка при создании упрощенного отчета: {str(e2)}")
+            st.error(translation_manager.get_text('critical_excel_error').format(error=str(e2)))
             return False
 
-# === 18. Визуализация данных ===
+# === 18. Data Visualization ===
 def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics):
-    """Создание визуализаций для дашборда"""
+    """Create visualizations for dashboard"""
     
-    # Создаем вкладки для разных типов визуализаций
+    # Create tabs for different visualization types
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-        "📈 Основные метрики", 
-        "👥 Авторы и организации", 
-        "🌍 География", 
-        "📊 Цитирования",
-        "🔀 Пересечения",
-        "⏱️ Время цитирования",
-        "🚀 Быстрые метрики"  # НОВАЯ ВКЛАДКА
+        translation_manager.get_text('tab_main_metrics'), 
+        translation_manager.get_text('tab_authors_organizations'), 
+        translation_manager.get_text('tab_geography'), 
+        translation_manager.get_text('tab_citations'),
+        translation_manager.get_text('tab_overlaps'),
+        translation_manager.get_text('tab_citation_timing'),
+        translation_manager.get_text('tab_fast_metrics')  # NEW TAB
     ])
     
     with tab1:
-        st.subheader("📈 Ключевые метрики журнала")
+        st.subheader(translation_manager.get_text('tab_main_metrics'))
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric(
-                "H-index", 
+                translation_manager.get_text('h_index'), 
                 enhanced_stats['h_index'],
                 help=glossary.get_tooltip('H-index')
             )
         with col2:
             st.metric(
-                "Всего статей", 
+                translation_manager.get_text('total_articles'), 
                 analyzed_stats['n_items'],
                 help=glossary.get_tooltip('Crossref')
             )
         with col3:
             st.metric(
-                "Всего цитирований", 
+                translation_manager.get_text('total_citations'), 
                 enhanced_stats['total_citations'],
-                help="Общее количество цитирований всех статей журнала"
+                help=translation_manager.get_text('total_citations_tooltip')
             )
         with col4:
             st.metric(
-                "Среднее цитирований", 
+                translation_manager.get_text('average_citations'), 
                 f"{enhanced_stats['avg_citations_per_article']:.1f}",
-                help="Среднее количество цитирований на одну статью"
+                help=translation_manager.get_text('average_citations_tooltip')
             )
         
         col5, col6, col7, col8 = st.columns(4)
         
         with col5:
             st.metric(
-                "Статьи с цитированиями", 
+                translation_manager.get_text('articles_with_citations'), 
                 enhanced_stats['articles_with_citations'],
-                help="Количество статей, которые были процитированы хотя бы один раз"
+                help=translation_manager.get_text('articles_with_citations_tooltip')
             )
         with col6:
             st.metric(
-                "Самоцитирования", 
+                translation_manager.get_text('self_citations'), 
                 f"{analyzed_stats['self_cites_pct']:.1f}%",
                 help=glossary.get_tooltip('Self-Cites')
             )
         with col7:
             st.metric(
-                "Международные статьи", 
+                translation_manager.get_text('international_articles'), 
                 f"{analyzed_stats['multi_country_pct']:.1f}%",
                 help=glossary.get_tooltip('International Collaboration')
             )
         with col8:
             st.metric(
-                "Уникальных аффилиаций", 
+                translation_manager.get_text('unique_affiliations'), 
                 analyzed_stats['unique_affiliations_count'],
-                help="Количество уникальных научных организаций, представленных в журнале"
+                help=translation_manager.get_text('unique_affiliations_tooltip')
             )
         
-        # Контекстная подсказка для H-index
-        with st.expander("❓ Что такое H-index и как его интерпретировать?", expanded=False):
+        # Contextual tooltip for H-index
+        with st.expander("❓ " + translation_manager.get_text('what_is_h_index'), expanded=False):
             h_info = glossary.get_detailed_info('H-index')
             if h_info:
                 st.write(f"**{h_info['term']}** - {h_info['definition']}")
-                st.write(f"**Расчет:** {h_info['calculation']}")
-                st.write(f"**Интерпретация:** {h_info['interpretation']}")
-                st.write(f"**Пример:** {h_info['example']}")
-                st.write(f"**Категория:** {h_info['category']}")
+                st.write(f"**Calculation:** {h_info['calculation']}")
+                st.write(f"**Interpretation:** {h_info['interpretation']}")
+                st.write(f"**Example:** {h_info['example']}")
+                st.write(f"**Category:** {h_info['category']}")
         
-        # График цитирований по годам
+        # Citations by year chart
         if citation_timing['yearly_citations']:
             years = [item['year'] for item in citation_timing['yearly_citations']]
             citations = [item['citations_count'] for item in citation_timing['yearly_citations']]
@@ -1925,100 +1928,100 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
             fig.add_trace(go.Bar(
                 x=years, 
                 y=citations, 
-                name='Цитирования',
+                name=translation_manager.get_text('citations'),
                 marker_color='lightblue'
             ))
             fig.update_layout(
-                title='Цитирования по годам',
-                xaxis_title='Год',
-                yaxis_title='Количество цитирований',
+                title=translation_manager.get_text('citations_by_year'),
+                xaxis_title=translation_manager.get_text('year'),
+                yaxis_title=translation_manager.get_text('citations_count'),
                 showlegend=False
             )
             st.plotly_chart(fig, use_container_width=True)
     
     with tab2:
-        st.subheader("👥 Анализ авторов и организаций")
+        st.subheader(translation_manager.get_text('tab_authors_organizations'))
         
         col1, col2 = st.columns(2)
         
         with col1:
-            # Топ авторов анализируемых статей
+            # Top authors of analyzed articles
             if analyzed_stats['all_authors']:
                 top_authors = analyzed_stats['all_authors'][:15]
-                authors_df = pd.DataFrame(top_authors, columns=['Автор', 'Статей'])
+                authors_df = pd.DataFrame(top_authors, columns=[translation_manager.get_text('author'), translation_manager.get_text('articles')])
                 fig = px.bar(
                     authors_df, 
-                    x='Статей', 
-                    y='Автор', 
+                    x=translation_manager.get_text('articles'), 
+                    y=translation_manager.get_text('author'), 
                     orientation='h',
-                    title='Топ-15 авторов анализируемых статей'
+                    title=translation_manager.get_text('top_15_authors_analyzed')
                 )
                 st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            # Распределение количества авторов
+            # Author count distribution
             author_counts_data = {
-                'Категория': ['1 автор', '2-5 авторов', '6-10 авторов', '>10 авторов'],
-                'Статьи': [
+                translation_manager.get_text('category'): ['1 ' + translation_manager.get_text('author'), '2-5 ' + translation_manager.get_text('authors'), '6-10 ' + translation_manager.get_text('authors'), '>10 ' + translation_manager.get_text('authors')],
+                translation_manager.get_text('articles'): [
                     analyzed_stats['single_authors'],
                     analyzed_stats['n_items'] - analyzed_stats['single_authors'] - analyzed_stats['multi_authors_gt10'],
                     analyzed_stats['multi_authors_gt10'],
-                    0  # Можно добавить дополнительную категоризацию
+                    0  # Can add additional categorization
                 ]
             }
             fig = px.pie(
                 author_counts_data, 
-                values='Статьи', 
-                names='Категория',
-                title='Распределение по количеству авторов'
+                values=translation_manager.get_text('articles'), 
+                names=translation_manager.get_text('category'),
+                title=translation_manager.get_text('author_count_distribution')
             )
             st.plotly_chart(fig, use_container_width=True)
         
-        # Контекстная подсказка для Author Gini
+        # Contextual tooltip for Author Gini
         if fast_metrics.get('author_gini', 0) > 0:
-            with st.expander("🎯 Индекс Джини авторов - что это значит?", expanded=False):
+            with st.expander("🎯 " + translation_manager.get_text('author_gini_meaning'), expanded=False):
                 gini_info = glossary.get_detailed_info('Author Gini')
                 if gini_info:
-                    st.write(f"**Текущее значение:** {fast_metrics['author_gini']}")
-                    st.write(f"**Интерпретация:** {gini_info['interpretation']}")
+                    st.write(f"**{translation_manager.get_text('current_value')}:** {fast_metrics['author_gini']}")
+                    st.write(f"**{translation_manager.get_text('interpretation')}:** {gini_info['interpretation']}")
                     st.progress(min(fast_metrics['author_gini'], 1.0))
         
-        # Топ аффилиаций
+        # Top affiliations
         if analyzed_stats['all_affiliations']:
             top_affiliations = analyzed_stats['all_affiliations'][:10]
-            aff_df = pd.DataFrame(top_affiliations, columns=['Аффилиация', 'Упоминаний'])
+            aff_df = pd.DataFrame(top_affiliations, columns=[translation_manager.get_text('affiliation'), translation_manager.get_text('mentions')])
             fig = px.bar(
                 aff_df, 
-                x='Упоминаний', 
-                y='Аффилиация', 
+                x=translation_manager.get_text('mentions'), 
+                y=translation_manager.get_text('affiliation'), 
                 orientation='h',
-                title='Топ-10 аффилиаций анализируемых статей',
-                color='Упоминаний'
+                title=translation_manager.get_text('top_10_affiliations_analyzed'),
+                color=translation_manager.get_text('mentions')
             )
             st.plotly_chart(fig, use_container_width=True)
     
     with tab3:
-        st.subheader("🌍 Географическое распределение")
+        st.subheader(translation_manager.get_text('tab_geography'))
         
         col1, col2 = st.columns(2)
         
         with col1:
-            # Распределение по странам
+            # Country distribution
             if analyzed_stats['all_countries']:
-                countries_df = pd.DataFrame(analyzed_stats['all_countries'], columns=['Страна', 'Статей'])
+                countries_df = pd.DataFrame(analyzed_stats['all_countries'], columns=[translation_manager.get_text('country'), translation_manager.get_text('articles')])
                 fig = px.pie(
                     countries_df, 
-                    values='Статей', 
-                    names='Страна',
-                    title='Распределение статей по странам'
+                    values=translation_manager.get_text('articles'), 
+                    names=translation_manager.get_text('country'),
+                    title=translation_manager.get_text('article_country_distribution')
                 )
                 st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            # Международная коллаборация
+            # International collaboration
             collaboration_data = {
-                'Тип': ['Одна страна', 'Несколько стран', 'Нет данных'],
-                'Статьи': [
+                translation_manager.get_text('type'): [translation_manager.get_text('single_country'), translation_manager.get_text('multiple_countries'), translation_manager.get_text('no_data')],
+                translation_manager.get_text('articles'): [
                     analyzed_stats['single_country_articles'],
                     analyzed_stats['multi_country_articles'],
                     analyzed_stats['no_country_articles']
@@ -2026,30 +2029,30 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
             }
             fig = px.bar(
                 collaboration_data, 
-                x='Тип', 
-                y='Статьи',
-                title='Международная коллаборация',
-                color='Тип'
+                x=translation_manager.get_text('type'), 
+                y=translation_manager.get_text('articles'),
+                title=translation_manager.get_text('international_collaboration'),
+                color=translation_manager.get_text('type')
             )
             st.plotly_chart(fig, use_container_width=True)
         
-        # Контекстная подсказка для международного сотрудничества
-        with st.expander("🌐 О международном сотрудничестве", expanded=False):
+        # Contextual tooltip for international collaboration
+        with st.expander("🌐 " + translation_manager.get_text('about_international_collaboration'), expanded=False):
             collab_info = glossary.get_detailed_info('International Collaboration')
             if collab_info:
-                st.write(f"**Определение:** {collab_info['definition']}")
-                st.write(f"**Значение для науки:** Высокий процент международных статей указывает на глобальную значимость журнала и широкое международное признание.")
+                st.write(f"**{translation_manager.get_text('definition')}:** {collab_info['definition']}")
+                st.write(f"**{translation_manager.get_text('significance_for_science')}:** " + translation_manager.get_text('high_international_articles_indicator'))
     
     with tab4:
-        st.subheader("📊 Анализ цитирований")
+        st.subheader(translation_manager.get_text('tab_citations'))
         
         col1, col2 = st.columns(2)
         
         with col1:
-            # Цитирования по порогам
+            # Citations by thresholds
             citation_thresholds = {
-                'Порог': ['≥10', '≥20', '≥30', '≥50'],
-                'Статьи': [
+                translation_manager.get_text('threshold'): ['≥10', '≥20', '≥30', '≥50'],
+                translation_manager.get_text('articles'): [
                     analyzed_stats['articles_with_10_citations'],
                     analyzed_stats['articles_with_20_citations'],
                     analyzed_stats['articles_with_30_citations'],
@@ -2058,149 +2061,149 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
             }
             fig = px.bar(
                 citation_thresholds, 
-                x='Порог', 
-                y='Статьи',
-                title='Статьи по порогам цитирований',
-                color='Порог'
+                x=translation_manager.get_text('threshold'), 
+                y=translation_manager.get_text('articles'),
+                title=translation_manager.get_text('articles_by_citation_thresholds'),
+                color=translation_manager.get_text('threshold')
             )
             st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            # Статьи с/без цитирований
+            # Articles with/without citations
             citation_status = {
-                'Статус': ['С цитированиями', 'Без цитирований'],
-                'Количество': [
+                translation_manager.get_text('status'): [translation_manager.get_text('with_citations'), translation_manager.get_text('without_citations')],
+                translation_manager.get_text('count'): [
                     enhanced_stats['articles_with_citations'],
                     enhanced_stats['articles_without_citations']
                 ]
             }
             fig = px.pie(
                 citation_status, 
-                values='Количество', 
-                names='Статус',
-                title='Распределение статей по наличию цитирований'
+                values=translation_manager.get_text('count'), 
+                names=translation_manager.get_text('status'),
+                title=translation_manager.get_text('articles_by_citation_status')
             )
             st.plotly_chart(fig, use_container_width=True)
         
-        # Контекстная подсказка для JSCR
+        # Contextual tooltip for JSCR
         if fast_metrics.get('JSCR', 0) > 0:
-            with st.expander("🔍 Journal Self-Citation Rate (JSCR)", expanded=False):
+            with st.expander("🔍 " + translation_manager.get_text('jscr_explanation'), expanded=False):
                 jscr_info = glossary.get_detailed_info('JSCR')
                 if jscr_info:
-                    st.write(f"**Текущее значение:** {fast_metrics['JSCR']}%")
-                    st.write(f"**Интерпретация:** {jscr_info['interpretation']}")
+                    st.write(f"**{translation_manager.get_text('current_value')}:** {fast_metrics['JSCR']}%")
+                    st.write(f"**{translation_manager.get_text('interpretation')}:** {jscr_info['interpretation']}")
                     
-                    # Визуальная индикация
+                    # Visual indication
                     jscr_value = fast_metrics['JSCR']
                     if jscr_value < 10:
-                        st.success("✅ Низкий уровень самоцитирований - отлично!")
+                        st.success("✅ " + translation_manager.get_text('low_self_citations_excellent'))
                     elif jscr_value < 20:
-                        st.info("ℹ️ Умеренный уровень самоцитирований - нормально")
+                        st.info("ℹ️ " + translation_manager.get_text('moderate_self_citations_normal'))
                     elif jscr_value < 30:
-                        st.warning("⚠️ Повышенный уровень самоцитирований - требует внимания")
+                        st.warning("⚠️ " + translation_manager.get_text('elevated_self_citations_attention'))
                     else:
-                        st.error("❌ Высокий уровень самоцитирований - может указывать на проблемы")
+                        st.error("❌ " + translation_manager.get_text('high_self_citations_problems'))
     
     with tab5:
-        st.subheader("🔀 Пересечения между анализируемыми и цитирующими работами")
+        st.subheader(translation_manager.get_text('tab_overlaps'))
         
         if overlap_details:
-            # Сводная статистика по пересечениям
+            # Overlap summary statistics
             total_overlaps = len(overlap_details)
             articles_with_overlaps = len(set([o['analyzed_doi'] for o in overlap_details]))
             
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                st.metric("Всего пересечений", total_overlaps)
+                st.metric(translation_manager.get_text('total_overlaps'), total_overlaps)
             with col2:
-                st.metric("Статей с пересечениями", articles_with_overlaps)
+                st.metric(translation_manager.get_text('articles_with_overlaps'), articles_with_overlaps)
             with col3:
                 avg_overlaps = total_overlaps / articles_with_overlaps if articles_with_overlaps > 0 else 0
-                st.metric("Среднее пересечений на статью", f"{avg_overlaps:.1f}")
+                st.metric(translation_manager.get_text('average_overlaps_per_article'), f"{avg_overlaps:.1f}")
             
-            # Распределение по количеству пересечений
+            # Overlap count distribution
             overlap_counts = [o['common_authors_count'] + o['common_affiliations_count'] for o in overlap_details]
             if overlap_counts:
                 fig = px.histogram(
                     x=overlap_counts,
-                    title='Распределение пересечений по количеству',
-                    labels={'x': 'Количество пересечений', 'y': 'Частота'}
+                    title=translation_manager.get_text('overlap_count_distribution'),
+                    labels={'x': translation_manager.get_text('overlap_count'), 'y': translation_manager.get_text('frequency')}
                 )
                 st.plotly_chart(fig, use_container_width=True)
             
-            # Таблица с деталями пересечений
-            st.subheader("Детали пересечений")
+            # Overlap details table
+            st.subheader(translation_manager.get_text('overlap_details'))
             overlap_df = pd.DataFrame(overlap_details)
             st.dataframe(overlap_df[['analyzed_doi', 'citing_doi', 'common_authors_count', 'common_affiliations_count']])
         else:
-            st.info("❌ Пересечения между анализируемыми и цитирующими работами не найдены")
+            st.info(translation_manager.get_text('no_overlaps_found'))
     
     with tab6:
-        st.subheader("⏱️ Анализ времени цитирования")
+        st.subheader(translation_manager.get_text('tab_citation_timing'))
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Мин. дней до цитирования", citation_timing['days_min'])
+            st.metric(translation_manager.get_text('min_days_to_citation'), citation_timing['days_min'])
         with col2:
-            st.metric("Макс. дней до цитирования", citation_timing['days_max'])
+            st.metric(translation_manager.get_text('max_days_to_citation'), citation_timing['days_max'])
         with col3:
-            st.metric("Среднее дней", f"{citation_timing['days_mean']:.1f}")
+            st.metric(translation_manager.get_text('average_days'), f"{citation_timing['days_mean']:.1f}")
         with col4:
-            st.metric("Медиана дней", citation_timing['days_median'])
+            st.metric(translation_manager.get_text('median_days'), citation_timing['days_median'])
         
-        # Контекстная подсказка для Cited Half-Life
+        # Contextual tooltip for Cited Half-Life
         if fast_metrics.get('cited_half_life_median'):
-            with st.expander("⏳ Cited Half-Life - период полуцитирования", expanded=False):
+            with st.expander("⏳ " + translation_manager.get_text('cited_half_life_explanation'), expanded=False):
                 chl_info = glossary.get_detailed_info('Cited Half-Life')
                 if chl_info:
-                    st.write(f"**Текущее значение:** {fast_metrics['cited_half_life_median']} лет")
-                    st.write(f"**Определение:** {chl_info['definition']}")
-                    st.write(f"**Интерпретация:** {chl_info['interpretation']}")
+                    st.write(f"**{translation_manager.get_text('current_value')}:** {fast_metrics['cited_half_life_median']} " + translation_manager.get_text('years'))
+                    st.write(f"**{translation_manager.get_text('definition')}:** {chl_info['definition']}")
+                    st.write(f"**{translation_manager.get_text('interpretation')}:** {chl_info['interpretation']}")
         
-        # Детали первых цитирований
+        # First citation details
         if citation_timing['first_citation_details']:
-            st.subheader("Детали первых цитирований")
+            st.subheader(translation_manager.get_text('first_citation_details'))
             first_citation_df = pd.DataFrame(citation_timing['first_citation_details'])
             st.dataframe(first_citation_df)
             
-            # Гистограмма времени до первого цитирования
+            # Time to first citation histogram
             days_data = [d['days_to_first_citation'] for d in citation_timing['first_citation_details']]
             fig = px.histogram(
                 x=days_data,
-                title='Распределение времени до первого цитирования (дни)',
-                labels={'x': 'Дни до первого цитирования', 'y': 'Количество статей'}
+                title=translation_manager.get_text('time_to_first_citation_distribution'),
+                labels={'x': translation_manager.get_text('days_to_first_citation'), 'y': translation_manager.get_text('article_count')}
             )
             st.plotly_chart(fig, use_container_width=True)
 
     with tab7:
-        st.subheader("🚀 Быстрые метрики (рассчитано без API запросов)")
+        st.subheader(translation_manager.get_text('tab_fast_metrics'))
         
-        # Основные быстрые метрики
+        # Main fast metrics
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric(
-                "Reference Age", 
-                f"{fast_metrics.get('ref_median_age', 'N/A')} лет",
+                translation_manager.get_text('reference_age'), 
+                f"{fast_metrics.get('ref_median_age', 'N/A')} " + translation_manager.get_text('years'),
                 help=glossary.get_tooltip('Reference Age')
             )
         with col2:
             st.metric(
-                "JSCR", 
+                translation_manager.get_text('jscr'), 
                 f"{fast_metrics.get('JSCR', 0)}%",
                 help=glossary.get_tooltip('JSCR')
             )
         with col3:
             st.metric(
-                "Cited Half-Life", 
-                f"{fast_metrics.get('cited_half_life_median', 'N/A')} лет",
+                translation_manager.get_text('cited_half_life'), 
+                f"{fast_metrics.get('cited_half_life_median', 'N/A')} " + translation_manager.get_text('years'),
                 help=glossary.get_tooltip('Cited Half-Life')
             )
         with col4:
             st.metric(
-                "FWCI", 
+                translation_manager.get_text('fwci'), 
                 fast_metrics.get('FWCI', 0),
                 help=glossary.get_tooltip('FWCI')
             )
@@ -2209,101 +2212,101 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
         
         with col5:
             st.metric(
-                "Citation Velocity", 
+                translation_manager.get_text('citation_velocity'), 
                 fast_metrics.get('citation_velocity', 0),
                 help=glossary.get_tooltip('Citation Velocity')
             )
         with col6:
             st.metric(
-                "OA Impact Premium", 
+                translation_manager.get_text('oa_impact_premium'), 
                 f"{fast_metrics.get('OA_impact_premium', 0)}%",
                 help=glossary.get_tooltip('OA Impact Premium')
             )
         with col7:
             st.metric(
-                "Elite Index", 
+                translation_manager.get_text('elite_index'), 
                 f"{fast_metrics.get('elite_index', 0)}%",
                 help=glossary.get_tooltip('Elite Index')
             )
         with col8:
             st.metric(
-                "Author Gini", 
+                translation_manager.get_text('author_gini'), 
                 fast_metrics.get('author_gini', 0),
                 help=glossary.get_tooltip('Author Gini')
             )
         
-        # Детальная информация о быстрых метриках
-        st.subheader("📊 Детали быстрых метрик")
+        # Detailed fast metrics information
+        st.subheader(translation_manager.get_text('fast_metrics_details'))
         
         col1, col2 = st.columns(2)
         
         with col1:
-            # Reference Age распределение
+            # Reference Age distribution
             if fast_metrics.get('ref_median_age') is not None:
-                st.write("**Reference Age:**")
-                st.write(f"- Медиана: {fast_metrics['ref_median_age']} лет")
-                st.write(f"- Среднее: {fast_metrics['ref_mean_age']} лет")
-                st.write(f"- 25-75 перцентиль: {fast_metrics['ref_ages_25_75'][0]}-{fast_metrics['ref_ages_25_75'][1]} лет")
-                st.write(f"- Проанализировано ссылок: {fast_metrics['total_refs_analyzed']}")
+                st.write(translation_manager.get_text('reference_age_details'))
+                st.write(translation_manager.get_text('reference_age_median').format(value=fast_metrics['ref_median_age']))
+                st.write(translation_manager.get_text('reference_age_mean').format(value=fast_metrics['ref_mean_age']))
+                st.write(translation_manager.get_text('reference_age_percentile').format(value=f"{fast_metrics['ref_ages_25_75'][0]}-{fast_metrics['ref_ages_25_75'][1]}"))
+                st.write(translation_manager.get_text('reference_age_analyzed').format(value=fast_metrics['total_refs_analyzed']))
                 
-                # Контекстная подсказка
-                with st.expander("📚 Подробнее о Reference Age", expanded=False):
+                # Contextual tooltip
+                with st.expander("📚 " + translation_manager.get_text('more_about_reference_age'), expanded=False):
                     ra_info = glossary.get_detailed_info('Reference Age')
                     if ra_info:
-                        st.write(f"**Что это значит?** {ra_info['interpretation']}")
-                        st.write(f"**Пример:** {ra_info['example']}")
+                        st.write(f"**{translation_manager.get_text('what_does_it_mean')}** {ra_info['interpretation']}")
+                        st.write(f"**{translation_manager.get_text('example')}:** {ra_info['example']}")
         
         with col2:
-            # JSCR детали
-            st.write("**Journal Self-Citation Rate:**")
-            st.write(f"- Самоцитирования: {fast_metrics.get('self_cites', 0)}")
-            st.write(f"- Всего цитирований: {fast_metrics.get('total_cites', 0)}")
-            st.write(f"- Процент: {fast_metrics.get('JSCR', 0)}%")
+            # JSCR details
+            st.write(translation_manager.get_text('jscr_details'))
+            st.write(translation_manager.get_text('jscr_self_cites').format(value=fast_metrics.get('self_cites', 0)))
+            st.write(translation_manager.get_text('jscr_total_cites').format(value=fast_metrics.get('total_cites', 0)))
+            st.write(translation_manager.get_text('jscr_percentage').format(value=fast_metrics.get('JSCR', 0)))
         
         col3, col4 = st.columns(2)
         
         with col3:
             # Citation Velocity
-            st.write("**Citation Velocity:**")
-            st.write(f"- Среднее цитирований/год: {fast_metrics.get('citation_velocity', 0)}")
-            st.write(f"- Статьи с данными: {fast_metrics.get('articles_with_velocity', 0)}")
+            st.write(translation_manager.get_text('citation_velocity_details'))
+            st.write(f"- {translation_manager.get_text('average_citations_per_year')}: {fast_metrics.get('citation_velocity', 0)}")
+            st.write(f"- {translation_manager.get_text('articles_with_data')}: {fast_metrics.get('articles_with_velocity', 0)}")
         
         with col4:
             # OA Impact Premium
-            st.write("**OA Impact Premium:**")
-            st.write(f"- Премия: {fast_metrics.get('OA_impact_premium', 0)}%")
-            st.write(f"- OA статей: {fast_metrics.get('OA_articles', 0)}")
-            st.write(f"- Не-OA статей: {fast_metrics.get('non_OA_articles', 0)}")
+            st.write(translation_manager.get_text('oa_impact_premium_details'))
+            st.write(f"- {translation_manager.get_text('premium')}: {fast_metrics.get('OA_impact_premium', 0)}%")
+            st.write(f"- {translation_manager.get_text('oa_articles')}: {fast_metrics.get('OA_articles', 0)}")
+            st.write(f"- {translation_manager.get_text('non_oa_articles')}: {fast_metrics.get('non_OA_articles', 0)}")
             
-            # Контекстная подсказка
+            # Contextual tooltip
             if fast_metrics.get('OA_impact_premium', 0) > 0:
-                with st.expander("🔓 Премия открытого доступа", expanded=False):
-                    st.success("📈 Положительная премия указывает на то, что статьи в открытом доступе цитируются чаще, что подтверждает ценность OA публикаций!")
+                with st.expander("🔓 " + translation_manager.get_text('open_access_premium'), expanded=False):
+                    st.success("📈 " + translation_manager.get_text('oa_premium_positive'))
         
-        # Топ концепты
+        # Top concepts
         if fast_metrics.get('top_concepts'):
-            st.subheader("🏷️ Топ-5 тематических концептов")
-            concepts_df = pd.DataFrame(fast_metrics['top_concepts'], columns=['Концепт', 'Упоминаний'])
+            st.subheader(translation_manager.get_text('top_5_thematic_concepts'))
+            concepts_df = pd.DataFrame(fast_metrics['top_concepts'], columns=[translation_manager.get_text('concept'), translation_manager.get_text('mentions')])
             fig = px.bar(
                 concepts_df,
-                x='Упоминаний',
-                y='Концепт',
+                x=translation_manager.get_text('mentions'),
+                y=translation_manager.get_text('concept'),
                 orientation='h',
-                title='Топ тематических концептов',
-                color='Упоминаний'
+                title=translation_manager.get_text('top_thematic_concepts'),
+                color=translation_manager.get_text('mentions')
             )
             st.plotly_chart(fig, use_container_width=True)
             
-            # Контекстная подсказка для DBI
+            # Contextual tooltip for DBI
             if fast_metrics.get('DBI', 0) > 0:
-                with st.expander("🎯 Diversity Balance Index (DBI)", expanded=False):
+                with st.expander("🎯 " + translation_manager.get_text('diversity_balance_index'), expanded=False):
                     dbi_info = glossary.get_detailed_info('DBI')
                     if dbi_info:
-                        st.write(f"**Текущее значение DBI:** {fast_metrics['DBI']}")
-                        st.write(f"**Интерпретация:** {dbi_info['interpretation']}")
+                        st.write(f"**{translation_manager.get_text('current_dbi_value')}:** {fast_metrics['DBI']}")
+                        st.write(f"**{translation_manager.get_text('interpretation')}:** {dbi_info['interpretation']}")
                         st.progress(fast_metrics['DBI'])
 
-# === 19. Основная функция анализа ===
+# === 19. Main Analysis Function ===
 def analyze_journal(issn, period_str):
     global delayer
     delayer = AdaptiveDelayer()
@@ -2311,12 +2314,12 @@ def analyze_journal(issn, period_str):
     state = get_analysis_state()
     state.analysis_complete = False
     
-    # Общий прогресс
+    # Overall progress
     overall_progress = st.progress(0)
     overall_status = st.empty()
     
-    # Парсинг периода
-    overall_status.text("📅 Парсинг периода...")
+    # Period parsing
+    overall_status.text(translation_manager.get_text('parsing_period'))
     years = parse_period(period_str)
     if not years:
         return
@@ -2324,40 +2327,40 @@ def analyze_journal(issn, period_str):
     until_date = f"{max(years)}-12-31"
     overall_progress.progress(0.1)
     
-    # Название журнала
-    overall_status.text("📖 Получение названия журнала...")
+    # Journal name
+    overall_status.text(translation_manager.get_text('getting_journal_name'))
     journal_name = get_journal_name(issn)
-    st.success(f"📖 Журнал: **{journal_name}** (ISSN: {issn})")
+    st.success(translation_manager.get_text('journal_found').format(journal_name=journal_name, issn=issn))
     overall_progress.progress(0.2)
     
-    # Получение статей
-    overall_status.text("📥 Загрузка статей из Crossref...")
+    # Article retrieval
+    overall_status.text(translation_manager.get_text('loading_articles'))
     items = fetch_articles_by_issn_period(issn, from_date, until_date)
     if not items:
-        st.error("❌ Статьи не найдены.")
+        st.error(translation_manager.get_text('no_articles_found'))
         return
 
     n_analyzed = len(items)
-    st.success(f"📄 Найдено анализируемых статей: **{n_analyzed}**")
+    st.success(translation_manager.get_text('articles_found').format(count=n_analyzed))
     overall_progress.progress(0.3)
     
-    # Валидация данных
-    overall_status.text("🔍 Валидация данных...")
+    # Data validation
+    overall_status.text(translation_manager.get_text('validating_data'))
     validated_items = validate_and_clean_data(items)
     journal_prefix = get_doi_prefix(validated_items[0].get('DOI', '')) if validated_items else ''
     overall_progress.progress(0.4)
     
-    # Обработка анализируемых статей
-    overall_status.text("🔄 Обработка анализируемых статей...")
+    # Analyzed articles processing
+    overall_status.text(translation_manager.get_text('processing_articles'))
     
     analyzed_metadata = []
     dois = [item.get('DOI') for item in validated_items if item.get('DOI')]
     
-    # Прогресс-бар для обработки метаданных
+    # Progress bar for metadata processing
     meta_progress = st.progress(0)
     meta_status = st.empty()
     
-    # Подготавливаем аргументы для потоков
+    # Prepare arguments for threading
     args_list = [(doi, state) for doi in dois]
     
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
@@ -2374,27 +2377,27 @@ def analyze_journal(issn, period_str):
                     'openalex': result['openalex']
                 })
             except Exception as e:
-                st.error(f"Ошибка при обработке DOI {doi}: {e}")
+                st.error(f"Error processing DOI {doi}: {e}")
             
             progress = (i + 1) / len(dois)
             meta_progress.progress(progress)
-            meta_status.text(f"Получение метаданных: {i + 1}/{len(dois)}")
+            meta_status.text(f"{translation_manager.get_text('getting_metadata')}: {i + 1}/{len(dois)}")
     
     meta_progress.empty()
     meta_status.empty()
     overall_progress.progress(0.6)
     
-    # Получение цитирующих работ
-    overall_status.text("🔗 Сбор цитирующих работ...")
+    # Citing works retrieval
+    overall_status.text(translation_manager.get_text('collecting_citations'))
     
     all_citing_metadata = []
     analyzed_dois = [am['doi'] for am in analyzed_metadata if am.get('doi')]
     
-    # Прогресс-бар для сбора цитирований
+    # Progress bar for citation collection
     citing_progress = st.progress(0)
     citing_status = st.empty()
     
-    # Подготавливаем аргументы для потоков
+    # Prepare arguments for threading
     citing_args_list = [(doi, state) for doi in analyzed_dois]
     
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
@@ -2407,46 +2410,46 @@ def analyze_journal(issn, period_str):
                 citings = future.result()
                 all_citing_metadata.extend(citings)
             except Exception as e:
-                st.error(f"Ошибка при сборе цитирований для {doi}: {e}")
+                st.error(f"Error collecting citations for {doi}: {e}")
             
             progress = (i + 1) / len(analyzed_dois)
             citing_progress.progress(progress)
-            citing_status.text(f"Сбор цитирований: {i + 1}/{len(analyzed_dois)}")
+            citing_status.text(f"{translation_manager.get_text('collecting_citations_progress')}: {i + 1}/{len(analyzed_dois)}")
     
     citing_progress.empty()
     citing_status.empty()
     
-    # Уникальные цитирующие работы
+    # Unique citing works
     unique_citing_dois = set(c['doi'] for c in all_citing_metadata if c.get('doi'))
     n_citing = len(unique_citing_dois)
-    st.success(f"📄 Уникальных цитирующих работ: **{n_citing}**")
+    st.success(translation_manager.get_text('unique_citing_works').format(count=n_citing))
     overall_progress.progress(0.8)
     
-    # Расчет статистики
-    overall_status.text("📊 Расчет статистики...")
+    # Statistics calculation
+    overall_status.text(translation_manager.get_text('calculating_statistics'))
     
     analyzed_stats = extract_stats_from_metadata(analyzed_metadata, journal_prefix=journal_prefix)
     citing_stats = extract_stats_from_metadata(all_citing_metadata, is_analyzed=False)
     enhanced_stats = enhanced_stats_calculation(analyzed_metadata, all_citing_metadata, state)
     
-    # Анализ пересечений
+    # Overlap analysis
     overlap_details = analyze_overlaps(analyzed_metadata, all_citing_metadata, state)
     
     citation_timing = calculate_citation_timing(analyzed_metadata, state)
     
-    # Расчет быстрых метрик (НОВОЕ)
-    overall_status.text("🚀 Расчет быстрых метрик...")
+    # Fast metrics calculation (NEW)
+    overall_status.text(translation_manager.get_text('calculating_fast_metrics'))
     fast_metrics = calculate_all_fast_metrics(analyzed_metadata, all_citing_metadata, state, issn)
     
     overall_progress.progress(0.9)
     
-    # Создание отчета
-    overall_status.text("💾 Создание отчета...")
+    # Report creation
+    overall_status.text(translation_manager.get_text('creating_report'))
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f'journal_analysis_{issn}_{timestamp}.xlsx'
     
-    # Создаем Excel файл в памяти
+    # Create Excel file in memory
     excel_buffer = io.BytesIO()
     create_enhanced_excel_report(analyzed_metadata, all_citing_metadata, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer)
     
@@ -2454,16 +2457,16 @@ def analyze_journal(issn, period_str):
     state.excel_buffer = excel_buffer
     
     overall_progress.progress(1.0)
-    overall_status.text("✅ Анализ завершен!")
+    overall_status.text(translation_manager.get_text('analysis_complete'))
     
-    # Сохраняем результаты
+    # Save results
     state.analysis_results = {
         'analyzed_stats': analyzed_stats,
         'citing_stats': citing_stats,
         'enhanced_stats': enhanced_stats,
         'citation_timing': citation_timing,
         'overlap_details': overlap_details,
-        'fast_metrics': fast_metrics,  # НОВОЕ
+        'fast_metrics': fast_metrics,  # NEW
         'journal_name': journal_name,
         'issn': issn,
         'period': period_str,
@@ -2477,155 +2480,162 @@ def analyze_journal(issn, period_str):
     overall_progress.empty()
     overall_status.empty()
 
-# === 20. Главный интерфейс ===
+# === 20. Main Interface ===
 def main():
     initialize_analysis_state()
     state = get_analysis_state()
     
-    # Заголовок
-    st.title("🔬 Advanced Journal Analysis Tool")
+    # Language selector in sidebar
+    with st.sidebar:
+        st.header("🌍 Language / Язык")
+        selected_language = st.selectbox(
+            "Select language / Выберите язык:",
+            options=list(translation_manager.languages.keys()),
+            format_func=lambda x: translation_manager.languages[x],
+            index=0  # English by default
+        )
+        translation_manager.set_language(selected_language)
+    
+    # Header
+    st.title("🔬 " + translation_manager.get_text('app_title'))
     st.markdown("---")
     
-    # Боковая панель с вводом данных
+    # Sidebar with data input
     with st.sidebar:
-        st.header("📝 Параметры анализа")
+        st.header("📝 " + translation_manager.get_text('analysis_parameters'))
         
         issn = st.text_input(
-            "ISSN журнала:",
+            translation_manager.get_text('journal_issn'),
             value="2411-1414",
             help=glossary.get_tooltip('ISSN')
         )
         
         period = st.text_input(
-            "Период анализа:",
+            translation_manager.get_text('analysis_period'),
             value="2022-2024",
-            help="Примеры: 2022, 2022-2024, 2022,2024"
+            help=translation_manager.get_text('period_examples')
         )
         
         st.markdown("---")
-        st.header("📚 Словарь терминов")
+        st.header("📚 " + translation_manager.get_text('dictionary_of_terms'))
         
-        # Поисковый виджет словаря терминов
+        # Dictionary term search widget
         search_term = st.selectbox(
-            "Выберите термин для изучения:",
+            translation_manager.get_text('select_term_to_learn'),
             options=[""] + list(glossary.terms.keys()),
-            format_func=lambda x: "Выберите термин..." if x == "" else f"{x} ({glossary.terms[x]['category']})",
-            help="Изучите значения метрик, используемых в анализе"
+            format_func=lambda x: translation_manager.get_text('choose_term') if x == "" else f"{x} ({glossary.terms[x]['category']})",
+            help=translation_manager.get_text('study_metric_meanings')
         )
         
         if search_term:
             term_info = glossary.get_detailed_info(search_term)
             if term_info:
                 st.info(f"**{term_info['term']}**\n\n{term_info['definition']}")
-                st.caption(f"**Расчет:** {term_info['calculation']}")
-                st.caption(f"**Интерпретация:** {term_info['interpretation']}")
-                st.caption(f"**Пример:** {term_info['example']}")
-                st.caption(f"**Категория:** {term_info['category']}")
+                st.caption(f"**{translation_manager.get_text('calculation')}:** {term_info['calculation']}")
+                st.caption(f"**{translation_manager.get_text('interpretation')}:** {term_info['interpretation']}")
+                st.caption(f"**{translation_manager.get_text('example')}:** {term_info['example']}")
+                st.caption(f"**{translation_manager.get_text('category')}:** {term_info['category']}")
                 
-                # Отметка просмотренного термина
+                # Mark viewed term
                 if search_term not in st.session_state.viewed_terms:
                     st.session_state.viewed_terms.add(search_term)
-                    st.toast(f"📖 Вы изучили термин: {search_term}", icon="🎯")
+                    st.toast(translation_manager.get_text('learned_term_toast').format(term=search_term), icon="🎯")
                 
-                # Кнопка "Я разобрался"
-                if st.button("✅ Я разобрался с этим термином!", key=f"understand_{search_term}"):
+                # "I understood" button
+                if st.button(translation_manager.get_text('term_understood'), key=f"understand_{search_term}"):
                     if search_term not in st.session_state.learned_terms:
                         st.session_state.learned_terms.add(search_term)
-                        st.success(f"🎉 Отлично! Термин '{search_term}' добавлен в вашу коллекцию знаний!")
+                        st.success(translation_manager.get_text('term_added_success').format(term=search_term))
                         st.balloons()
         
-        # Статистика изученных терминов
+        # Learned terms statistics
         if st.session_state.learned_terms:
             st.markdown("---")
-            st.header("🎓 Ваш прогресс")
+            st.header("🎓 " + translation_manager.get_text('your_progress'))
             learned_count = len(st.session_state.learned_terms)
             total_terms = len(glossary.terms)
             progress = learned_count / total_terms
             
-            st.write(f"Изучено терминов: **{learned_count}/{total_terms}**")
+            st.write(f"{translation_manager.get_text('learned_terms')}: **{learned_count}/{total_terms}**")
             st.progress(progress)
             
             if learned_count >= 5:
-                st.success(f"🏆 Отличный результат! Вы изучили {learned_count} терминов!")
+                st.success(translation_manager.get_text('progress_great').format(count=learned_count))
             elif learned_count >= 2:
-                st.info(f"📚 Хороший старт! Продолжайте изучать термины.")
+                st.info(translation_manager.get_text('progress_good'))
         
         st.markdown("---")
-        st.header("💡 Информация")
+        st.header("💡 " + translation_manager.get_text('information'))
         
-        st.info("""
-        **Возможности анализа:**
-        - 📊 H-index и метрики цитирования
-        - 👥 Анализ авторов и аффилиаций
-        - 🌍 Географическое распределение
-        - 🔗 Пересечения между работами
-        - ⏱️ Время до цитирования
-        - 📈 Визуализация данных
-        - 🚀 Быстрые метрики без API
-        - 📚 Интерактивный словарь терминов
-        """)
+        st.info("**" + translation_manager.get_text('analysis_capabilities') + ":**\n" +
+                "- " + translation_manager.get_text('capability_1') + "\n" +
+                "- " + translation_manager.get_text('capability_2') + "\n" + 
+                "- " + translation_manager.get_text('capability_3') + "\n" +
+                "- " + translation_manager.get_text('capability_4') + "\n" +
+                "- " + translation_manager.get_text('capability_5') + "\n" +
+                "- " + translation_manager.get_text('capability_6') + "\n" +
+                "- " + translation_manager.get_text('capability_7') + "\n" +
+                "- " + translation_manager.get_text('capability_8'))
         
-        st.warning("""
-        **Примечание:** 
-        - Анализ может занять несколько минут
-        - Убедитесь в корректности ISSN
-        - Для больших периодов время анализа увеличивается
-        - Данная программа не расчитывает IF и CiteScore. Для получения данных об этих метриках используйте https://journal-metrics-app.streamlit.app
-        - ©Chimica Techno Acta, https://chimicatechnoacta.ru / ©developed by daM
-        """)
+        st.warning("**" + translation_manager.get_text('note') + ":** \n" +
+                  "- " + translation_manager.get_text('note_text_1') + "\n" +
+                  "- " + translation_manager.get_text('note_text_2') + "\n" +
+                  "- " + translation_manager.get_text('note_text_3') + "\n" +
+                  "- " + translation_manager.get_text('note_text_4') + "\n" +
+                  "- " + translation_manager.get_text('note_text_5'))
     
-    # Основная область
+    # Main area
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.subheader("🚀 Запуск анализа")
+        st.subheader("🚀 " + translation_manager.get_text('start_analysis'))
         
-        if st.button("Начать анализ", type="primary", use_container_width=True):
+        if st.button(translation_manager.get_text('start_analysis'), type="primary", use_container_width=True):
             if not issn:
-                st.error("❌ Введите ISSN журнала")
+                st.error(translation_manager.get_text('issn_required'))
                 return
                 
             if not period:
-                st.error("❌ Введите период анализа")
+                st.error(translation_manager.get_text('period_required'))
                 return
                 
-            with st.spinner("Запуск анализа..."):
+            with st.spinner(translation_manager.get_text('analysis_starting')):
                 analyze_journal(issn, period)
     
     with col2:
-        st.subheader("📤 Результаты")
+        st.subheader("📤 " + translation_manager.get_text('results'))
         
         if state.analysis_complete and state.excel_buffer is not None:
             results = state.analysis_results
             
             st.download_button(
-                label="📥 Скачать Excel отчет",
+                label="📥 " + translation_manager.get_text('download_excel_report'),
                 data=state.excel_buffer,
                 file_name=f"journal_analysis_{results['issn']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
     
-    # Отображение результатов
+    # Results display
     if state.analysis_complete:
         st.markdown("---")
-        st.header("📊 Результаты анализа")
+        st.header("📊 " + translation_manager.get_text('analysis_results'))
         
         results = state.analysis_results
         
-        # Сводная информация
+        # Summary information
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Журнал", results['journal_name'])
+            st.metric(translation_manager.get_text('journal'), results['journal_name'])
         with col2:
-            st.metric("ISSN", results['issn'])
+            st.metric(translation_manager.get_text('issn'), results['issn'])
         with col3:
-            st.metric("Период", results['period'])
+            st.metric(translation_manager.get_text('period'), results['period'])
         with col4:
-            st.metric("Статей проанализировано", results['n_analyzed'])
+            st.metric(translation_manager.get_text('articles_analyzed'), results['n_analyzed'])
         
-        # Визуализации
+        # Visualizations
         create_visualizations(
             results['analyzed_stats'],
             results['citing_stats'], 
@@ -2635,118 +2645,122 @@ def main():
             results.get('fast_metrics', {})
         )
         
-        # Детальная статистика
+        # Detailed statistics
         st.markdown("---")
-        st.header("📈 Детальная статистика")
+        st.header("📈 " + translation_manager.get_text('detailed_statistics'))
         
-        tab1, tab2, tab3, tab4 = st.tabs(["Анализируемые статьи", "Цитирующие работы", "Сравнительный анализ", "Быстрые метрики"])
+        tab1, tab2, tab3, tab4 = st.tabs([
+            translation_manager.get_text('analyzed_articles'), 
+            translation_manager.get_text('citing_works'), 
+            translation_manager.get_text('comparative_analysis'), 
+            translation_manager.get_text('fast_metrics')
+        ])
         
         with tab1:
-            st.subheader("Статистика анализируемых статей")
+            st.subheader(translation_manager.get_text('analyzed_articles_statistics'))
             stats = results['analyzed_stats']
             
             col1, col2 = st.columns(2)
             
             with col1:
-                st.metric("Всего статей", stats['n_items'])
-                st.metric("Статьи с одним автором", stats['single_authors'])
-                st.metric("Международные статьи", f"{stats['multi_country_pct']:.1f}%")
-                st.metric("Уникальных аффилиаций", stats['unique_affiliations_count'])
+                st.metric(translation_manager.get_text('total_articles'), stats['n_items'])
+                st.metric(translation_manager.get_text('single_author_articles'), stats['single_authors'])
+                st.metric(translation_manager.get_text('international_collaboration'), f"{stats['multi_country_pct']:.1f}%")
+                st.metric(translation_manager.get_text('unique_affiliations'), stats['unique_affiliations_count'])
                 
             with col2:
-                st.metric("Общее количество ссылок", stats['total_refs'])
-                st.metric("Самоцитирования", f"{stats['self_cites_pct']:.1f}%")
-                st.metric("Уникальных стран", stats['unique_countries_count'])
-                st.metric("Статьи с ≥10 цитированиями", stats['articles_with_10_citations'])
+                st.metric(translation_manager.get_text('total_references'), stats['total_refs'])
+                st.metric(translation_manager.get_text('self_citations'), f"{stats['self_cites_pct']:.1f}%")
+                st.metric(translation_manager.get_text('unique_countries'), stats['unique_countries_count'])
+                st.metric(translation_manager.get_text('articles_10_citations'), stats['articles_with_10_citations'])
         
         with tab2:
-            st.subheader("Статистика цитирующих работ")
+            st.subheader(translation_manager.get_text('citing_works_statistics'))
             stats = results['citing_stats']
             
             col1, col2 = st.columns(2)
             
             with col1:
-                st.metric("Всего цитирующих статей", stats['n_items'])
-                st.metric("Уникальных журналов", stats['unique_journals_count'])
-                st.metric("Уникальных издателей", stats['unique_publishers_count'])
+                st.metric(translation_manager.get_text('total_citing_articles'), stats['n_items'])
+                st.metric(translation_manager.get_text('unique_journals'), stats['unique_journals_count'])
+                st.metric(translation_manager.get_text('unique_publishers'), stats['unique_publishers_count'])
                 
             with col2:
-                st.metric("Общее количество ссылок", stats['total_refs'])
-                st.metric("Уникальных аффилиаций", stats['unique_affiliations_count'])
-                st.metric("Уникальных стран", stats['unique_countries_count'])
+                st.metric(translation_manager.get_text('total_references'), stats['total_refs'])
+                st.metric(translation_manager.get_text('unique_affiliations'), stats['unique_affiliations_count'])
+                st.metric(translation_manager.get_text('unique_countries'), stats['unique_countries_count'])
         
         with tab3:
-            st.subheader("Сравнительный анализ")
+            st.subheader(translation_manager.get_text('comparative_analysis'))
             
             col1, col2 = st.columns(2)
             
             with col1:
                 st.metric(
-                    "Среднее авторов на статью (анализируемые)", 
+                    translation_manager.get_text('average_authors_per_article') + " (" + translation_manager.get_text('analyzed') + ")", 
                     f"{results['analyzed_stats']['auth_mean']:.1f}"
                 )
                 st.metric(
-                    "Среднее ссылок на статью (анализируемые)", 
+                    translation_manager.get_text('average_references_per_article') + " (" + translation_manager.get_text('analyzed') + ")", 
                     f"{results['analyzed_stats']['ref_mean']:.1f}"
                 )
                 
             with col2:
                 st.metric(
-                    "Среднее авторов на статью (цитирующие)", 
+                    translation_manager.get_text('average_authors_per_article') + " (" + translation_manager.get_text('citing') + ")", 
                     f"{results['citing_stats']['auth_mean']:.1f}"
                 )
                 st.metric(
-                    "Среднее ссылок на статью (цитирующие)", 
+                    translation_manager.get_text('average_references_per_article') + " (" + translation_manager.get_text('citing') + ")", 
                     f"{results['citing_stats']['ref_mean']:.1f}"
                 )
         
         with tab4:
-            st.subheader("🚀 Быстрые метрики (без API запросов)")
+            st.subheader("🚀 " + translation_manager.get_text('fast_metrics'))
             fast_metrics = results.get('fast_metrics', {})
             
             col1, col2 = st.columns(2)
             
             with col1:
-                st.metric("Reference Age", f"{fast_metrics.get('ref_median_age', 'N/A')} лет")
-                st.metric("JSCR", f"{fast_metrics.get('JSCR', 0)}%")
-                st.metric("Cited Half-Life", f"{fast_metrics.get('cited_half_life_median', 'N/A')} лет")
-                st.metric("FWCI", fast_metrics.get('FWCI', 0))
+                st.metric(translation_manager.get_text('reference_age'), f"{fast_metrics.get('ref_median_age', 'N/A')} " + translation_manager.get_text('years'))
+                st.metric(translation_manager.get_text('jscr'), f"{fast_metrics.get('JSCR', 0)}%")
+                st.metric(translation_manager.get_text('cited_half_life'), f"{fast_metrics.get('cited_half_life_median', 'N/A')} " + translation_manager.get_text('years'))
+                st.metric(translation_manager.get_text('fwci'), fast_metrics.get('FWCI', 0))
                 
             with col2:
-                st.metric("Citation Velocity", fast_metrics.get('citation_velocity', 0))
-                st.metric("OA Impact Premium", f"{fast_metrics.get('OA_impact_premium', 0)}%")
-                st.metric("Elite Index", f"{fast_metrics.get('elite_index', 0)}%")
-                st.metric("Author Gini", fast_metrics.get('author_gini', 0))
+                st.metric(translation_manager.get_text('citation_velocity'), fast_metrics.get('citation_velocity', 0))
+                st.metric(translation_manager.get_text('oa_impact_premium'), f"{fast_metrics.get('OA_impact_premium', 0)}%")
+                st.metric(translation_manager.get_text('elite_index'), f"{fast_metrics.get('elite_index', 0)}%")
+                st.metric(translation_manager.get_text('author_gini'), fast_metrics.get('author_gini', 0))
             
-            # Детальная информация
-            st.subheader("Детали быстрых метрик")
+            # Detailed information
+            st.subheader(translation_manager.get_text('fast_metrics_details'))
             
             col1, col2 = st.columns(2)
             
             with col1:
-                st.write("**Reference Age:**")
-                st.write(f"- Медиана: {fast_metrics.get('ref_median_age', 'N/A')} лет")
-                st.write(f"- Среднее: {fast_metrics.get('ref_mean_age', 'N/A')} лет")
-                st.write(f"- 25-75 перцентиль: {fast_metrics.get('ref_ages_25_75', ['N/A', 'N/A'])[0]}-{fast_metrics.get('ref_ages_25_75', ['N/A', 'N/A'])[1]} лет")
-                st.write(f"- Проанализировано ссылок: {fast_metrics.get('total_refs_analyzed', 0)}")
+                st.write(translation_manager.get_text('reference_age_details'))
+                st.write(translation_manager.get_text('reference_age_median').format(value=fast_metrics.get('ref_median_age', 'N/A')))
+                st.write(translation_manager.get_text('reference_age_mean').format(value=fast_metrics.get('ref_mean_age', 'N/A')))
+                st.write(translation_manager.get_text('reference_age_percentile').format(value=f"{fast_metrics.get('ref_ages_25_75', ['N/A', 'N/A'])[0]}-{fast_metrics.get('ref_ages_25_75', ['N/A', 'N/A'])[1]}"))
+                st.write(translation_manager.get_text('reference_age_analyzed').format(value=fast_metrics.get('total_refs_analyzed', 0)))
                 
-                st.write("**Journal Self-Citation Rate:**")
-                st.write(f"- Самоцитирования: {fast_metrics.get('self_cites', 0)}")
-                st.write(f"- Всего цитирований: {fast_metrics.get('total_cites', 0)}")
-                st.write(f"- Процент: {fast_metrics.get('JSCR', 0)}%")
+                st.write(translation_manager.get_text('jscr_details'))
+                st.write(translation_manager.get_text('jscr_self_cites').format(value=fast_metrics.get('self_cites', 0)))
+                st.write(translation_manager.get_text('jscr_total_cites').format(value=fast_metrics.get('total_cites', 0)))
+                st.write(translation_manager.get_text('jscr_percentage').format(value=fast_metrics.get('JSCR', 0)))
             
             with col2:
-                st.write("**Field-Weighted Citation Impact:**")
-                st.write(f"- FWCI: {fast_metrics.get('FWCI', 0)}")
-                st.write(f"- Общие цитирования: {fast_metrics.get('total_cites', 0)}")
-                st.write(f"- Ожидаемые цитирования: {fast_metrics.get('expected_cites', 0)}")
+                st.write(translation_manager.get_text('fwci_details'))
+                st.write(translation_manager.get_text('fwci_value').format(value=fast_metrics.get('FWCI', 0)))
+                st.write(translation_manager.get_text('fwci_total_cites').format(value=fast_metrics.get('total_cites', 0)))
+                st.write(translation_manager.get_text('fwci_expected_cites').format(value=fast_metrics.get('expected_cites', 0)))
                 
-                st.write("**Diversity Balance Index:**")
-                st.write(f"- DBI: {fast_metrics.get('DBI', 0)}")
-                st.write(f"- Уникальных концептов: {fast_metrics.get('unique_concepts', 0)}")
-                st.write(f"- Всего упоминаний: {fast_metrics.get('total_concept_mentions', 0)}")
+                st.write(translation_manager.get_text('dbi_details'))
+                st.write(translation_manager.get_text('dbi_value').format(value=fast_metrics.get('DBI', 0)))
+                st.write(translation_manager.get_text('dbi_unique_concepts').format(value=fast_metrics.get('unique_concepts', 0)))
+                st.write(translation_manager.get_text('dbi_total_mentions').format(value=fast_metrics.get('total_concept_mentions', 0)))
 
-# Запуск приложения
+# Run application
 if __name__ == "__main__":
     main()
-
