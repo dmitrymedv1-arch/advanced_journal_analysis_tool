@@ -2487,9 +2487,9 @@ def main():
     
     # Language selector in sidebar
     with st.sidebar:
-        st.header("🌍 Language / Язык")
+        st.header("🌍 Language")
         selected_language = st.selectbox(
-            "Select language / Выберите язык:",
+            "Select language:",
             options=list(translation_manager.languages.keys()),
             format_func=lambda x: translation_manager.languages[x],
             index=0  # English by default
@@ -2764,3 +2764,4 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
