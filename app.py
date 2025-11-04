@@ -1261,13 +1261,14 @@ def calculate_cited_half_life_fast(analyzed_metadata, state):
     }
 
 def calculate_fwci_fast(analyzed_metadata):
-    """Field-Weighted Citation Impact - field-weighted citation index"""
+    """Field-Weighted Citation Impact - improved calculation"""
     if not analyzed_metadata:
         return {
             'FWCI': 0,
             'total_cites': 0,
             'expected_cites': 0,
-            'articles_with_concepts': 0
+            'articles_with_concepts': 0,
+            'method_used': 'no_data'
         }
     
     total_cites = 0
@@ -1275,8 +1276,9 @@ def calculate_fwci_fast(analyzed_metadata):
     articles_with_concepts = 0
     articles_processed = 0
     
-    # Сначала собираем общую статистику по всем статьям
-    all_citations = []
+    # Собираем данные по цитированиям и концептам
+    concept_citations = {}
+    
     for meta in analyzed_metadata:
         oa = meta.get('openalex')
         if not oa: 
@@ -1284,57 +1286,95 @@ def calculate_fwci_fast(analyzed_metadata):
             
         cites = oa.get('cited_by_count', 0)
         total_cites += cites
-        all_citations.append(cites)
         articles_processed += 1
+        
+        concepts = oa.get('concepts', [])
+        if concepts:
+            # Используем топ-3 концепта по score
+            top_concepts = sorted(concepts, key=lambda x: x.get('score', 0), reverse=True)[:3]
+            
+            for concept in top_concepts:
+                concept_name = concept.get('display_name', 'Unknown')
+                concept_score = concept.get('score', 0)
+                
+                if concept_name not in concept_citations:
+                    concept_citations[concept_name] = {
+                        'total_cites': 0,
+                        'article_count': 0,
+                        'total_score': 0
+                    }
+                
+                concept_citations[concept_name]['total_cites'] += cites
+                concept_citations[concept_name]['article_count'] += 1
+                concept_citations[concept_name]['total_score'] += concept_score
+            
+            articles_with_concepts += 1
     
-    # Если нет статей с цитированиями, возвращаем 0
     if articles_processed == 0 or total_cites == 0:
         return {
             'FWCI': 0,
-            'total_cites': total_cites,
+            'total_cites': 0,
             'expected_cites': 0,
-            'articles_with_concepts': 0
+            'articles_with_concepts': 0,
+            'method_used': 'no_citations'
         }
     
-    # Среднее количество цитирований на статью в нашем наборе
-    avg_citations = total_cites / articles_processed
-    
-    # Теперь рассчитываем ожидаемые цитирования на основе концептов
-    for meta in analyzed_metadata:
-        oa = meta.get('openalex')
-        if not oa: 
-            continue
+    # Расчет ожидаемых цитирований
+    if concept_citations:
+        # Метод 1: на основе средних по концептам
+        for concept_data in concept_citations.values():
+            if concept_data['article_count'] > 0:
+                avg_cites_per_article = concept_data['total_cites'] / concept_data['article_count']
+                avg_score = concept_data['total_score'] / concept_data['article_count']
+                
+                # Взвешиваем по score концепта
+                expected_contribution = avg_cites_per_article * avg_score
+                expected_sum += expected_contribution
+        
+        method_used = 'concept_based'
+    else:
+        # Метод 2: fallback - используем глобальные средние по дисциплинам
+        # (это упрощение, в реальном FWCI используются нормализованные данные)
+        
+        # Предполагаем базовые ожидания по типам статей
+        for meta in analyzed_metadata:
+            oa = meta.get('openalex')
+            if not oa:
+                continue
+                
+            # Простой эвристический подход
+            cites = oa.get('cited_by_count', 0)
+            work_type = oa.get('type', 'article')
             
-        concepts = oa.get('concepts', [])
-        if not concepts: 
-            # Если нет концептов, используем среднее значение
-            expected_sum += avg_citations
-            continue
+            # Базовые ожидания по типам публикаций
+            type_expectations = {
+                'article': 1.0,
+                'review': 2.0,  # обзоры обычно цитируются больше
+                'conference': 0.7,
+                'book': 0.5,
+                'other': 0.8
+            }
+            
+            expected = type_expectations.get(work_type, 1.0)
+            expected_sum += expected
         
-        # Находим основной концепт (с наибольшим score)
-        main_concept = max(concepts, key=lambda x: x.get('score', 0))
-        
-        # Получаем статистику по концепту
-        works_count = main_concept.get('works_count', 0)
-        cited_by_count = main_concept.get('cited_by_count', 0)
-        
-        if works_count > 0 and cited_by_count > 0:
-            # Ожидаемые цитирования = средние цитирования в этой области
-            expected_citations = cited_by_count / works_count
-            expected_sum += expected_citations
-            articles_with_concepts += 1
-        else:
-            # Если нет данных по концепту, используем общее среднее
-            expected_sum += avg_citations
+        method_used = 'type_based'
     
-    # FWCI = фактические цитирования / ожидаемые цитирования
+    # Нормализация ожиданий
+    if expected_sum == 0:
+        expected_sum = articles_processed * 1.0  # Fallback
+        method_used = 'fallback'
+    
+    # FWCI calculation
     fwci = total_cites / expected_sum if expected_sum > 0 else 0
     
     return {
         'FWCI': round(fwci, 2),
         'total_cites': total_cites,
         'expected_cites': round(expected_sum, 2),
-        'articles_with_concepts': articles_with_concepts
+        'articles_with_concepts': articles_with_concepts,
+        'method_used': method_used,
+        'concepts_analyzed': len(concept_citations)
     }
 
 def calculate_citation_velocity_fast(analyzed_metadata, state):
@@ -3190,6 +3230,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
