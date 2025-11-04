@@ -1496,57 +1496,221 @@ def calculate_dbi_fast(analyzed_metadata):
     }
 
 def calculate_all_fast_metrics(analyzed_metadata, citing_metadata, state, journal_issn):
-    """Calculation of all fast metrics in one pass"""
+    """Calculation of all fast metrics in one pass with comprehensive error handling"""
     fast_metrics = {}
     
-    # Reference Age
-    reference_age_metrics = calculate_reference_age_fast(analyzed_metadata, state)
-    fast_metrics.update(reference_age_metrics)
+    # 1. Reference Age metrics
+    try:
+        reference_age_metrics = calculate_reference_age_fast(analyzed_metadata, state)
+        fast_metrics.update(reference_age_metrics)
+    except Exception as e:
+        st.warning(f"⚠️ Reference Age calculation failed: {str(e)}")
+        fast_metrics.update({
+            'ref_median_age': None,
+            'ref_mean_age': None,
+            'ref_ages_25_75': [None, None],
+            'total_refs_analyzed': 0
+        })
     
-    # JSCR с диагностикой
-    jscr_metrics = calculate_jscr_fast(citing_metadata, journal_issn)
-    fast_metrics.update(jscr_metrics)
+    # 2. JSCR metrics with enhanced debugging
+    try:
+        jscr_metrics = calculate_jscr_fast(citing_metadata, journal_issn)
+        fast_metrics.update(jscr_metrics)
+        
+        # Enhanced debug output
+        debug_info = []
+        debug_info.append(f"=== JSCR DEBUG ===")
+        debug_info.append(f"Journal ISSN: {journal_issn}")
+        debug_info.append(f"Clean ISSN: {jscr_metrics.get('journal_issn_clean', 'N/A')}")
+        debug_info.append(f"Total citing works processed: {jscr_metrics.get('total_cites', 0)}")
+        debug_info.append(f"Self-cites found: {jscr_metrics.get('self_cites', 0)}")
+        debug_info.append(f"JSCR: {jscr_metrics.get('JSCR', 0)}%")
+        
+        # Log first few debug samples if available
+        if 'debug_samples' in jscr_metrics and jscr_metrics['debug_samples']:
+            debug_info.append("First 5 items analysis:")
+            for i, debug in enumerate(jscr_metrics['debug_samples'][:5]):
+                debug_info.append(f"  {i+1}. {debug}")
+        
+        # Print debug info to console
+        print("\n".join(debug_info))
+        
+    except Exception as e:
+        st.warning(f"⚠️ JSCR calculation failed: {str(e)}")
+        fast_metrics.update({
+            'JSCR': 0,
+            'self_cites': 0,
+            'total_cites': 0,
+            'journal_issn_clean': journal_issn.replace('-', '').upper() if journal_issn else ""
+        })
     
-    # Выводим диагностику JSCR в консоль
-    print(f"=== JSCR DEBUG ===")
-    print(f"Journal ISSN: {journal_issn}")
-    print(f"Clean ISSN: {jscr_metrics.get('journal_issn_clean')}")
-    print(f"Total citing works: {jscr_metrics.get('total_cites')}")
-    print(f"Self-cites found: {jscr_metrics.get('self_cites')}")
-    print(f"JSCR: {jscr_metrics.get('JSCR')}%")
+    # 3. Cited Half-Life metrics with robust error handling
+    try:
+        cited_half_life_metrics = calculate_cited_half_life_fast(analyzed_metadata, state)
+        fast_metrics.update(cited_half_life_metrics)
+    except Exception as e:
+        st.warning(f"⚠️ Cited Half-Life calculation failed: {str(e)}")
+        fast_metrics.update({
+            'cited_half_life_median': None,
+            'cited_half_life_mean': None,
+            'articles_with_chl': 0
+        })
     
-    if 'debug_samples' in jscr_metrics:
-        print("First 10 items analysis:")
-        for debug in jscr_metrics['debug_samples']:
-            print(f"  {debug}")
+    # 4. Field-Weighted Citation Impact
+    try:
+        fwci_metrics = calculate_fwci_fast(analyzed_metadata)
+        fast_metrics.update(fwci_metrics)
+    except Exception as e:
+        st.warning(f"⚠️ FWCI calculation failed: {str(e)}")
+        fast_metrics.update({
+            'FWCI': 0,
+            'total_cites': 0,
+            'expected_cites': 0,
+            'articles_with_concepts': 0
+        })
     
-    # Cited Half-Life
-    cited_half_life_metrics = calculate_cited_half_life_fast(analyzed_metadata, state)
-    fast_metrics.update(cited_half_life_metrics)
+    # 5. Citation Velocity with data validation
+    try:
+        citation_velocity_metrics = calculate_citation_velocity_fast(analyzed_metadata, state)
+        fast_metrics.update(citation_velocity_metrics)
+    except Exception as e:
+        st.warning(f"⚠️ Citation Velocity calculation failed: {str(e)}")
+        fast_metrics.update({
+            'citation_velocity': 0,
+            'articles_with_velocity': 0
+        })
     
-    # FWCI
-    fwci_metrics = calculate_fwci_fast(analyzed_metadata)
-    fast_metrics.update(fwci_metrics)
+    # 6. Open Access Impact Premium
+    try:
+        oa_impact_premium_metrics = calculate_oa_impact_premium_fast(analyzed_metadata)
+        fast_metrics.update(oa_impact_premium_metrics)
+    except Exception as e:
+        st.warning(f"⚠️ OA Impact Premium calculation failed: {str(e)}")
+        fast_metrics.update({
+            'OA_impact_premium': 0,
+            'OA_articles': 0,
+            'non_OA_articles': 0,
+            'OA_avg_citations': 0,
+            'non_OA_avg_citations': 0
+        })
     
-    # Citation Velocity
-    citation_velocity_metrics = calculate_citation_velocity_fast(analyzed_metadata, state)
-    fast_metrics.update(citation_velocity_metrics)
+    # 7. Elite Index
+    try:
+        elite_index_metrics = calculate_elite_index_fast(analyzed_metadata)
+        fast_metrics.update(elite_index_metrics)
+    except Exception as e:
+        st.warning(f"⚠️ Elite Index calculation failed: {str(e)}")
+        fast_metrics.update({
+            'elite_index': 0,
+            'elite_articles': 0,
+            'total_articles': 0,
+            'citation_threshold': 0
+        })
     
-    # OA Impact Premium
-    oa_impact_premium_metrics = calculate_oa_impact_premium_fast(analyzed_metadata)
-    fast_metrics.update(oa_impact_premium_metrics)
+    # 8. Author Gini Index
+    try:
+        author_gini_metrics = calculate_author_gini_fast(analyzed_metadata)
+        fast_metrics.update(author_gini_metrics)
+    except Exception as e:
+        st.warning(f"⚠️ Author Gini calculation failed: {str(e)}")
+        fast_metrics.update({
+            'author_gini': 0,
+            'total_authors': 0,
+            'articles_per_author_avg': 0,
+            'articles_per_author_median': 0
+        })
     
-    # Elite Index
-    elite_index_metrics = calculate_elite_index_fast(analyzed_metadata)
-    fast_metrics.update(elite_index_metrics)
+    # 9. Diversity Balance Index
+    try:
+        dbi_metrics = calculate_dbi_fast(analyzed_metadata)
+        fast_metrics.update(dbi_metrics)
+    except Exception as e:
+        st.warning(f"⚠️ DBI calculation failed: {str(e)}")
+        fast_metrics.update({
+            'DBI': 0,
+            'unique_concepts': 0,
+            'total_concept_mentions': 0,
+            'top_concepts': []
+        })
     
-    # Author Gini
-    author_gini_metrics = calculate_author_gini_fast(analyzed_metadata)
-    fast_metrics.update(author_gini_metrics)
+    # 10. Additional diagnostic information
+    try:
+        # Add summary statistics for debugging
+        fast_metrics['diagnostic_info'] = {
+            'analyzed_articles_count': len(analyzed_metadata),
+            'citing_articles_count': len(citing_metadata),
+            'citing_cache_size': len(state.citing_cache),
+            'successful_metrics': len([k for k in fast_metrics.keys() if fast_metrics[k] not in [0, None, []]])
+        }
+        
+        # Calculate overall data quality score
+        quality_indicators = [
+            fast_metrics.get('total_refs_analyzed', 0) > 0,
+            fast_metrics.get('total_cites', 0) > 0,
+            fast_metrics.get('articles_with_chl', 0) > 0,
+            fast_metrics.get('articles_with_velocity', 0) > 0,
+            fast_metrics.get('OA_articles', 0) > 0 or fast_metrics.get('non_OA_articles', 0) > 0,
+            fast_metrics.get('total_authors', 0) > 0,
+            fast_metrics.get('unique_concepts', 0) > 0
+        ]
+        
+        fast_metrics['data_quality_score'] = round(
+            sum(quality_indicators) / len(quality_indicators) * 100, 1
+        )
+        
+    except Exception as e:
+        st.warning(f"⚠️ Diagnostic information calculation failed: {str(e)}")
+        fast_metrics.update({
+            'diagnostic_info': {'error': str(e)},
+            'data_quality_score': 0
+        })
     
-    # DBI
-    dbi_metrics = calculate_dbi_fast(analyzed_metadata)
-    fast_metrics.update(dbi_metrics)
+    # 11. Final validation and cleanup
+    try:
+        # Ensure all expected keys are present with safe defaults
+        expected_keys = {
+            'ref_median_age', 'ref_mean_age', 'ref_ages_25_75', 'total_refs_analyzed',
+            'JSCR', 'self_cites', 'total_cites', 'journal_issn_clean',
+            'cited_half_life_median', 'cited_half_life_mean', 'articles_with_chl',
+            'FWCI', 'total_cites_fwci', 'expected_cites', 'articles_with_concepts',
+            'citation_velocity', 'articles_with_velocity',
+            'OA_impact_premium', 'OA_articles', 'non_OA_articles', 'OA_avg_citations', 'non_OA_avg_citations',
+            'elite_index', 'elite_articles', 'citation_threshold',
+            'author_gini', 'total_authors', 'articles_per_author_avg', 'articles_per_author_median',
+            'DBI', 'unique_concepts', 'total_concept_mentions', 'top_concepts'
+        }
+        
+        for key in expected_keys:
+            if key not in fast_metrics:
+                if key == 'ref_ages_25_75':
+                    fast_metrics[key] = [None, None]
+                elif key == 'top_concepts':
+                    fast_metrics[key] = []
+                elif 'pct' in key or 'rate' in key or 'index' in key or 'premium' in key:
+                    fast_metrics[key] = 0.0
+                else:
+                    fast_metrics[key] = 0
+        
+        # Clean up any None values
+        for key in list(fast_metrics.keys()):
+            if fast_metrics[key] is None:
+                if isinstance(fast_metrics[key], (int, float)):
+                    fast_metrics[key] = 0
+                elif isinstance(fast_metrics[key], list):
+                    fast_metrics[key] = []
+                elif isinstance(fast_metrics[key], str):
+                    fast_metrics[key] = ""
+                else:
+                    fast_metrics[key] = 0
+        
+    except Exception as e:
+        st.error(f"❌ Final validation failed: {str(e)}")
+    
+    # 12. Log completion
+    successful_calculations = len([v for v in fast_metrics.values() if v not in [0, None, [], ""]])
+    total_calculations = len(fast_metrics)
+    
+    print(f"✅ Fast metrics calculation completed: {successful_calculations}/{total_calculations} successful")
     
     return fast_metrics
 
@@ -2952,6 +3116,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
