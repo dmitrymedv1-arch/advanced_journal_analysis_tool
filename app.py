@@ -1470,9 +1470,22 @@ def calculate_all_fast_metrics(analyzed_metadata, citing_metadata, state, journa
     reference_age_metrics = calculate_reference_age_fast(analyzed_metadata, state)
     fast_metrics.update(reference_age_metrics)
     
-    # JSCR
+    # JSCR с диагностикой
     jscr_metrics = calculate_jscr_fast(citing_metadata, journal_issn)
     fast_metrics.update(jscr_metrics)
+    
+    # Выводим диагностику JSCR в консоль
+    print(f"=== JSCR DEBUG ===")
+    print(f"Journal ISSN: {journal_issn}")
+    print(f"Clean ISSN: {jscr_metrics.get('journal_issn_clean')}")
+    print(f"Total citing works: {jscr_metrics.get('total_cites')}")
+    print(f"Self-cites found: {jscr_metrics.get('self_cites')}")
+    print(f"JSCR: {jscr_metrics.get('JSCR')}%")
+    
+    if 'debug_samples' in jscr_metrics:
+        print("First 10 items analysis:")
+        for debug in jscr_metrics['debug_samples']:
+            print(f"  {debug}")
     
     # Cited Half-Life
     cited_half_life_metrics = calculate_cited_half_life_fast(analyzed_metadata, state)
@@ -2906,6 +2919,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
