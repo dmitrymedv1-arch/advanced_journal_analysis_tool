@@ -1352,8 +1352,25 @@ def calculate_citation_velocity_fast(analyzed_metadata, state):
             continue
         
         citings = state.citing_cache.get(cr.get('DOI'), [])
-        early = sum(1 for c in citings 
-                   if c.get('openalex', {}).get('publication_year', 0) <= pub_year + 2)
+        early = 0
+        
+        for c in citings:
+            if isinstance(c, dict):
+                if c.get('openalex'):
+                    citing_year = c['openalex'].get('publication_year', 0)
+                elif c.get('pub_date'):
+                    try:
+                        citing_year = int(c['pub_date'][:4])
+                    except:
+                        citing_year = 0
+                else:
+                    citing_year = 0
+            else:
+                citing_year = 0
+                
+            if citing_year and citing_year <= pub_year + 2:
+                early += 1
+                
         velocities.append(early / 2.0)
     
     return {
@@ -2935,6 +2952,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
