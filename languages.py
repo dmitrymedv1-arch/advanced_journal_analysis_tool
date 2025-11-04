@@ -584,7 +584,7 @@ class TranslationManager:
             # Analysis status messages
             'parsing_period': '📅 Zeitraum wird analysiert...',
             'getting_journal_name': '📖 Journalname wird abgerufen...',
-            'loading_articles': '📥 Artikel werden von Crossref geladen...',
+            'loading_articles': 'Daten werden von',
             'validating_data': '🔍 Daten werden validiert...',
             'processing_articles': '🔄 Analysierte Artikel werden verarbeitet...',
             'getting_metadata': 'Metadaten werden abgerufen',
@@ -829,7 +829,7 @@ class TranslationManager:
             # Analysis status messages
             'parsing_period': '📅 Analizando período...',
             'getting_journal_name': '📖 Obteniendo nombre de la revista...',
-            'loading_articles': '📥 Cargando artículos de Crossref...',
+            'loading_articles': 'Cargando datos de',
             'validating_data': '🔍 Validando datos...',
             'processing_articles': '🔄 Procesando artículos analizados...',
             'getting_metadata': 'Obteniendo metadatos',
@@ -1074,7 +1074,7 @@ class TranslationManager:
             # Analysis status messages
             'parsing_period': '📅 Analisi del periodo...',
             'getting_journal_name': '📖 Recupero nome rivista...',
-            'loading_articles': '📥 Caricamento articoli da Crossref...',
+            'loading_articles': 'Caricamento dati da',
             'validating_data': '🔍 Validazione dati...',
             'processing_articles': '🔄 Elaborazione articoli analizzati...',
             'getting_metadata': 'Recupero metadati',
@@ -1319,7 +1319,7 @@ class TranslationManager:
             # Analysis status messages
             'parsing_period': '📅 تحليل الفترة...',
             'getting_journal_name': '📖 جاري الحصول على اسم المجلة...',
-            'loading_articles': '📥 جاري تحميل المقالات من Crossref...',
+            'loading_articles': 'جاري تحميل المقالات من Crossref...',
             'validating_data': '🔍 التحقق من صحة البيانات...',
             'processing_articles': '🔄 معالجة المقالات المحللة...',
             'getting_metadata': 'جاري الحصول على البيانات الوصفية',
@@ -1564,7 +1564,7 @@ class TranslationManager:
             # Analysis status messages
             'parsing_period': '📅 解析期间...',
             'getting_journal_name': '📖 获取期刊名称...',
-            'loading_articles': '📥 从Crossref加载文章...',
+            'loading_articles': '从Crossref加载文章...',
             'validating_data': '🔍 验证数据...',
             'processing_articles': '🔄 处理已分析文章...',
             'getting_metadata': '获取元数据',
@@ -1809,7 +1809,7 @@ class TranslationManager:
             # Analysis status messages
             'parsing_period': '📅 期間の解析...',
             'getting_journal_name': '📖 ジャーナル名の取得...',
-            'loading_articles': '📥 Crossrefから記事を読み込み中...',
+            'loading_articles': 'Crossrefから記事を読み込み中...',
             'validating_data': '🔍 データの検証...',
             'processing_articles': '🔄 分析記事の処理...',
             'getting_metadata': 'メタデータの取得',
@@ -2007,4 +2007,5 @@ class TranslationManager:
 
 # Global translation manager instance
 translation_manager = TranslationManager()
+
 
