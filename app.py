@@ -1110,8 +1110,7 @@ def calculate_reference_age_fast(analyzed_metadata, state):
 
 def calculate_jscr_fast(citing_metadata, journal_issn):
     """Journal Self-Citation Rate - percentage of journal self-citations"""
-    total = len(citing_metadata)
-    if total == 0: 
+    if not citing_metadata:
         return {
             'JSCR': 0,
             'self_cites': 0,
@@ -1119,18 +1118,52 @@ def calculate_jscr_fast(citing_metadata, journal_issn):
         }
     
     self_cites = 0
+    total_processed = 0
+    
     for c in citing_metadata:
+        # Проверяем разные возможные структуры данных
         oa = c.get('openalex')
-        if not oa: 
+        if not oa:
+            # Пробуем получить данные из crossref
+            cr = c.get('crossref')
+            if cr:
+                # Проверяем ISSN в crossref данных
+                cr_issns = cr.get('ISSN', [])
+                if journal_issn in cr_issns:
+                    self_cites += 1
+            total_processed += 1
             continue
-        issns = oa.get('host_venue', {}).get('issn', [])
-        if journal_issn in issns:
-            self_cites += 1
+            
+        # Проверяем host_venue в openalex
+        host_venue = oa.get('host_venue', {})
+        if host_venue:
+            issns = host_venue.get('issn', [])
+            # Также проверяем альтернативные форматы ISSN
+            if isinstance(issns, str):
+                issns = [issns]
+            
+            # Нормализуем ISSN для сравнения (убираем дефисы)
+            journal_issn_clean = journal_issn.replace('-', '').upper()
+            for issn in issns:
+                if issn and journal_issn_clean == issn.replace('-', '').upper():
+                    self_cites += 1
+                    break
+        
+        total_processed += 1
+    
+    if total_processed == 0:
+        return {
+            'JSCR': 0,
+            'self_cites': 0,
+            'total_cites': 0
+        }
+    
+    jscr = round(self_cites / total_processed * 100, 2)
     
     return {
-        'JSCR': round(self_cites / total * 100, 2),
+        'JSCR': jscr,
         'self_cites': self_cites,
-        'total_cites': total
+        'total_cites': total_processed
     }
 
 def calculate_cited_half_life_fast(analyzed_metadata, state):
@@ -1176,9 +1209,21 @@ def calculate_cited_half_life_fast(analyzed_metadata, state):
 
 def calculate_fwci_fast(analyzed_metadata):
     """Field-Weighted Citation Impact - field-weighted citation index"""
-    total_cites = 0
-    expected = 0.0
+    if not analyzed_metadata:
+        return {
+            'FWCI': 0,
+            'total_cites': 0,
+            'expected_cites': 0,
+            'articles_with_concepts': 0
+        }
     
+    total_cites = 0
+    expected_sum = 0.0
+    articles_with_concepts = 0
+    articles_processed = 0
+    
+    # Сначала собираем общую статистику по всем статьям
+    all_citations = []
     for meta in analyzed_metadata:
         oa = meta.get('openalex')
         if not oa: 
@@ -1186,21 +1231,57 @@ def calculate_fwci_fast(analyzed_metadata):
             
         cites = oa.get('cited_by_count', 0)
         total_cites += cites
-        
-        concepts = oa.get('concepts', [])
-        if not concepts: 
+        all_citations.append(cites)
+        articles_processed += 1
+    
+    # Если нет статей с цитированиями, возвращаем 0
+    if articles_processed == 0 or total_cites == 0:
+        return {
+            'FWCI': 0,
+            'total_cites': total_cites,
+            'expected_cites': 0,
+            'articles_with_concepts': 0
+        }
+    
+    # Среднее количество цитирований на статью в нашем наборе
+    avg_citations = total_cites / articles_processed
+    
+    # Теперь рассчитываем ожидаемые цитирования на основе концептов
+    for meta in analyzed_metadata:
+        oa = meta.get('openalex')
+        if not oa: 
             continue
             
-        main = max(concepts, key=lambda x: x.get('score', 0))
-        works = max(main.get('works_count', 1), 1)
-        field_cites = main.get('cited_by_count', 0)
-        expected += (field_cites / works)
+        concepts = oa.get('concepts', [])
+        if not concepts: 
+            # Если нет концептов, используем среднее значение
+            expected_sum += avg_citations
+            continue
+        
+        # Находим основной концепт (с наибольшим score)
+        main_concept = max(concepts, key=lambda x: x.get('score', 0))
+        
+        # Получаем статистику по концепту
+        works_count = main_concept.get('works_count', 0)
+        cited_by_count = main_concept.get('cited_by_count', 0)
+        
+        if works_count > 0 and cited_by_count > 0:
+            # Ожидаемые цитирования = средние цитирования в этой области
+            expected_citations = cited_by_count / works_count
+            expected_sum += expected_citations
+            articles_with_concepts += 1
+        else:
+            # Если нет данных по концепту, используем общее среднее
+            expected_sum += avg_citations
     
-    fwci = total_cites / expected if expected > 0 else 0
+    # FWCI = фактические цитирования / ожидаемые цитирования
+    fwci = total_cites / expected_sum if expected_sum > 0 else 0
+    
     return {
         'FWCI': round(fwci, 2),
         'total_cites': total_cites,
-        'expected_cites': round(expected, 2)
+        'expected_cites': round(expected_sum, 2),
+        'articles_with_concepts': articles_with_concepts
     }
 
 def calculate_citation_velocity_fast(analyzed_metadata, state):
@@ -2779,5 +2860,6 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
