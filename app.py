@@ -1430,31 +1430,40 @@ def calculate_all_fast_metrics(analyzed_metadata, citing_metadata, state, journa
     fast_metrics = {}
     
     # Reference Age
-    fast_metrics.update(calculate_reference_age_fast(analyzed_metadata, state))
+    reference_age_metrics = calculate_reference_age_fast(analyzed_metadata, state)
+    fast_metrics.update(reference_age_metrics)
     
     # JSCR
-    fast_metrics.update(calculate_jscr_fast(citing_metadata, journal_issn))
+    jscr_metrics = calculate_jscr_fast(citing_metadata, journal_issn)
+    fast_metrics.update(jscr_metrics)
     
     # Cited Half-Life
-    fast_metrics.update(calculate_cited_half_life_fast(analyzed_metadata, state))
+    cited_half_life_metrics = calculate_cited_half_life_fast(analyzed_metadata, state)
+    fast_metrics.update(cited_half_life_metrics)
     
     # FWCI
-    fast_metrics.update(calculate_fwci_fast(analyzed_metadata))
+    fwci_metrics = calculate_fwci_fast(analyzed_metadata)
+    fast_metrics.update(fwci_metrics)
     
     # Citation Velocity
-    fast_metrics.update(calculate_citation_velocity_fast(analyzed_metadata, state))
+    citation_velocity_metrics = calculate_citation_velocity_fast(analyzed_metadata, state)
+    fast_metrics.update(citation_velocity_metrics)
     
     # OA Impact Premium
-    fast_metrics.update(calculate_oa_impact_premium_fast(analyzed_metadata))
+    oa_impact_premium_metrics = calculate_oa_impact_premium_fast(analyzed_metadata)
+    fast_metrics.update(oa_impact_premium_metrics)
     
     # Elite Index
-    fast_metrics.update(calculate_elite_index_fast(analyzed_metadata))
+    elite_index_metrics = calculate_elite_index_fast(analyzed_metadata)
+    fast_metrics.update(elite_index_metrics)
     
     # Author Gini
-    fast_metrics.update(calculate_author_gini_fast(analyzed_metadata))
+    author_gini_metrics = calculate_author_gini_fast(analyzed_metadata)
+    fast_metrics.update(author_gini_metrics)
     
     # DBI
-    fast_metrics.update(calculate_dbi_fast(analyzed_metadata))
+    dbi_metrics = calculate_dbi_fast(analyzed_metadata)
+    fast_metrics.update(dbi_metrics)
     
     return fast_metrics
 
@@ -2860,6 +2869,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
