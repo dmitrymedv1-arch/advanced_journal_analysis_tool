@@ -499,19 +499,29 @@ def extract_affiliations_and_countries(openalex_data):
     if not openalex_data:
         return authors_list, list(affiliations), list(countries)
     
-    if 'authorships' in openalex_data:
+    # Проверяем наличие ключа 'authorships'
+    if 'authorships' not in openalex_data:
+        return authors_list, list(affiliations), list(countries)
+    
+    try:
         for auth in openalex_data['authorships']:
             author_name = auth.get('author', {}).get('display_name', 'Unknown')
             authors_list.append(author_name)
             
-            for inst in auth.get('institutions', []):
-                inst_name = inst.get('display_name')
-                country_code = inst.get('country_code')
-                
-                if inst_name:
-                    affiliations.add(inst_name)
-                if country_code:
-                    countries.add(country_code.upper())
+            # Проверяем наличие ключа 'institutions'
+            if 'institutions' in auth:
+                for inst in auth.get('institutions', []):
+                    inst_name = inst.get('display_name')
+                    country_code = inst.get('country_code')
+                    
+                    if inst_name:
+                        affiliations.add(inst_name)
+                    if country_code:
+                        countries.add(country_code.upper())
+    except (KeyError, TypeError, AttributeError) as e:
+        # Логируем ошибку, но продолжаем выполнение
+        print(f"Warning in extract_affiliations_and_countries: {e}")
+        pass
     
     return authors_list, list(affiliations), list(countries)
 
@@ -815,44 +825,49 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
 
         oa = meta.get('openalex')
         if oa:
-            authors_list, affiliations_list, countries_list = extract_affiliations_and_countries(oa)
-            
-            all_authors.extend(authors_list)
-            all_affiliations.extend(affiliations_list)
-            all_countries.extend(countries_list)
-            
-            for aff in affiliations_list:
-                affiliations_freq[aff] += 1
-            for country in countries_list:
-                countries_freq[country] += 1
-            
-            unique_countries = set(countries_list)
-            if len(unique_countries) == 0:
-                no_country_articles += 1
-            elif len(unique_countries) == 1:
-                single_country_articles += 1
-            elif len(unique_countries) > 1:
-                multi_country_articles += 1
-            
-            host_venue = oa.get('host_venue', {})
-            if host_venue:
-                journal_name = host_venue.get('display_name', '')
-                publisher = host_venue.get('publisher', '')
-                if journal_name and journal_name not in journal_freq:
-                    journal_freq[journal_name] += 1
-                if publisher and publisher not in publisher_freq:
-                    publisher_freq[publisher] += 1
-            
-            if is_analyzed:
-                citation_count = oa.get('cited_by_count', 0)
-                if citation_count >= 10:
-                    articles_with_10_citations += 1
-                if citation_count >= 20:
-                    articles_with_20_citations += 1
-                if citation_count >= 30:
-                    articles_with_30_citations += 1
-                if citation_count >= 50:
-                    articles_with_50_citations += 1
+            try:
+                authors_list, affiliations_list, countries_list = extract_affiliations_and_countries(oa)
+                
+                all_authors.extend(authors_list)
+                all_affiliations.extend(affiliations_list)
+                all_countries.extend(countries_list)
+                
+                for aff in affiliations_list:
+                    affiliations_freq[aff] += 1
+                for country in countries_list:
+                    countries_freq[country] += 1
+                
+                unique_countries = set(countries_list)
+                if len(unique_countries) == 0:
+                    no_country_articles += 1
+                elif len(unique_countries) == 1:
+                    single_country_articles += 1
+                elif len(unique_countries) > 1:
+                    multi_country_articles += 1
+                
+                host_venue = oa.get('host_venue', {})
+                if host_venue:
+                    journal_name = host_venue.get('display_name', '')
+                    publisher = host_venue.get('publisher', '')
+                    if journal_name and journal_name not in journal_freq:
+                        journal_freq[journal_name] += 1
+                    if publisher and publisher not in publisher_freq:
+                        publisher_freq[publisher] += 1
+                
+                if is_analyzed:
+                    citation_count = oa.get('cited_by_count', 0)
+                    if citation_count >= 10:
+                        articles_with_10_citations += 1
+                    if citation_count >= 20:
+                        articles_with_20_citations += 1
+                    if citation_count >= 30:
+                        articles_with_30_citations += 1
+                    if citation_count >= 50:
+                        articles_with_50_citations += 1
+            except Exception as e:
+                # Пропускаем проблемные записи и продолжаем обработку
+                print(f"Warning processing OpenAlex data: {e}")
+                continue
 
     n_items = len(metadata_list)
 
@@ -2764,4 +2779,5 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
