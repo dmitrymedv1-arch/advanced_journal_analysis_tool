@@ -1564,7 +1564,7 @@ def calculate_all_fast_metrics(analyzed_metadata, citing_metadata, state, journa
         st.warning(f"⚠️ FWCI calculation failed: {str(e)}")
         fast_metrics.update({
             'FWCI': 0,
-            'total_cites': 0,
+            'total_cites_fwci': 0,
             'expected_cites': 0,
             'articles_with_concepts': 0
         })
@@ -1603,7 +1603,7 @@ def calculate_all_fast_metrics(analyzed_metadata, citing_metadata, state, journa
         fast_metrics.update({
             'elite_index': 0,
             'elite_articles': 0,
-            'total_articles': 0,
+            'total_articles_elite': 0,
             'citation_threshold': 0
         })
     
@@ -1633,30 +1633,50 @@ def calculate_all_fast_metrics(analyzed_metadata, citing_metadata, state, journa
             'top_concepts': []
         })
     
-    # 10. Additional diagnostic information
+    # 10. Additional diagnostic information (with safe array handling)
     try:
         # Add summary statistics for debugging
         fast_metrics['diagnostic_info'] = {
             'analyzed_articles_count': len(analyzed_metadata),
             'citing_articles_count': len(citing_metadata),
             'citing_cache_size': len(state.citing_cache),
-            'successful_metrics': len([k for k in fast_metrics.keys() if fast_metrics[k] not in [0, None, []]])
+            'successful_metrics': len([k for k in fast_metrics.keys() if is_valid_value(fast_metrics[k])])
         }
         
-        # Calculate overall data quality score
-        quality_indicators = [
-            fast_metrics.get('total_refs_analyzed', 0) > 0,
-            fast_metrics.get('total_cites', 0) > 0,
-            fast_metrics.get('articles_with_chl', 0) > 0,
-            fast_metrics.get('articles_with_velocity', 0) > 0,
-            fast_metrics.get('OA_articles', 0) > 0 or fast_metrics.get('non_OA_articles', 0) > 0,
-            fast_metrics.get('total_authors', 0) > 0,
-            fast_metrics.get('unique_concepts', 0) > 0
-        ]
+        # Calculate overall data quality score with safe array handling
+        quality_indicators = []
         
-        fast_metrics['data_quality_score'] = round(
-            sum(quality_indicators) / len(quality_indicators) * 100, 1
-        )
+        # Safe checks for each indicator
+        refs_analyzed = fast_metrics.get('total_refs_analyzed', 0)
+        quality_indicators.append(refs_analyzed > 0 if not hasattr(refs_analyzed, 'size') else refs_analyzed.size > 0)
+        
+        total_cites = fast_metrics.get('total_cites', 0)
+        quality_indicators.append(total_cites > 0 if not hasattr(total_cites, 'size') else total_cites.size > 0)
+        
+        articles_chl = fast_metrics.get('articles_with_chl', 0)
+        quality_indicators.append(articles_chl > 0 if not hasattr(articles_chl, 'size') else articles_chl.size > 0)
+        
+        articles_velocity = fast_metrics.get('articles_with_velocity', 0)
+        quality_indicators.append(articles_velocity > 0 if not hasattr(articles_velocity, 'size') else articles_velocity.size > 0)
+        
+        oa_articles = fast_metrics.get('OA_articles', 0)
+        non_oa_articles = fast_metrics.get('non_OA_articles', 0)
+        oa_check = (oa_articles > 0 if not hasattr(oa_articles, 'size') else oa_articles.size > 0)
+        non_oa_check = (non_oa_articles > 0 if not hasattr(non_oa_articles, 'size') else non_oa_articles.size > 0)
+        quality_indicators.append(oa_check or non_oa_check)
+        
+        total_authors = fast_metrics.get('total_authors', 0)
+        quality_indicators.append(total_authors > 0 if not hasattr(total_authors, 'size') else total_authors.size > 0)
+        
+        unique_concepts = fast_metrics.get('unique_concepts', 0)
+        quality_indicators.append(unique_concepts > 0 if not hasattr(unique_concepts, 'size') else unique_concepts.size > 0)
+        
+        # Calculate quality score safely
+        if quality_indicators:
+            quality_score = sum(quality_indicators) / len(quality_indicators) * 100
+            fast_metrics['data_quality_score'] = round(quality_score, 1)
+        else:
+            fast_metrics['data_quality_score'] = 0
         
     except Exception as e:
         st.warning(f"⚠️ Diagnostic information calculation failed: {str(e)}")
@@ -1675,9 +1695,10 @@ def calculate_all_fast_metrics(analyzed_metadata, citing_metadata, state, journa
             'FWCI', 'total_cites_fwci', 'expected_cites', 'articles_with_concepts',
             'citation_velocity', 'articles_with_velocity',
             'OA_impact_premium', 'OA_articles', 'non_OA_articles', 'OA_avg_citations', 'non_OA_avg_citations',
-            'elite_index', 'elite_articles', 'citation_threshold',
+            'elite_index', 'elite_articles', 'total_articles_elite', 'citation_threshold',
             'author_gini', 'total_authors', 'articles_per_author_avg', 'articles_per_author_median',
-            'DBI', 'unique_concepts', 'total_concept_mentions', 'top_concepts'
+            'DBI', 'unique_concepts', 'total_concept_mentions', 'top_concepts',
+            'data_quality_score'
         }
         
         for key in expected_keys:
@@ -1691,28 +1712,81 @@ def calculate_all_fast_metrics(analyzed_metadata, citing_metadata, state, journa
                 else:
                     fast_metrics[key] = 0
         
-        # Clean up any None values
+        # Clean up any None values and convert numpy types to Python types
         for key in list(fast_metrics.keys()):
-            if fast_metrics[key] is None:
-                if isinstance(fast_metrics[key], (int, float)):
+            value = fast_metrics[key]
+            
+            # Handle numpy arrays and types
+            if hasattr(value, 'item'):  # numpy scalar
+                try:
+                    fast_metrics[key] = value.item()
+                except:
                     fast_metrics[key] = 0
-                elif isinstance(fast_metrics[key], list):
+            elif hasattr(value, 'size'):  # numpy array
+                if value.size == 0:
+                    fast_metrics[key] = [] if key == 'top_concepts' else 0
+                elif value.size == 1:
+                    try:
+                        fast_metrics[key] = value.item()
+                    except:
+                        fast_metrics[key] = 0
+                else:
+                    fast_metrics[key] = value.tolist() if key == 'ref_ages_25_75' else 0
+            
+            # Handle None values
+            elif value is None:
+                if key == 'ref_ages_25_75':
+                    fast_metrics[key] = [None, None]
+                elif key == 'top_concepts':
                     fast_metrics[key] = []
-                elif isinstance(fast_metrics[key], str):
-                    fast_metrics[key] = ""
+                elif isinstance(value, (int, float)):
+                    fast_metrics[key] = 0
                 else:
                     fast_metrics[key] = 0
         
     except Exception as e:
         st.error(f"❌ Final validation failed: {str(e)}")
     
-    # 12. Log completion
-    successful_calculations = len([v for v in fast_metrics.values() if v not in [0, None, [], ""]])
-    total_calculations = len(fast_metrics)
-    
-    print(f"✅ Fast metrics calculation completed: {successful_calculations}/{total_calculations} successful")
+    # 12. Log completion with safe value checking
+    try:
+        successful_calculations = len([k for k in fast_metrics.keys() if is_valid_value(fast_metrics[k])])
+        total_calculations = len(fast_metrics)
+        
+        print(f"✅ Fast metrics calculation completed: {successful_calculations}/{total_calculations} successful")
+        print(f"📊 Data quality score: {fast_metrics.get('data_quality_score', 0)}%")
+        
+    except Exception as e:
+        print(f"⚠️ Completion logging failed: {str(e)}")
     
     return fast_metrics
+
+def is_valid_value(value):
+    """Safe function to check if a value is valid (not empty/zero/None)"""
+    try:
+        if value is None:
+            return False
+        
+        # Handle numpy arrays and types
+        if hasattr(value, 'size'):
+            if value.size == 0:
+                return False
+            elif value.size == 1:
+                return value.item() not in [0, None]
+            else:
+                return True
+        
+        # Handle regular Python types
+        if isinstance(value, (list, tuple, dict)):
+            return len(value) > 0
+        elif isinstance(value, (int, float)):
+            return value != 0
+        elif isinstance(value, str):
+            return value != ""
+        else:
+            return value not in [0, None, [], ""]
+    
+    except Exception:
+        return False
 
 # === 17. Enhanced Excel Report Creation ===
 def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer):
@@ -3116,6 +3190,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
