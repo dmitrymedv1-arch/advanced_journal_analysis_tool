@@ -1222,7 +1222,23 @@ def calculate_cited_half_life_fast(analyzed_metadata, state):
         
         yearly = defaultdict(int)
         for c in citings:
-            y = c.get('openalex', {}).get('publication_year')
+            # Исправление: правильное получение года публикации
+            if isinstance(c, dict):
+                # Если это словарь с данными цитирования
+                if c.get('openalex'):
+                    y = c['openalex'].get('publication_year')
+                elif c.get('pub_date'):
+                    # Пытаемся извлечь год из даты
+                    try:
+                        y = int(c['pub_date'][:4])
+                    except:
+                        y = None
+                else:
+                    y = None
+            else:
+                # Если это просто DOI строка (резервный вариант)
+                y = None
+                
             if y: 
                 yearly[y] += 1
         
@@ -2919,6 +2935,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
