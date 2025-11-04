@@ -94,7 +94,7 @@ class TranslationManager:
             # Analysis status messages
             'parsing_period': '📅 Parsing period...',
             'getting_journal_name': '📖 Getting journal name...',
-            'loading_articles': '📥 Loading articles from Crossref...',
+            'loading_articles': 'Loading data from',
             'validating_data': '🔍 Validating data...',
             'processing_articles': '🔄 Processing analyzed articles...',
             'getting_metadata': 'Getting metadata',
@@ -339,7 +339,7 @@ class TranslationManager:
             # Analysis status messages
             'parsing_period': '📅 Парсинг периода...',
             'getting_journal_name': '📖 Получение названия журнала...',
-            'loading_articles': '📥 Загрузка статей из Crossref...',
+            'loading_articles': 'Загрузка данных из',
             'validating_data': '🔍 Валидация данных...',
             'processing_articles': '🔄 Обработка анализируемых статей...',
             'getting_metadata': 'Получение метаданных',
@@ -2007,3 +2007,4 @@ class TranslationManager:
 
 # Global translation manager instance
 translation_manager = TranslationManager()
+
