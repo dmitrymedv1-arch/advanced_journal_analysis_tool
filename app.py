@@ -1114,57 +1114,94 @@ def calculate_jscr_fast(citing_metadata, journal_issn):
         return {
             'JSCR': 0,
             'self_cites': 0,
-            'total_cites': 0
+            'total_cites': 0,
+            'debug': 'No citing metadata'
         }
     
     self_cites = 0
     total_processed = 0
+    debug_info = []
     
-    for c in citing_metadata:
-        # Проверяем разные возможные структуры данных
-        oa = c.get('openalex')
-        if not oa:
-            # Пробуем получить данные из crossref
-            cr = c.get('crossref')
-            if cr:
-                # Проверяем ISSN в crossref данных
-                cr_issns = cr.get('ISSN', [])
-                if journal_issn in cr_issns:
-                    self_cites += 1
-            total_processed += 1
+    # Нормализуем ISSN для сравнения
+    journal_issn_clean = journal_issn.replace('-', '').upper() if journal_issn else ""
+    
+    for i, c in enumerate(citing_metadata):
+        current_debug = f"Item {i}: "
+        
+        # Пропускаем записи без данных
+        if not c:
+            current_debug += "No data"
+            debug_info.append(current_debug)
             continue
             
-        # Проверяем host_venue в openalex
-        host_venue = oa.get('host_venue', {})
-        if host_venue:
-            issns = host_venue.get('issn', [])
-            # Также проверяем альтернативные форматы ISSN
-            if isinstance(issns, str):
-                issns = [issns]
-            
-            # Нормализуем ISSN для сравнения (убираем дефисы)
-            journal_issn_clean = journal_issn.replace('-', '').upper()
-            for issn in issns:
-                if issn and journal_issn_clean == issn.replace('-', '').upper():
-                    self_cites += 1
-                    break
+        oa = c.get('openalex')
+        cr = c.get('crossref')
         
+        found_match = False
+        found_issns = []
+        
+        # Проверяем OpenAlex данные
+        if oa:
+            host_venue = oa.get('host_venue', {})
+            if host_venue:
+                oa_issns = host_venue.get('issn', [])
+                if isinstance(oa_issns, str):
+                    oa_issns = [oa_issns]
+                
+                for issn in oa_issns:
+                    if issn:
+                        issn_clean = issn.replace('-', '').upper()
+                        found_issns.append(issn_clean)
+                        if issn_clean == journal_issn_clean:
+                            found_match = True
+                            break
+        
+        # Проверяем Crossref данные если не нашли в OpenAlex
+        if not found_match and cr:
+            cr_issns = cr.get('ISSN', [])
+            if isinstance(cr_issns, str):
+                cr_issns = [cr_issns]
+                
+            for issn in cr_issns:
+                if issn:
+                    issn_clean = issn.replace('-', '').upper()
+                    found_issns.append(issn_clean)
+                    if issn_clean == journal_issn_clean:
+                        found_match = True
+                        break
+        
+        # Также проверяем по названию журнала в crossref (дополнительный метод)
+        if not found_match and cr:
+            container_title = cr.get('container-title', [])
+            if container_title and journal_issn:
+                # Если у нас есть название журнала, можем попробовать сопоставить
+                # но это менее надежно, поэтому используем как fallback
+                pass
+        
+        if found_match:
+            self_cites += 1
+            current_debug += f"SELF-CITE found. ISSNs: {found_issns}"
+        else:
+            current_debug += f"Not self-cite. ISSNs: {found_issns}"
+        
+        debug_info.append(current_debug)
         total_processed += 1
     
-    if total_processed == 0:
-        return {
-            'JSCR': 0,
-            'self_cites': 0,
-            'total_cites': 0
-        }
+    # Расчет JSCR
+    jscr = round(self_cites / total_processed * 100, 2) if total_processed > 0 else 0
     
-    jscr = round(self_cites / total_processed * 100, 2)
-    
-    return {
+    result = {
         'JSCR': jscr,
         'self_cites': self_cites,
-        'total_cites': total_processed
+        'total_cites': total_processed,
+        'debug_count': len(debug_info),
+        'journal_issn_clean': journal_issn_clean
     }
+    
+    # Добавляем первую часть debug информации (первые 10 записей)
+    result['debug_samples'] = debug_info[:10]
+    
+    return result
 
 def calculate_cited_half_life_fast(analyzed_metadata, state):
     """Cited Half-Life - median time to receive half of citations"""
@@ -2869,6 +2906,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
