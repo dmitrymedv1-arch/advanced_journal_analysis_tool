@@ -2123,7 +2123,7 @@ def is_valid_value(value):
         return False
 
 # === 17. Enhanced Excel Report Creation ===
-def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer):
+def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, word_analysis, excel_buffer):
     """Create enhanced Excel report with error handling for large data"""
     try:
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
@@ -2597,7 +2597,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             st.error(translation_manager.get_text('critical_excel_error').format(error=str(e2)))
             return False
 
-            # Sheet 22: Word Frequency Analysis (NEW) - только если данные предоставлены
+            # Sheet 22: Word Frequency Analysis (NEW)
             if word_analysis:
                 word_analysis_data = []
                 
@@ -2617,186 +2617,186 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                         'Word': word,
                         'Frequency': freq
                     })
-            
-            word_analysis_data.append({
-                'Category': 'REFERENCES',
-                'Type': 'Compound Words',
-                'Rank': '',
-                'Word': '',
-                'Frequency': ''
-            })
-            for i, (word, freq) in enumerate(word_analysis['reference']['compound_words'], 1):
+                
                 word_analysis_data.append({
                     'Category': 'REFERENCES',
                     'Type': 'Compound Words',
-                    'Rank': i,
-                    'Word': word,
-                    'Frequency': freq
+                    'Rank': '',
+                    'Word': '',
+                    'Frequency': ''
                 })
-            
-            word_analysis_data.append({
-                'Category': 'REFERENCES',
-                'Type': 'Scientific Stopwords',
-                'Rank': '',
-                'Word': '',
-                'Frequency': ''
-            })
-            for i, (word, freq) in enumerate(word_analysis['reference']['scientific_words'], 1):
+                for i, (word, freq) in enumerate(word_analysis['reference']['compound_words'], 1):
+                    word_analysis_data.append({
+                        'Category': 'REFERENCES',
+                        'Type': 'Compound Words',
+                        'Rank': i,
+                        'Word': word,
+                        'Frequency': freq
+                    })
+                
                 word_analysis_data.append({
                     'Category': 'REFERENCES',
                     'Type': 'Scientific Stopwords',
-                    'Rank': i,
-                    'Word': word,
-                    'Frequency': freq
+                    'Rank': '',
+                    'Word': '',
+                    'Frequency': ''
                 })
-            
-            # Analyzed works words
-            word_analysis_data.append({
-                'Category': 'ANALYZED WORKS',
-                'Type': 'Content Words',
-                'Rank': '',
-                'Word': '',
-                'Frequency': ''
-            })
-            for i, (word, freq) in enumerate(word_analysis['analyzed']['content_words'], 1):
+                for i, (word, freq) in enumerate(word_analysis['reference']['scientific_words'], 1):
+                    word_analysis_data.append({
+                        'Category': 'REFERENCES',
+                        'Type': 'Scientific Stopwords',
+                        'Rank': i,
+                        'Word': word,
+                        'Frequency': freq
+                    })
+                
+                # Analyzed works words
                 word_analysis_data.append({
                     'Category': 'ANALYZED WORKS',
                     'Type': 'Content Words',
-                    'Rank': i,
-                    'Word': word,
-                    'Frequency': freq
+                    'Rank': '',
+                    'Word': '',
+                    'Frequency': ''
                 })
-            
-            word_analysis_data.append({
-                'Category': 'ANALYZED WORKS',
-                'Type': 'Compound Words',
-                'Rank': '',
-                'Word': '',
-                'Frequency': ''
-            })
-            for i, (word, freq) in enumerate(word_analysis['analyzed']['compound_words'], 1):
+                for i, (word, freq) in enumerate(word_analysis['analyzed']['content_words'], 1):
+                    word_analysis_data.append({
+                        'Category': 'ANALYZED WORKS',
+                        'Type': 'Content Words',
+                        'Rank': i,
+                        'Word': word,
+                        'Frequency': freq
+                    })
+                
                 word_analysis_data.append({
                     'Category': 'ANALYZED WORKS',
                     'Type': 'Compound Words',
-                    'Rank': i,
-                    'Word': word,
-                    'Frequency': freq
+                    'Rank': '',
+                    'Word': '',
+                    'Frequency': ''
                 })
-            
-            word_analysis_data.append({
-                'Category': 'ANALYZED WORKS',
-                'Type': 'Scientific Stopwords',
-                'Rank': '',
-                'Word': '',
-                'Frequency': ''
-            })
-            for i, (word, freq) in enumerate(word_analysis['analyzed']['scientific_words'], 1):
+                for i, (word, freq) in enumerate(word_analysis['analyzed']['compound_words'], 1):
+                    word_analysis_data.append({
+                        'Category': 'ANALYZED WORKS',
+                        'Type': 'Compound Words',
+                        'Rank': i,
+                        'Word': word,
+                        'Frequency': freq
+                    })
+                
                 word_analysis_data.append({
                     'Category': 'ANALYZED WORKS',
                     'Type': 'Scientific Stopwords',
-                    'Rank': i,
-                    'Word': word,
-                    'Frequency': freq
+                    'Rank': '',
+                    'Word': '',
+                    'Frequency': ''
                 })
-            
-            # Citing works words
-            word_analysis_data.append({
-                'Category': 'CITING WORKS',
-                'Type': 'Content Words',
-                'Rank': '',
-                'Word': '',
-                'Frequency': ''
-            })
-            for i, (word, freq) in enumerate(word_analysis['citing']['content_words'], 1):
+                for i, (word, freq) in enumerate(word_analysis['analyzed']['scientific_words'], 1):
+                    word_analysis_data.append({
+                        'Category': 'ANALYZED WORKS',
+                        'Type': 'Scientific Stopwords',
+                        'Rank': i,
+                        'Word': word,
+                        'Frequency': freq
+                    })
+                
+                # Citing works words
                 word_analysis_data.append({
                     'Category': 'CITING WORKS',
                     'Type': 'Content Words',
-                    'Rank': i,
-                    'Word': word,
-                    'Frequency': freq
+                    'Rank': '',
+                    'Word': '',
+                    'Frequency': ''
                 })
-            
-            word_analysis_data.append({
-                'Category': 'CITING WORKS',
-                'Type': 'Compound Words',
-                'Rank': '',
-                'Word': '',
-                'Frequency': ''
-            })
-            for i, (word, freq) in enumerate(word_analysis['citing']['compound_words'], 1):
+                for i, (word, freq) in enumerate(word_analysis['citing']['content_words'], 1):
+                    word_analysis_data.append({
+                        'Category': 'CITING WORKS',
+                        'Type': 'Content Words',
+                        'Rank': i,
+                        'Word': word,
+                        'Frequency': freq
+                    })
+                
                 word_analysis_data.append({
                     'Category': 'CITING WORKS',
                     'Type': 'Compound Words',
-                    'Rank': i,
-                    'Word': word,
-                    'Frequency': freq
+                    'Rank': '',
+                    'Word': '',
+                    'Frequency': ''
                 })
-            
-            word_analysis_data.append({
-                'Category': 'CITING WORKS',
-                'Type': 'Scientific Stopwords',
-                'Rank': '',
-                'Word': '',
-                'Frequency': ''
-            })
-            for i, (word, freq) in enumerate(word_analysis['citing']['scientific_words'], 1):
+                for i, (word, freq) in enumerate(word_analysis['citing']['compound_words'], 1):
+                    word_analysis_data.append({
+                        'Category': 'CITING WORKS',
+                        'Type': 'Compound Words',
+                        'Rank': i,
+                        'Word': word,
+                        'Frequency': freq
+                    })
+                
                 word_analysis_data.append({
                     'Category': 'CITING WORKS',
                     'Type': 'Scientific Stopwords',
-                    'Rank': i,
-                    'Word': word,
-                    'Frequency': freq
+                    'Rank': '',
+                    'Word': '',
+                    'Frequency': ''
                 })
-            
-            # Common words across all categories
-            word_analysis_data.append({
-                'Category': 'COMMON ACROSS ALL',
-                'Type': 'Content Words',
-                'Rank': '',
-                'Word': '',
-                'Frequency': ''
-            })
-            for i, (word, freq) in enumerate(word_analysis['common_words']['content_words'], 1):
+                for i, (word, freq) in enumerate(word_analysis['citing']['scientific_words'], 1):
+                    word_analysis_data.append({
+                        'Category': 'CITING WORKS',
+                        'Type': 'Scientific Stopwords',
+                        'Rank': i,
+                        'Word': word,
+                        'Frequency': freq
+                    })
+                
+                # Common words across all categories
                 word_analysis_data.append({
                     'Category': 'COMMON ACROSS ALL',
                     'Type': 'Content Words',
-                    'Rank': i,
-                    'Word': word,
-                    'Frequency': freq
+                    'Rank': '',
+                    'Word': '',
+                    'Frequency': ''
                 })
-            
-            word_analysis_data.append({
-                'Category': 'COMMON ACROSS ALL',
-                'Type': 'Compound Words',
-                'Rank': '',
-                'Word': '',
-                'Frequency': ''
-            })
-            for i, (word, freq) in enumerate(word_analysis['common_words']['compound_words'], 1):
+                for i, (word, freq) in enumerate(word_analysis['common_words']['content_words'], 1):
+                    word_analysis_data.append({
+                        'Category': 'COMMON ACROSS ALL',
+                        'Type': 'Content Words',
+                        'Rank': i,
+                        'Word': word,
+                        'Frequency': freq
+                    })
+                
                 word_analysis_data.append({
                     'Category': 'COMMON ACROSS ALL',
                     'Type': 'Compound Words',
-                    'Rank': i,
-                    'Word': word,
-                    'Frequency': freq
+                    'Rank': '',
+                    'Word': '',
+                    'Frequency': ''
                 })
-            
-            word_analysis_data.append({
-                'Category': 'COMMON ACROSS ALL',
-                'Type': 'Scientific Stopwords',
-                'Rank': '',
-                'Word': '',
-                'Frequency': ''
-            })
-            for i, (word, freq) in enumerate(word_analysis['common_words']['scientific_words'], 1):
+                for i, (word, freq) in enumerate(word_analysis['common_words']['compound_words'], 1):
+                    word_analysis_data.append({
+                        'Category': 'COMMON ACROSS ALL',
+                        'Type': 'Compound Words',
+                        'Rank': i,
+                        'Word': word,
+                        'Frequency': freq
+                    })
+                
                 word_analysis_data.append({
                     'Category': 'COMMON ACROSS ALL',
                     'Type': 'Scientific Stopwords',
-                    'Rank': i,
-                    'Word': word,
-                    'Frequency': freq
+                    'Rank': '',
+                    'Word': '',
+                    'Frequency': ''
                 })
-            
+                for i, (word, freq) in enumerate(word_analysis['common_words']['scientific_words'], 1):
+                    word_analysis_data.append({
+                        'Category': 'COMMON ACROSS ALL',
+                        'Type': 'Scientific Stopwords',
+                        'Rank': i,
+                        'Word': word,
+                        'Frequency': freq
+                    })
+                
                 if word_analysis_data:
                     word_analysis_df = pd.DataFrame(word_analysis_data)
                     word_analysis_df.to_excel(writer, sheet_name='Word_Frequency_Analysis', index=False)
@@ -3987,6 +3987,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
