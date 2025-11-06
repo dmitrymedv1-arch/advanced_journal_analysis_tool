@@ -470,7 +470,8 @@ def initialize_analysis_state():
     else:
         # Добавьте эту проверку для существующего состояния
         state = st.session_state.analysis_state
-        if time.time() - state.created_time > 3600:
+        # Проверяем, есть ли атрибут created_time, и если нет - создаем новый объект
+        if not hasattr(state, 'created_time') or time.time() - state.created_time > 3600:
             st.session_state.analysis_state = AnalysisState()
             st.info("🔄 Кэш автоматически очищен после 1 часа работы")
             
@@ -483,13 +484,23 @@ def initialize_analysis_state():
         st.session_state.viewed_terms = set()
 
 def get_analysis_state():
-    if 'analysis_state' in st.session_state:
-        state = st.session_state.analysis_state
-        # Проверяем, прошло ли больше 1 часа (3600 секунд)
-        if time.time() - state.created_time > 3600:
-            # Очищаем кэш, создавая новый объект
-            st.session_state.analysis_state = AnalysisState()
-            st.info("🔄 Кэш автоматически очищен после 1 часа работы")
+    # Сначала убедимся, что состояние инициализировано
+    if 'analysis_state' not in st.session_state:
+        initialize_analysis_state()
+    
+    state = st.session_state.analysis_state
+    
+    # Проверяем, есть ли атрибут created_time (для обратной совместимости)
+    if not hasattr(state, 'created_time'):
+        # Если атрибута нет, создаем новый объект состояния
+        st.session_state.analysis_state = AnalysisState()
+        return st.session_state.analysis_state
+    
+    # Проверяем, прошло ли больше 1 часа (3600 секунд)
+    if time.time() - state.created_time > 3600:
+        # Очищаем кэш, создавая новый объект
+        st.session_state.analysis_state = AnalysisState()
+        st.info("🔄 Кэш автоматически очищен после 1 часа работы")
             
     return st.session_state.analysis_state
 
@@ -3946,5 +3957,6 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
