@@ -18,6 +18,20 @@ import base64
 import os
 import random
 
+# Добавьте эти импорты для типов
+from typing import List, Tuple, Dict, Set, Any, Optional
+
+# Также добавьте импорты для nltk, которые используются в WordFrequencyAnalyzer
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem import PorterStemmer
+
+# Скачиваем необходимые данные nltk (если нужно)
+try:
+    nltk.data.find('corpora/stopwords')
+except LookupError:
+    nltk.download('stopwords')
+
 # Import translation manager
 from languages import translation_manager
 
@@ -3957,6 +3971,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
