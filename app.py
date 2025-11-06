@@ -1450,29 +1450,82 @@ def calculate_oa_impact_premium_fast(analyzed_metadata):
         'non_OA_avg_citations': round(non_oa_avg, 1)
     }
 
-def calculate_elite_index_fast(analyzed_metadata):
-    """Elite Index - percentage of articles in top-10% by citations"""
+def calculate_elite_index_proper(analyzed_metadata):
+    """Proper Elite Index calculation using field-normalized data if available"""
     if not analyzed_metadata:
         return {'elite_index': 0}
     
     citations = []
+    concepts_data = []
+    
+    # Собираем данные о цитированиях и концептах
     for meta in analyzed_metadata:
         oa = meta.get('openalex')
         if oa:
             cites = oa.get('cited_by_count', 0)
             citations.append(cites)
+            
+            # Пытаемся получить нормализованные данные по полю
+            concepts = oa.get('concepts', [])
+            if concepts:
+                # Берем основной концепт (с наибольшим score)
+                main_concept = max(concepts, key=lambda x: x.get('score', 0))
+                concepts_data.append({
+                    'citations': cites,
+                    'concept': main_concept.get('display_name', 'Unknown'),
+                    'score': main_concept.get('score', 0)
+                })
     
     if not citations:
         return {'elite_index': 0}
     
-    threshold = np.percentile(citations, 90)
-    elite_count = sum(1 for c in citations if c >= threshold)
+    print(f"🔍 Elite Index расширенная диагностика:")
+    print(f"   Статьи с концептами: {len(concepts_data)}/{len(citations)}")
+    
+    # Если у нас есть данные по концептам, можем сделать более умный расчет
+    if len(concepts_data) > 10:
+        # Группируем по концептам и рассчитываем пороги для каждого
+        concept_stats = {}
+        for data in concepts_data:
+            concept = data['concept']
+            if concept not in concept_stats:
+                concept_stats[concept] = []
+            concept_stats[concept].append(data['citations'])
+        
+        # Рассчитываем elite статьи для каждого концепта
+        total_elite = 0
+        for concept, concept_citations in concept_stats.items():
+            if len(concept_citations) >= 5:  # Только для концептов с достаточным количеством статей
+                concept_threshold = np.percentile(concept_citations, 80)  # Топ-20% внутри концепта
+                concept_elite = sum(1 for c in concept_citations if c >= concept_threshold)
+                total_elite += concept_elite
+                print(f"   Концепт '{concept}': {concept_elite}/{len(concept_citations)} elite статей")
+        
+        elite_index = round(total_elite / len(citations) * 100, 2)
+        method = 'concept_based'
+        
+    else:
+        # Fallback: используем глобальный подход
+        # Более агрессивный порог для реального elite
+        threshold = np.percentile(citations, 85)  # Топ-15%
+        elite_count = sum(1 for c in citations if c >= threshold)
+        elite_index = round(elite_count / len(citations) * 100, 2)
+        method = 'global_85_percentile'
     
     return {
-        'elite_index': round(elite_count / len(citations) * 100, 2),
-        'elite_articles': elite_count,
+        'elite_index': elite_index,
+        'elite_articles': total_elite if 'total_elite' in locals() else elite_count,
         'total_articles': len(citations),
-        'citation_threshold': int(threshold)
+        'method_used': method,
+        'debug_info': {
+            'citation_stats': {
+                'min': min(citations),
+                'max': max(citations), 
+                'mean': np.mean(citations),
+                'median': np.median(citations),
+                'percentile_85': np.percentile(citations, 85)
+            }
+        }
     }
 
 def calculate_author_gini_fast(analyzed_metadata):
@@ -3231,6 +3284,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
