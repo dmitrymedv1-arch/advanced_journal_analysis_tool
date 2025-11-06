@@ -3557,7 +3557,7 @@ def analyze_journal(issn, period_str):
 
 # === NEW: Word Frequency Analysis Function ===
 def perform_word_frequency_analysis(analyzed_metadata, citing_metadata, state):
-    """Выполняет анализ частоты слов для трех категорий статей с исправленной логикой"""
+    """Выполняет анализ частоты слов для трех категорий статей с исправленной логикой ссылок"""
     
     reference_texts = []
     analyzed_texts = []
@@ -3565,60 +3565,49 @@ def perform_word_frequency_analysis(analyzed_metadata, citing_metadata, state):
     
     print(f"🔍 Анализ слов: {len(analyzed_metadata)} анализируемых статей, {len(citing_metadata)} цитирующих работ")
     
-    # 1. REFERENCES - заголовки всех ссылок с DOI
-    references_with_doi = 0
-    references_with_title = 0
+    # 1. REFERENCES - заголовки всех ссылок с DOI из анализируемых статей
+    total_references_with_doi = 0
+    successful_references = 0
     
     for analyzed in analyzed_metadata:
         if analyzed and analyzed.get('crossref'):
             cr = analyzed['crossref']
+            references = cr.get('reference', [])
             
-            for ref in cr.get('reference', []):
-                # Считаем ссылки с DOI
+            for ref in references:
+                # Считаем только ссылки с DOI
                 if ref.get('DOI'):
-                    references_with_doi += 1
+                    total_references_with_doi += 1
+                    ref_doi = ref['DOI'].strip().lower()
                     
+                    # Ищем заголовок в кэше crossref (основной источник)
                     title = None
-                    
-                    # ПРИОРИТЕТ 1: Заголовок из кэша по DOI (самый надежный)
-                    ref_doi = ref['DOI']
                     if ref_doi in state.crossref_cache:
                         ref_data = state.crossref_cache[ref_doi]
                         if ref_data.get('title'):
                             title = ref_data.get('title', [''])[0] if isinstance(ref_data.get('title'), list) else ref_data.get('title', '')
                     
-                    # ПРИОРИТЕТ 2: Поле 'title' в самой ссылке
+                    # Если не нашли в кэше, используем поле 'title' из самой ссылки
                     if not title and ref.get('title'):
                         title = ref['title']
                         if isinstance(title, list):
                             title = title[0] if title else ''
                     
-                    # ПРИОРИТЕТ 3: Из unstructured (последний вариант)
-                    if not title and ref.get('unstructured'):
-                        unstructured = ref['unstructured']
-                        # Пытаемся извлечь осмысленный фрагмент
-                        sentences = re.split(r'[.!?]', unstructured)
-                        for sentence in sentences:
-                            sentence = sentence.strip()
-                            if len(sentence) > 20 and len(sentence) < 200:
-                                # Проверяем, что это похоже на заголовок (не список авторов)
-                                if not re.search(r'\d{4}', sentence):  # не содержит года
-                                    title = sentence
-                                    break
+                    # Если все еще не нашли, пробуем получить через Crossref API (как в примере кода)
+                    if not title:
+                        title = get_single_title_from_crossref(ref_doi)
                     
-                    # Добавляем если нашли заголовок
-                    if title and len(title) > 10:
+                    # Добавляем если нашли валидный заголовок
+                    if title and len(title) > 10 and title not in ['Название не найдено', 'Таймаут запроса', 'Ошибка сети', 'Ошибка при получении']:
                         reference_texts.append(title)
-                        references_with_title += 1
-                    else:
-                        print(f"⚠️ Не найден заголовок для DOI: {ref_doi}")
+                        successful_references += 1
     
-    print(f"📚 References: {references_with_title}/{references_with_doi} заголовков найдено (должно быть ~{references_with_doi})")
+    print(f"📚 References: {successful_references}/{total_references_with_doi} заголовков найдено (должно быть ~{total_references_with_doi})")
     
-    # 2. ANALYZED WORKS - заголовки анализируемых статей (должно быть 250)
+    # 2. ANALYZED WORKS - заголовки анализируемых статей
     analyzed_titles_count = 0
     
-    for i, analyzed in enumerate(analyzed_metadata):
+    for analyzed in analyzed_metadata:
         if analyzed and analyzed.get('crossref'):
             cr = analyzed['crossref']
             
@@ -3628,18 +3617,14 @@ def perform_word_frequency_analysis(analyzed_metadata, citing_metadata, state):
                 if title and len(title) > 10:
                     analyzed_texts.append(title)
                     analyzed_titles_count += 1
-                else:
-                    print(f"⚠️ Проблемный заголовок analyzed #{i}: {title}")
-            else:
-                print(f"⚠️ Нет заголовка у analyzed #{i}")
     
     print(f"📄 Analyzed: {analyzed_titles_count}/{len(analyzed_metadata)} заголовков")
     
-    # 3. CITING WORKS - заголовки цитирующих статей (должно быть 439)
+    # 3. CITING WORKS - заголовки цитирующих статей
     citing_titles_count = 0
     unique_citing_dois = set()
     
-    for i, citing in enumerate(citing_metadata):
+    for citing in citing_metadata:
         if citing and citing.get('crossref'):
             cr = citing['crossref']
             doi = cr.get('DOI')
@@ -3656,25 +3641,41 @@ def perform_word_frequency_analysis(analyzed_metadata, citing_metadata, state):
                 if title and len(title) > 10:
                     citing_texts.append(title)
                     citing_titles_count += 1
-                else:
-                    print(f"⚠️ Проблемный заголовок citing #{i}: {title}")
-            else:
-                print(f"⚠️ Нет заголовка у citing #{i}")
     
     print(f"🔗 Citing: {citing_titles_count} уникальных заголовков (должно быть ~{len(unique_citing_dois)})")
     
     # ДЕТАЛЬНАЯ ДИАГНОСТИКА
     print("\n🔎 ДИАГНОСТИКА:")
-    print(f"   References: {len(reference_texts)} текстов")
+    print(f"   References: {len(reference_texts)} текстов (из {total_references_with_doi} ссылок с DOI)")
     print(f"   Analyzed: {len(analyzed_texts)} текстов (ожидалось: {len(analyzed_metadata)})")
     print(f"   Citing: {len(citing_texts)} текстов (уникальных DOI: {len(unique_citing_dois)})")
     
-    # Проверяем расхождения
-    if len(analyzed_texts) != len(analyzed_metadata):
-        print(f"❌ РАСХОЖДЕНИЕ: Analyzed texts {len(analyzed_texts)} != articles {len(analyzed_metadata)}")
-    
-    if len(citing_texts) != len(unique_citing_dois):
-        print(f"❌ РАСХОЖДЕНИЕ: Citing texts {len(citing_texts)} != unique works {len(unique_citing_dois)}")
+    # Если все еще проблемы с References, покажем примеры
+    if len(reference_texts) < total_references_with_doi * 0.8:  # Меньше 80% coverage
+        print(f"\n🔍 ДЕТАЛЬНАЯ ДИАГНОСТИКА REFERENCES:")
+        print(f"   Всего ссылок с DOI: {total_references_with_doi}")
+        print(f"   Найдено заголовков: {len(reference_texts)}")
+        print(f"   Coverage: {len(reference_texts)/total_references_with_doi*100:.1f}%")
+        
+        # Покажем несколько примеров проблемных DOI
+        problem_count = 0
+        for analyzed in analyzed_metadata[:2]:  # Проверим первые 2 статьи
+            if analyzed and analyzed.get('crossref'):
+                cr = analyzed['crossref']
+                for ref in cr.get('reference', [])[:5]:  # Первые 5 ссылок
+                    if ref.get('DOI'):
+                        ref_doi = ref['DOI'].strip().lower()
+                        if ref_doi in state.crossref_cache:
+                            ref_data = state.crossref_cache[ref_doi]
+                            has_title = bool(ref_data.get('title'))
+                            print(f"   DOI: {ref_doi[:50]}... | Title in cache: {has_title}")
+                        else:
+                            print(f"   DOI: {ref_doi[:50]}... | NOT in cache")
+                        problem_count += 1
+                        if problem_count >= 10:
+                            break
+                if problem_count >= 10:
+                    break
     
     # Анализируем частоты
     ref_content, ref_compound, ref_scientific = word_analyzer.analyze_text_collection(reference_texts)
@@ -3692,24 +3693,22 @@ def perform_word_frequency_analysis(analyzed_metadata, citing_metadata, state):
             'compound_words': ref_compound.most_common(30),
             'scientific_words': ref_scientific.most_common(30),
             'text_count': len(reference_texts),
-            'references_with_doi': references_with_doi,
-            'coverage_pct': round(len(reference_texts) / references_with_doi * 100, 1) if references_with_doi > 0 else 0
+            'references_with_doi': total_references_with_doi,
+            'coverage_pct': round(len(reference_texts) / total_references_with_doi * 100, 1) if total_references_with_doi > 0 else 0
         },
         'analyzed': {
             'content_words': analyzed_content.most_common(30),
             'compound_words': analyzed_compound.most_common(30),
             'scientific_words': analyzed_scientific.most_common(30),
             'text_count': len(analyzed_texts),
-            'expected_count': len(analyzed_metadata),
-            'coverage_pct': round(len(analyzed_texts) / len(analyzed_metadata) * 100, 1) if analyzed_metadata else 0
+            'expected_count': len(analyzed_metadata)
         },
         'citing': {
             'content_words': citing_content.most_common(30),
             'compound_words': citing_compound.most_common(30),
             'scientific_words': citing_scientific.most_common(30),
             'text_count': len(citing_texts),
-            'unique_citing_dois': len(unique_citing_dois),
-            'coverage_pct': round(len(citing_texts) / len(unique_citing_dois) * 100, 1) if unique_citing_dois else 0
+            'unique_citing_dois': len(unique_citing_dois)
         },
         'common_words': {
             'content_words': common_content_words[:10],
@@ -3717,6 +3716,28 @@ def perform_word_frequency_analysis(analyzed_metadata, citing_metadata, state):
             'scientific_words': []
         }
     }
+
+def get_single_title_from_crossref(doi: str) -> str:
+    """Получает название статьи через Crossref API (как в примере кода)"""
+    try:
+        url = f"https://api.crossref.org/works/{doi}"
+        headers = {'User-Agent': f"YourApp/1.0 (mailto:{EMAIL})"}
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()['message']
+            title_list = data.get('title', [])
+            if title_list:
+                return title_list[0]
+        
+        return 'Название не найдено'
+        
+    except requests.exceptions.Timeout:
+        return 'Таймаут запроса'
+    except requests.exceptions.RequestException:
+        return 'Ошибка сети'
+    except Exception:
+        return 'Ошибка при получении'
 
 # === 20. Main Interface ===
 def main():
@@ -4069,6 +4090,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
