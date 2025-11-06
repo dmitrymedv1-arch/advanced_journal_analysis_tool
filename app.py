@@ -2832,11 +2832,11 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             return False
             
 # === 18. Data Visualization ===
-def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics):
+def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, word_analysis=None):
     """Create visualizations for dashboard"""
     
     # Create tabs for different visualization types
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         translation_manager.get_text('tab_main_metrics'), 
         translation_manager.get_text('tab_authors_organizations'), 
         translation_manager.get_text('tab_geography'), 
@@ -3320,7 +3320,8 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
         # Category selection
         category = st.selectbox(
             "Select Category:",
-            ["References", "Analyzed Works", "Citing Works", "Common Words"]
+            ["References", "Analyzed Works", "Citing Works", "Common Words"],
+            key="word_category"
         )
         
         if category == "References":
@@ -3340,7 +3341,8 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
         word_type = st.radio(
             "Word Type:",
             ["Content Words", "Compound Words", "Scientific Stopwords"],
-            horizontal=True
+            horizontal=True,
+            key="word_type"
         )
         
         if word_type == "Content Words":
@@ -3987,6 +3989,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
