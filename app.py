@@ -35,93 +35,21 @@ EMAIL = st.secrets.get("EMAIL", "your.email@example.com") if hasattr(st, 'secret
 MAX_WORKERS = 5
 RETRIES = 3
 DELAYS = [0.2, 0.5, 0.7, 1.0, 1.3, 1.5, 2.0]
-CACHE_TTL = 3600  # 1 hour in seconds
 
-# --- State Storage Classes with TTL Cache ---
-class TTLCache:
-    def __init__(self, ttl_seconds=CACHE_TTL):
-        self.ttl = ttl_seconds
-        self._cache = {}
-        self._timestamps = {}
-    
-    def get(self, key):
-        if key in self._cache:
-            if time.time() - self._timestamps[key] < self.ttl:
-                return self._cache[key]
-            else:
-                # Remove expired entry
-                del self._cache[key]
-                del self._timestamps[key]
-        return None
-    
-    def set(self, key, value):
-        self._cache[key] = value
-        self._timestamps[key] = time.time()
-    
-    def clear_expired(self):
-        current_time = time.time()
-        expired_keys = [k for k, ts in self._timestamps.items() if current_time - ts >= self.ttl]
-        for key in expired_keys:
-            del self._cache[key]
-            del self._timestamps[key]
-    
-    def clear_all(self):
-        self._cache.clear()
-        self._timestamps.clear()
-
+# --- State Storage Classes ---
 class AnalysisState:
     def __init__(self):
-        self.crossref_cache = TTLCache()
-        self.openalex_cache = TTLCache()
-        self.unified_cache = TTLCache()
-        self.citing_cache = TTLCache()
-        self.institution_cache = TTLCache()
-        self.journal_cache = TTLCache()
+        self.crossref_cache = {}
+        self.openalex_cache = {}
+        self.unified_cache = {}
+        self.citing_cache = defaultdict(list)
+        self.institution_cache = {}
+        self.journal_cache = {}
         self.analysis_results = None
         self.current_progress = 0
         self.progress_text = ""
         self.analysis_complete = False
         self.excel_buffer = None
-
-# --- ISSN Normalization Function ---
-def normalize_issn(issn_input):
-    """
-    Normalize ISSN input to standard format XXXX-XXXX
-    Supports formats: XXXX-XXXX, XXX XXXX, XXXXXXXX, XXXX XXXX
-    """
-    if not issn_input:
-        return ""
-    
-    # Remove all spaces and hyphens
-    clean_issn = re.sub(r'[\s-]+', '', issn_input.strip())
-    
-    # Validate length (should be 8 characters)
-    if len(clean_issn) != 8:
-        return issn_input  # Return original if invalid length
-    
-    # Validate format (should be alphanumeric)
-    if not clean_issn.isalnum():
-        return issn_input  # Return original if invalid characters
-    
-    # Convert to standard format XXXX-XXXX
-    normalized = f"{clean_issn[:4]}-{clean_issn[4:]}"
-    
-    return normalized.upper()
-
-def validate_issn(issn_input):
-    """
-    Validate ISSN format and return (is_valid, normalized_issn, error_message)
-    """
-    if not issn_input:
-        return False, "", "ISSN cannot be empty"
-    
-    normalized = normalize_issn(issn_input)
-    
-    # Basic validation: should be in format XXXX-XXXX
-    if not re.match(r'^[A-Z0-9]{4}-[A-Z0-9]{4}$', normalized):
-        return False, issn_input, "Invalid ISSN format. Use: XXXX-XXXX, XXX XXXX, or XXXXXXXX"
-    
-    return True, normalized, ""
 
 # --- Terms Dictionary ---
 class JournalAnalysisGlossary:
@@ -435,10 +363,8 @@ def validate_and_clean_data(items):
 # === 1. Journal Name ===
 def get_journal_name(issn):
     state = get_analysis_state()
-    cached_name = state.journal_cache.get(issn)
-    if cached_name:
-        return cached_name
-        
+    if issn in state.crossref_cache.get('journals', {}):
+        return state.crossref_cache['journals'][issn]
     url = f"https://api.openalex.org/sources?filter=issn:{issn}"
     for _ in range(RETRIES):
         try:
@@ -448,7 +374,9 @@ def get_journal_name(issn):
                 data = resp.json()
                 if data['meta']['count'] > 0:
                     name = data['results'][0]['display_name']
-                    state.journal_cache.set(issn, name)
+                    if 'journals' not in state.crossref_cache:
+                        state.crossref_cache['journals'] = {}
+                    state.crossref_cache['journals'][issn] = name
                     delayer.wait(success=True)
                     return name
         except:
@@ -458,13 +386,10 @@ def get_journal_name(issn):
 
 # === 2. Crossref Metadata Retrieval ===
 def get_crossref_metadata(doi, state):
-    cached_data = state.crossref_cache.get(doi)
-    if cached_data:
-        return cached_data
-        
+    if doi in state.crossref_cache:
+        return state.crossref_cache[doi]
     if not doi or doi == 'N/A':
         return None
-        
     url = f"https://api.crossref.org/works/{quote(doi)}"
     headers = {'User-Agent': f"YourApp/1.0 (mailto:{EMAIL})"}
     for _ in range(RETRIES):
@@ -473,7 +398,7 @@ def get_crossref_metadata(doi, state):
             resp = requests.get(url, headers=headers, timeout=15)
             if resp.status_code == 200:
                 data = resp.json()['message']
-                state.crossref_cache.set(doi, data)
+                state.crossref_cache[doi] = data
                 delayer.wait(success=True)
                 return data
         except:
@@ -483,13 +408,10 @@ def get_crossref_metadata(doi, state):
 
 # === 3. OpenAlex Metadata Retrieval ===
 def get_openalex_metadata(doi, state):
-    cached_data = state.openalex_cache.get(doi)
-    if cached_data:
-        return cached_data
-        
+    if doi in state.openalex_cache:
+        return state.openalex_cache[doi]
     if not doi or doi == 'N/A':
         return None
-        
     normalized = doi if doi.startswith('http') else f"https://doi.org/{doi}"
     url = f"https://api.openalex.org/works/{quote(normalized)}"
     for _ in range(RETRIES):
@@ -498,7 +420,7 @@ def get_openalex_metadata(doi, state):
             resp = requests.get(url, timeout=10)
             if resp.status_code == 200:
                 data = resp.json()
-                state.openalex_cache.set(doi, data)
+                state.openalex_cache[doi] = data
                 delayer.wait(success=True)
                 return data
         except:
@@ -509,9 +431,8 @@ def get_openalex_metadata(doi, state):
 # === 4. Unified Metadata ===
 def get_unified_metadata(args):
     doi, state = args
-    cached_data = state.unified_cache.get(doi)
-    if cached_data:
-        return cached_data
+    if doi in state.unified_cache:
+        return state.unified_cache[doi]
     
     if not doi or doi == 'N/A':
         return {'crossref': None, 'openalex': None}
@@ -520,22 +441,19 @@ def get_unified_metadata(args):
     oa_data = get_openalex_metadata(doi, state)
     
     result = {'crossref': cr_data, 'openalex': oa_data}
-    state.unified_cache.set(doi, result)
+    state.unified_cache[doi] = result
     return result
 
 # === 5. Citing DOI Retrieval and Their Metadata ===
 def get_citing_dois_and_metadata(args):
     analyzed_doi, state = args
-    cached_data = state.citing_cache.get(analyzed_doi)
-    if cached_data:
-        return cached_data
-        
+    if analyzed_doi in state.citing_cache:
+        return state.citing_cache[analyzed_doi]
     citing_list = []
     oa_data = get_openalex_metadata(analyzed_doi, state)
     if not oa_data or oa_data.get('cited_by_count', 0) == 0:
-        state.citing_cache.set(analyzed_doi, citing_list)
+        state.citing_cache[analyzed_doi] = citing_list
         return citing_list
-        
     work_id = oa_data['id'].split('/')[-1]
     url = f"https://api.openalex.org/works?filter=cites:{work_id}&per-page=100"
     cursor = "*"
@@ -551,9 +469,9 @@ def get_citing_dois_and_metadata(args):
                     for w in data.get('results', []):
                         c_doi = w.get('doi')
                         if c_doi:
-                            if not state.crossref_cache.get(c_doi):
+                            if c_doi not in state.crossref_cache:
                                 get_crossref_metadata(c_doi, state)
-                            if not state.openalex_cache.get(c_doi):
+                            if c_doi not in state.openalex_cache:
                                 get_openalex_metadata(c_doi, state)
                             citing_list.append({
                                 'doi': c_doi,
@@ -570,8 +488,7 @@ def get_citing_dois_and_metadata(args):
             delayer.wait(success=False)
         if not success:
             break
-            
-    state.citing_cache.set(analyzed_doi, citing_list)
+    state.citing_cache[analyzed_doi] = citing_list
     return citing_list
 
 # === 6. Affiliation and Country Extraction ===
@@ -1170,8 +1087,8 @@ def calculate_reference_age_fast(analyzed_metadata, state):
             
             # 2. Try DOI from cache (already loaded!)
             doi = ref.get('DOI')
-            if doi and state.crossref_cache.get(doi):
-                cached = state.crossref_cache.get(doi)
+            if doi and doi in state.crossref_cache:
+                cached = state.crossref_cache[doi]
                 date_parts = cached.get('published', {}).get('date-parts', [[0]])[0]
                 if date_parts and date_parts[0]:
                     ref_year = date_parts[0]
@@ -1763,7 +1680,7 @@ def calculate_all_fast_metrics(analyzed_metadata, citing_metadata, state, journa
         fast_metrics['diagnostic_info'] = {
             'analyzed_articles_count': len(analyzed_metadata),
             'citing_articles_count': len(citing_metadata),
-            'citing_cache_size': len(state.citing_cache._cache) if hasattr(state.citing_cache, '_cache') else 0,
+            'citing_cache_size': len(state.citing_cache),
             'successful_metrics': len([k for k in fast_metrics.keys() if is_valid_value(fast_metrics[k])])
         }
         
@@ -2864,19 +2781,6 @@ def analyze_journal(issn, period_str):
     state = get_analysis_state()
     state.analysis_complete = False
     
-    # Validate ISSN first
-    is_valid, normalized_issn, error_msg = validate_issn(issn)
-    if not is_valid:
-        st.error(f"❌ {error_msg}")
-        return
-    
-    # Clear expired cache entries before starting analysis
-    state.crossref_cache.clear_expired()
-    state.openalex_cache.clear_expired()
-    state.unified_cache.clear_expired()
-    state.citing_cache.clear_expired()
-    state.journal_cache.clear_expired()
-    
     # Overall progress
     overall_progress = st.progress(0)
     overall_status = st.empty()
@@ -2892,13 +2796,13 @@ def analyze_journal(issn, period_str):
     
     # Journal name
     overall_status.text(translation_manager.get_text('getting_journal_name'))
-    journal_name = get_journal_name(normalized_issn)
-    st.success(translation_manager.get_text('journal_found').format(journal_name=journal_name, issn=normalized_issn))
+    journal_name = get_journal_name(issn)
+    st.success(translation_manager.get_text('journal_found').format(journal_name=journal_name, issn=issn))
     overall_progress.progress(0.2)
     
     # Article retrieval
     overall_status.text(translation_manager.get_text('loading_articles'))
-    items = fetch_articles_by_issn_period(normalized_issn, from_date, until_date)
+    items = fetch_articles_by_issn_period(issn, from_date, until_date)
     if not items:
         st.error(translation_manager.get_text('no_articles_found'))
         return
@@ -3002,7 +2906,7 @@ def analyze_journal(issn, period_str):
     
     # Fast metrics calculation (NEW)
     overall_status.text(translation_manager.get_text('calculating_fast_metrics'))
-    fast_metrics = calculate_all_fast_metrics(analyzed_metadata, all_citing_metadata, state, normalized_issn)
+    fast_metrics = calculate_all_fast_metrics(analyzed_metadata, all_citing_metadata, state, issn)
     
     overall_progress.progress(0.9)
     
@@ -3010,7 +2914,7 @@ def analyze_journal(issn, period_str):
     overall_status.text(translation_manager.get_text('creating_report'))
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f'journal_analysis_{normalized_issn}_{timestamp}.xlsx'
+    filename = f'journal_analysis_{issn}_{timestamp}.xlsx'
     
     # Create Excel file in memory
     excel_buffer = io.BytesIO()
@@ -3031,7 +2935,7 @@ def analyze_journal(issn, period_str):
         'overlap_details': overlap_details,
         'fast_metrics': fast_metrics,  # NEW
         'journal_name': journal_name,
-        'issn': normalized_issn,
+        'issn': issn,
         'period': period_str,
         'n_analyzed': n_analyzed,
         'n_citing': n_citing
@@ -3067,23 +2971,11 @@ def main():
     with st.sidebar:
         st.header("📝 " + translation_manager.get_text('analysis_parameters'))
         
-        issn_input = st.text_input(
+        issn = st.text_input(
             translation_manager.get_text('journal_issn'),
             value="2411-1414",
-            help=glossary.get_tooltip('ISSN') + "\n\nSupported formats: XXXX-XXXX, XXX XXXX, XXXXXXXX"
+            help=glossary.get_tooltip('ISSN')
         )
-        
-        # Auto-normalize ISSN and show result
-        normalized_issn = normalize_issn(issn_input)
-        if issn_input and normalized_issn != issn_input:
-            st.caption(f"Normalized ISSN: **{normalized_issn}**")
-            
-        # Validate ISSN
-        is_valid, validated_issn, error_msg = validate_issn(issn_input)
-        if not is_valid and issn_input:
-            st.error(f"❌ {error_msg}")
-        elif is_valid:
-            st.success(f"✅ Valid ISSN: {validated_issn}")
         
         period = st.text_input(
             translation_manager.get_text('analysis_period'),
@@ -3158,54 +3050,6 @@ def main():
                   "- " + translation_manager.get_text('note_text_3') + "\n" +
                   "- " + translation_manager.get_text('note_text_4') + "\n" +
                   "- " + translation_manager.get_text('note_text_5'))
-        
-        # Cache management
-        st.markdown("---")
-        st.header("⚙️ " + translation_manager.get_text('cache_management'))
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("🔄 " + translation_manager.get_text('clear_cache'), use_container_width=True):
-                state.crossref_cache.clear_all()
-                state.openalex_cache.clear_all()
-                state.unified_cache.clear_all()
-                state.citing_cache.clear_all()
-                state.journal_cache.clear_all()
-                st.success(translation_manager.get_text('cache_cleared'))
-                
-        with col2:
-            if st.button("🧹 " + translation_manager.get_text('clear_expired'), use_container_width=True):
-                state.crossref_cache.clear_expired()
-                state.openalex_cache.clear_expired()
-                state.unified_cache.clear_expired()
-                state.citing_cache.clear_expired()
-                state.journal_cache.clear_expired()
-                st.success(translation_manager.get_text('expired_cleared'))
-        
-        # Cache statistics - безопасный подсчет
-        def get_cache_size(cache_obj):
-            try:
-                # Пытаемся получить размер через защищенный атрибут
-                return len(cache_obj._cache)
-            except (AttributeError, TypeError):
-                try:
-                    # Альтернативный способ - через публичные методы
-                    return sum(1 for _ in cache_obj._cache.keys()) if hasattr(cache_obj, '_cache') else 0
-                except:
-                    return 0
-        
-        cache_stats = {
-            'Crossref': get_cache_size(state.crossref_cache),
-            'OpenAlex': get_cache_size(state.openalex_cache),
-            'Unified': get_cache_size(state.unified_cache),
-            'Citing': get_cache_size(state.citing_cache),
-            'Journal': get_cache_size(state.journal_cache)
-        }
-        
-        st.caption("📊 " + translation_manager.get_text('cache_statistics'))
-        for cache_name, count in cache_stats.items():
-            st.caption(f"{cache_name}: {count} entries")
     
     # Main area
     col1, col2 = st.columns([2, 1])
@@ -3214,7 +3058,7 @@ def main():
         st.subheader("🚀 " + translation_manager.get_text('start_analysis'))
         
         if st.button(translation_manager.get_text('start_analysis'), type="primary", use_container_width=True):
-            if not issn_input:
+            if not issn:
                 st.error(translation_manager.get_text('issn_required'))
                 return
                 
@@ -3222,14 +3066,8 @@ def main():
                 st.error(translation_manager.get_text('period_required'))
                 return
                 
-            # Validate ISSN before starting analysis
-            is_valid, normalized_issn, error_msg = validate_issn(issn_input)
-            if not is_valid:
-                st.error(f"❌ {error_msg}")
-                return
-                
             with st.spinner(translation_manager.get_text('analysis_starting')):
-                analyze_journal(normalized_issn, period)
+                analyze_journal(issn, period)
     
     with col2:
         st.subheader("📤 " + translation_manager.get_text('results'))
@@ -3393,6 +3231,3 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
-
-
-
