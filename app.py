@@ -2597,25 +2597,26 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             st.error(translation_manager.get_text('critical_excel_error').format(error=str(e2)))
             return False
 
-            # Sheet 22: Word Frequency Analysis (NEW)
-            word_analysis_data = []
-            
-            # Reference works words
-            word_analysis_data.append({
-                'Category': 'REFERENCES',
-                'Type': 'Content Words',
-                'Rank': '',
-                'Word': '',
-                'Frequency': ''
-            })
-            for i, (word, freq) in enumerate(word_analysis['reference']['content_words'], 1):
+            # Sheet 22: Word Frequency Analysis (NEW) - только если данные предоставлены
+            if word_analysis:
+                word_analysis_data = []
+                
+                # Reference works words
                 word_analysis_data.append({
                     'Category': 'REFERENCES',
                     'Type': 'Content Words',
-                    'Rank': i,
-                    'Word': word,
-                    'Frequency': freq
+                    'Rank': '',
+                    'Word': '',
+                    'Frequency': ''
                 })
+                for i, (word, freq) in enumerate(word_analysis['reference']['content_words'], 1):
+                    word_analysis_data.append({
+                        'Category': 'REFERENCES',
+                        'Type': 'Content Words',
+                        'Rank': i,
+                        'Word': word,
+                        'Frequency': freq
+                    })
             
             word_analysis_data.append({
                 'Category': 'REFERENCES',
@@ -2796,13 +2797,13 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     'Frequency': freq
                 })
             
-            if word_analysis_data:
-                word_analysis_df = pd.DataFrame(word_analysis_data)
-                word_analysis_df.to_excel(writer, sheet_name='Word_Frequency_Analysis', index=False)
+                if word_analysis_data:
+                    word_analysis_df = pd.DataFrame(word_analysis_data)
+                    word_analysis_df.to_excel(writer, sheet_name='Word_Frequency_Analysis', index=False)
 
             # Ensure at least one sheet exists
             if len(writer.sheets) == 0:
-                error_df = pd.DataFrame({'Message': [translation_manager.get_text('no_data_for_report')]})
+                error_df = pd.DataFrame({'Message': translation_manager.get_text('no_data_for_report')})
                 error_df.to_excel(writer, sheet_name='Information', index=False)
 
         excel_buffer.seek(0)
@@ -3986,6 +3987,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
