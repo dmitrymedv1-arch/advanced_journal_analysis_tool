@@ -18,9 +18,246 @@ import base64
 import os
 import random
 
-
 # Import translation manager
 from languages import translation_manager
+
+# --- Word Analysis Integration ---
+class WordFrequencyAnalyzer:
+    def __init__(self):
+        self.stop_words = set(stopwords.words('english'))
+        self.stemmer = PorterStemmer()
+        self.scientific_stopwords = self._create_scientific_stopwords()
+        self.scientific_stopwords_stemmed = {
+            self.stemmer.stem(word) for word in self.scientific_stopwords
+        }
+
+    def _create_scientific_stopwords(self):
+        """Создает нормализованный набор научных стоп-слов с учетом всех форм"""
+        scientific_terms = {
+            # Исследовательская деятельность - нормализованные формы
+            'analysis': ['analysis', 'analyses', 'analyzing', 'analyze', 'analyzes'],
+            'study': ['study', 'studies', 'studying'],
+            'investigation': ['investigation', 'investigations', 'investigating', 'investigate'],
+            'research': ['research', 'researches', 'researching'],
+            'review': ['review', 'reviews', 'reviewing'],
+            'evaluation': ['evaluation', 'evaluations', 'evaluating', 'evaluate'],
+            'assessment': ['assessment', 'assessments', 'assessing', 'assess'],
+            'examination': ['examination', 'examinations', 'examining', 'examine'],
+            'exploration': ['exploration', 'explorations', 'exploring', 'explore'],
+            'observation': ['observation', 'observations', 'observing', 'observe'],
+            'characterization': ['characterization', 'characterizations', 'characterizing', 'characterize'],
+            'measurement': ['measurement', 'measurements', 'measuring', 'measure'],
+            'detection': ['detection', 'detections', 'detecting', 'detect'],
+            'monitoring': ['monitoring', 'monitorings', 'monitoring', 'monitor'],
+            'identification': ['identification', 'identifications', 'identifying', 'identify'],
+            
+            # Методы и подходы
+            'approach': ['approach', 'approaches', 'approaching'],
+            'method': ['method', 'methods', 'methodology', 'methodologies'],
+            'technique': ['technique', 'techniques'],
+            'strategy': ['strategy', 'strategies', 'strategic'],
+            'framework': ['framework', 'frameworks'],
+            'model': ['model', 'models', 'modeling', 'modelling'],
+            'simulation': ['simulation', 'simulations', 'simulating', 'simulate'],
+            'design': ['design', 'designs', 'designing'],
+            'development': ['development', 'developments', 'developing', 'develop'],
+            'synthesis': ['synthesis', 'syntheses', 'synthesizing', 'synthesize'],
+            'preparation': ['preparation', 'preparations', 'preparing', 'prepare'],
+            'fabrication': ['fabrication', 'fabrications', 'fabricating', 'fabricate'],
+            'manufacturing': ['manufacturing', 'manufacturings', 'manufacturing', 'manufacture'],
+            'production': ['production', 'productions', 'producing', 'produce'],
+            'construction': ['construction', 'constructions', 'constructing', 'construct'],
+            'formation': ['formation', 'formations', 'forming', 'form'],
+            
+            # Свойства и характеристики
+            'performance': ['performance', 'performances', 'performing', 'perform'],
+            'behavior': ['behavior', 'behaviors', 'behaviour', 'behaviours'],
+            'effect': ['effect', 'effects', 'effecting'],
+            'influence': ['influence', 'influences', 'influencing', 'influence'],
+            'impact': ['impact', 'impacts', 'impacting'],
+            'role': ['role', 'roles'],
+            'implication': ['implication', 'implications'],
+            'response': ['response', 'responses', 'responding', 'respond'],
+            'mechanism': ['mechanism', 'mechanisms'],
+            'process': ['process', 'processes', 'processing'],
+            'progression': ['progression', 'progressions', 'progressing', 'progress'],
+            'properties': ['properties', 'property'],
+            'parameters': ['parameters', 'parameter'],
+            'characteristics': ['characteristics', 'characteristic'],
+            'features': ['features', 'feature'],
+            'structure': ['structure', 'structures', 'structuring', 'structure'],
+            'system': ['system', 'systems'],
+            'potential': ['potential', 'potentials'],
+            'ability': ['ability', 'abilities'],
+            'capacity': ['capacity', 'capacities'],
+            'activity': ['activity', 'activities'],
+            'function': ['function', 'functions', 'functioning', 'function'],
+            'functional': ['functional'],
+            
+            # Оценка и улучшение
+            'novel': ['novel', 'new'],
+            'advanced': ['advanced', 'advancing', 'advance'],
+            'enhanced': ['enhanced', 'enhancing', 'enhance', 'enhancement', 'enhancements'],
+            'improving': ['improving', 'improve', 'improvement', 'improvements'],
+            'optimization': ['optimization', 'optimizations', 'optimizing', 'optimize'],
+            'efficient': ['efficient', 'efficiency', 'efficiencies'],
+            'effective': ['effective', 'effectiveness'],
+            'comparative': ['comparative', 'comparison', 'comparisons'],
+            'different': ['different', 'various', 'multiple'],
+            'complex': ['complex'],
+            'systematic': ['systematic'],
+            
+            # Типы исследований
+            'experimental': ['experimental', 'theoretical', 'numerical', 'computational'],
+            'molecular': ['molecular', 'cellular'],
+            'based': ['based', 'using', 'via'],
+            
+            # Результаты и выводы
+            'case': ['case', 'cases'],
+            'report': ['report', 'reports', 'reporting'],
+            'evidence': ['evidence'],
+            'results': ['results', 'resulting', 'result'],
+            'findings': ['findings', 'finding'],
+            'insights': ['insights', 'insight'],
+            'perspective': ['perspective', 'perspectives'],
+            'view': ['view', 'views', 'viewing'],
+            'overview': ['overview', 'overviews'],
+            'current': ['current', 'recent', 'present'],
+            'preliminary': ['preliminary', 'initial', 'final'],
+            'further': ['further', 'future'],
+            
+            # Общие научные термины
+            'advances': ['advances', 'advancing', 'advance'],
+            'progress': ['progress', 'progresses', 'progressing'],
+            'developments': ['developments'],
+            'trends': ['trends', 'trending'],
+            'applications': ['applications', 'application', 'applying', 'apply'],
+            'uses': ['uses', 'use', 'using'],
+            'usage': ['usage', 'utilization', 'utilizing', 'utilize'],
+            'aspects': ['aspects', 'aspect'],
+            'factors': ['factors', 'factor'],
+            'conditions': ['conditions', 'condition'],
+            'environment': ['environment', 'environments', 'environmental'],
+            'treatment': ['treatment', 'treatments', 'treating', 'treat'],
+            'therapy': ['therapy', 'therapies', 'therapeutic'],
+            'management': ['management', 'managements', 'managing', 'manage'],
+            'control': ['control', 'controls', 'controlling'],
+            
+            # Прилагательные-усилители
+            'high': ['high', 'higher', 'highly'],
+            'superior': ['superior', 'excellent', 'outstanding', 'remarkable'],
+            'significant': ['significant', 'strong', 'powerful'],
+            'robust': ['robust', 'stable'],
+            
+            # Глаголы действия
+            'developing': ['developing', 'designing', 'synthesizing', 'preparing'],
+            'fabricating': ['fabricating', 'manufacturing', 'producing', 'constructing'],
+            'forming': ['forming', 'evaluating', 'assessing', 'examining', 'exploring']
+        }
+        
+        # Создаем плоский список всех форм
+        all_forms = set()
+        for base_form, forms in scientific_terms.items():
+            all_forms.update(forms)
+        
+        return all_forms
+
+    def preprocess_content_words(self, text: str) -> List[str]:
+        """Очищает и нормализует содержательные слова"""
+        if not text:
+            return []
+
+        text = text.lower()
+        text = re.sub(r'[^a-zA-Z\s-]', ' ', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        words = text.split()
+        content_words = []
+
+        for word in words:
+            if '-' in word:
+                continue
+            if len(word) > 2 and word not in self.stop_words:
+                stemmed_word = self.stemmer.stem(word)
+                if stemmed_word not in self.scientific_stopwords_stemmed:
+                    content_words.append(stemmed_word)
+
+        return content_words
+
+    def extract_compound_words(self, text: str) -> List[str]:
+        """Извлекает составные слова через дефис"""
+        if not text:
+            return []
+
+        text = text.lower()
+        compound_words = re.findall(r'\b[a-z]{2,}-[a-z]{2,}(?:-[a-z]{2,})*\b', text)
+
+        filtered_compounds = []
+        for word in compound_words:
+            parts = word.split('-')
+            if not any(part in self.stop_words for part in parts):
+                filtered_compounds.append(word)
+
+        return filtered_compounds
+
+    def extract_scientific_stopwords(self, text: str) -> List[str]:
+        """Извлекает научные стоп-слова"""
+        if not text:
+            return []
+
+        text = text.lower()
+        text = re.sub(r'[^a-zA-Z\s]', ' ', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        words = text.split()
+        scientific_words = []
+
+        for word in words:
+            if len(word) > 2:
+                stemmed_word = self.stemmer.stem(word)
+                if stemmed_word in self.scientific_stopwords_stemmed:
+                    for original_word in self.scientific_stopwords:
+                        if self.stemmer.stem(original_word) == stemmed_word:
+                            scientific_words.append(original_word)
+                            break
+
+        return scientific_words
+
+    def analyze_text_collection(self, texts: List[str]) -> Tuple[Counter, Counter, Counter]:
+        """Анализирует коллекцию текстов"""
+        content_words = []
+        compound_words = []
+        scientific_words = []
+
+        for text in texts:
+            if text:
+                content_words.extend(self.preprocess_content_words(text))
+                compound_words.extend(self.extract_compound_words(text))
+                scientific_words.extend(self.extract_scientific_stopwords(text))
+
+        return Counter(content_words), Counter(compound_words), Counter(scientific_words)
+
+    def find_common_words_across_categories(self, ref_words, analyzed_words, citing_words, top_n=10):
+        """Находит общие слова во всех трех категориях"""
+        # Получаем топ-N слов из каждой категории
+        ref_top = set([word for word, _ in ref_words.most_common(top_n)])
+        analyzed_top = set([word for word, _ in analyzed_words.most_common(top_n)])
+        citing_top = set([word for word, _ in citing_words.most_common(top_n)])
+        
+        # Находим пересечение
+        common_words = ref_top.intersection(analyzed_top).intersection(citing_top)
+        
+        # Собираем частоты для общих слов
+        common_with_freq = []
+        for word in common_words:
+            total_freq = (ref_words.get(word, 0) + analyzed_words.get(word, 0) + citing_words.get(word, 0))
+            common_with_freq.append((word, total_freq))
+        
+        # Сортируем по общей частоте
+        return sorted(common_with_freq, key=lambda x: x[1], reverse=True)
+
+# Initialize word analyzer
+word_analyzer = WordFrequencyAnalyzer()
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -51,6 +288,7 @@ class AnalysisState:
         self.analysis_complete = False
         self.excel_buffer = None
         self.created_time = time.time()
+        self.word_analysis_results = None
 
 # --- Terms Dictionary ---
 class JournalAnalysisGlossary:
@@ -2319,6 +2557,239 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             st.error(translation_manager.get_text('critical_excel_error').format(error=str(e2)))
             return False
 
+            # Sheet 22: Word Frequency Analysis (NEW)
+            word_analysis_data = []
+            
+            # Reference works words
+            word_analysis_data.append({
+                'Category': 'REFERENCES',
+                'Type': 'Content Words',
+                'Rank': '',
+                'Word': '',
+                'Frequency': ''
+            })
+            for i, (word, freq) in enumerate(word_analysis['reference']['content_words'], 1):
+                word_analysis_data.append({
+                    'Category': 'REFERENCES',
+                    'Type': 'Content Words',
+                    'Rank': i,
+                    'Word': word,
+                    'Frequency': freq
+                })
+            
+            word_analysis_data.append({
+                'Category': 'REFERENCES',
+                'Type': 'Compound Words',
+                'Rank': '',
+                'Word': '',
+                'Frequency': ''
+            })
+            for i, (word, freq) in enumerate(word_analysis['reference']['compound_words'], 1):
+                word_analysis_data.append({
+                    'Category': 'REFERENCES',
+                    'Type': 'Compound Words',
+                    'Rank': i,
+                    'Word': word,
+                    'Frequency': freq
+                })
+            
+            word_analysis_data.append({
+                'Category': 'REFERENCES',
+                'Type': 'Scientific Stopwords',
+                'Rank': '',
+                'Word': '',
+                'Frequency': ''
+            })
+            for i, (word, freq) in enumerate(word_analysis['reference']['scientific_words'], 1):
+                word_analysis_data.append({
+                    'Category': 'REFERENCES',
+                    'Type': 'Scientific Stopwords',
+                    'Rank': i,
+                    'Word': word,
+                    'Frequency': freq
+                })
+            
+            # Analyzed works words
+            word_analysis_data.append({
+                'Category': 'ANALYZED WORKS',
+                'Type': 'Content Words',
+                'Rank': '',
+                'Word': '',
+                'Frequency': ''
+            })
+            for i, (word, freq) in enumerate(word_analysis['analyzed']['content_words'], 1):
+                word_analysis_data.append({
+                    'Category': 'ANALYZED WORKS',
+                    'Type': 'Content Words',
+                    'Rank': i,
+                    'Word': word,
+                    'Frequency': freq
+                })
+            
+            word_analysis_data.append({
+                'Category': 'ANALYZED WORKS',
+                'Type': 'Compound Words',
+                'Rank': '',
+                'Word': '',
+                'Frequency': ''
+            })
+            for i, (word, freq) in enumerate(word_analysis['analyzed']['compound_words'], 1):
+                word_analysis_data.append({
+                    'Category': 'ANALYZED WORKS',
+                    'Type': 'Compound Words',
+                    'Rank': i,
+                    'Word': word,
+                    'Frequency': freq
+                })
+            
+            word_analysis_data.append({
+                'Category': 'ANALYZED WORKS',
+                'Type': 'Scientific Stopwords',
+                'Rank': '',
+                'Word': '',
+                'Frequency': ''
+            })
+            for i, (word, freq) in enumerate(word_analysis['analyzed']['scientific_words'], 1):
+                word_analysis_data.append({
+                    'Category': 'ANALYZED WORKS',
+                    'Type': 'Scientific Stopwords',
+                    'Rank': i,
+                    'Word': word,
+                    'Frequency': freq
+                })
+            
+            # Citing works words
+            word_analysis_data.append({
+                'Category': 'CITING WORKS',
+                'Type': 'Content Words',
+                'Rank': '',
+                'Word': '',
+                'Frequency': ''
+            })
+            for i, (word, freq) in enumerate(word_analysis['citing']['content_words'], 1):
+                word_analysis_data.append({
+                    'Category': 'CITING WORKS',
+                    'Type': 'Content Words',
+                    'Rank': i,
+                    'Word': word,
+                    'Frequency': freq
+                })
+            
+            word_analysis_data.append({
+                'Category': 'CITING WORKS',
+                'Type': 'Compound Words',
+                'Rank': '',
+                'Word': '',
+                'Frequency': ''
+            })
+            for i, (word, freq) in enumerate(word_analysis['citing']['compound_words'], 1):
+                word_analysis_data.append({
+                    'Category': 'CITING WORKS',
+                    'Type': 'Compound Words',
+                    'Rank': i,
+                    'Word': word,
+                    'Frequency': freq
+                })
+            
+            word_analysis_data.append({
+                'Category': 'CITING WORKS',
+                'Type': 'Scientific Stopwords',
+                'Rank': '',
+                'Word': '',
+                'Frequency': ''
+            })
+            for i, (word, freq) in enumerate(word_analysis['citing']['scientific_words'], 1):
+                word_analysis_data.append({
+                    'Category': 'CITING WORKS',
+                    'Type': 'Scientific Stopwords',
+                    'Rank': i,
+                    'Word': word,
+                    'Frequency': freq
+                })
+            
+            # Common words across all categories
+            word_analysis_data.append({
+                'Category': 'COMMON ACROSS ALL',
+                'Type': 'Content Words',
+                'Rank': '',
+                'Word': '',
+                'Frequency': ''
+            })
+            for i, (word, freq) in enumerate(word_analysis['common_words']['content_words'], 1):
+                word_analysis_data.append({
+                    'Category': 'COMMON ACROSS ALL',
+                    'Type': 'Content Words',
+                    'Rank': i,
+                    'Word': word,
+                    'Frequency': freq
+                })
+            
+            word_analysis_data.append({
+                'Category': 'COMMON ACROSS ALL',
+                'Type': 'Compound Words',
+                'Rank': '',
+                'Word': '',
+                'Frequency': ''
+            })
+            for i, (word, freq) in enumerate(word_analysis['common_words']['compound_words'], 1):
+                word_analysis_data.append({
+                    'Category': 'COMMON ACROSS ALL',
+                    'Type': 'Compound Words',
+                    'Rank': i,
+                    'Word': word,
+                    'Frequency': freq
+                })
+            
+            word_analysis_data.append({
+                'Category': 'COMMON ACROSS ALL',
+                'Type': 'Scientific Stopwords',
+                'Rank': '',
+                'Word': '',
+                'Frequency': ''
+            })
+            for i, (word, freq) in enumerate(word_analysis['common_words']['scientific_words'], 1):
+                word_analysis_data.append({
+                    'Category': 'COMMON ACROSS ALL',
+                    'Type': 'Scientific Stopwords',
+                    'Rank': i,
+                    'Word': word,
+                    'Frequency': freq
+                })
+            
+            if word_analysis_data:
+                word_analysis_df = pd.DataFrame(word_analysis_data)
+                word_analysis_df.to_excel(writer, sheet_name='Word_Frequency_Analysis', index=False)
+
+            # Ensure at least one sheet exists
+            if len(writer.sheets) == 0:
+                error_df = pd.DataFrame({'Message': [translation_manager.get_text('no_data_for_report')]})
+                error_df.to_excel(writer, sheet_name='Information', index=False)
+
+        excel_buffer.seek(0)
+        return True
+
+    except Exception as e:
+        st.error(translation_manager.get_text('excel_creation_error').format(error=str(e)))
+        # Create minimal report with error
+        try:
+            excel_buffer.seek(0)
+            excel_buffer.truncate(0)
+            
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                error_df = pd.DataFrame({
+                    'Error': [f'{translation_manager.get_text("failed_create_full_report")}: {str(e)}'],
+                    'Recommendation': [translation_manager.get_text('try_reduce_data_or_period')]
+                })
+                error_df.to_excel(writer, sheet_name='Information', index=False)
+            
+            excel_buffer.seek(0)
+            st.warning(translation_manager.get_text('simplified_report_created'))
+            return True
+            
+        except Exception as e2:
+            st.error(translation_manager.get_text('critical_excel_error').format(error=str(e2)))
+            return False
+            
 # === 18. Data Visualization ===
 def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics):
     """Create visualizations for dashboard"""
@@ -2331,7 +2802,8 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
         translation_manager.get_text('tab_citations'),
         translation_manager.get_text('tab_overlaps'),
         translation_manager.get_text('tab_citation_timing'),
-        translation_manager.get_text('tab_fast_metrics')  # NEW TAB
+        translation_manager.get_text('tab_fast_metrics'),
+        '📊 Word Frequency Analysis'
     ])
     
     with tab1:
@@ -2788,6 +3260,78 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
                         st.write(f"**{translation_manager.get_text('interpretation')}:** {dbi_info['interpretation']}")
                         st.progress(fast_metrics['DBI'])
 
+    with tab8:
+        st.subheader("📊 Word Frequency Analysis")
+        
+        if not word_analysis:
+            st.info("No word frequency analysis data available")
+            return
+        
+        # Summary statistics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Reference Texts", word_analysis['reference']['text_count'])
+        with col2:
+            st.metric("Analyzed Texts", word_analysis['analyzed']['text_count'])
+        with col3:
+            st.metric("Citing Texts", word_analysis['citing']['text_count'])
+        
+        # Category selection
+        category = st.selectbox(
+            "Select Category:",
+            ["References", "Analyzed Works", "Citing Works", "Common Words"]
+        )
+        
+        if category == "References":
+            data = word_analysis['reference']
+            title_suffix = "in References"
+        elif category == "Analyzed Works":
+            data = word_analysis['analyzed']
+            title_suffix = "in Analyzed Works"
+        elif category == "Citing Works":
+            data = word_analysis['citing']
+            title_suffix = "in Citing Works"
+        else:
+            data = word_analysis['common_words']
+            title_suffix = "Common Across All Categories"
+        
+        # Word type selection
+        word_type = st.radio(
+            "Word Type:",
+            ["Content Words", "Compound Words", "Scientific Stopwords"],
+            horizontal=True
+        )
+        
+        if word_type == "Content Words":
+            words_data = data['content_words']
+            chart_title = f"Top 30 Content Words {title_suffix}"
+        elif word_type == "Compound Words":
+            words_data = data['compound_words']
+            chart_title = f"Top 30 Compound Words {title_suffix}"
+        else:
+            words_data = data['scientific_words']
+            chart_title = f"Top 30 Scientific Stopwords {title_suffix}"
+        
+        if words_data:
+            # Create bar chart
+            words_df = pd.DataFrame(words_data, columns=['Word', 'Frequency'])
+            fig = px.bar(
+                words_df.head(30),
+                x='Frequency',
+                y='Word',
+                orientation='h',
+                title=chart_title,
+                color='Frequency'
+            )
+            fig.update_layout(yaxis={'categoryorder': 'total ascending'})
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Display table
+            st.subheader("Detailed Word Frequencies")
+            st.dataframe(words_df, use_container_width=True)
+        else:
+            st.info(f"No {word_type.lower()} found for {category}")
+
 # === 19. Main Analysis Function ===
 def analyze_journal(issn, period_str):
     global delayer
@@ -2923,6 +3467,11 @@ def analyze_journal(issn, period_str):
     overall_status.text(translation_manager.get_text('calculating_fast_metrics'))
     fast_metrics = calculate_all_fast_metrics(analyzed_metadata, all_citing_metadata, state, issn)
     
+    # Word frequency analysis (NEW)
+    overall_status.text(translation_manager.get_text('analyzing_word_frequency'))
+    word_analysis_results = perform_word_frequency_analysis(analyzed_metadata, all_citing_metadata, state)
+    state.word_analysis_results = word_analysis_results
+    
     overall_progress.progress(0.9)
     
     # Report creation
@@ -2933,7 +3482,7 @@ def analyze_journal(issn, period_str):
     
     # Create Excel file in memory
     excel_buffer = io.BytesIO()
-    create_enhanced_excel_report(analyzed_metadata, all_citing_metadata, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer)
+    create_enhanced_excel_report(analyzed_metadata, all_citing_metadata, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, word_analysis_results, excel_buffer)
     
     excel_buffer.seek(0)
     state.excel_buffer = excel_buffer
@@ -2948,7 +3497,8 @@ def analyze_journal(issn, period_str):
         'enhanced_stats': enhanced_stats,
         'citation_timing': citation_timing,
         'overlap_details': overlap_details,
-        'fast_metrics': fast_metrics,  # NEW
+        'fast_metrics': fast_metrics,
+        'word_analysis': word_analysis_results,  # NEW
         'journal_name': journal_name,
         'issn': issn,
         'period': period_str,
@@ -2961,6 +3511,89 @@ def analyze_journal(issn, period_str):
     time.sleep(1)
     overall_progress.empty()
     overall_status.empty()
+
+# === NEW: Word Frequency Analysis Function ===
+def perform_word_frequency_analysis(analyzed_metadata, citing_metadata, state):
+    """Выполняет анализ частоты слов для трех категорий статей"""
+    
+    # Собираем тексты для трех категорий
+    reference_texts = []
+    analyzed_texts = []
+    citing_texts = []
+    
+    # 1. References (ссылки из анализируемых статей)
+    for analyzed in analyzed_metadata:
+        if analyzed and analyzed.get('crossref'):
+            cr = analyzed['crossref']
+            # Получаем названия статей из ссылок
+            for ref in cr.get('reference', []):
+                if ref.get('DOI'):
+                    ref_doi = ref['DOI']
+                    if ref_doi in state.crossref_cache:
+                        ref_data = state.crossref_cache[ref_doi]
+                        title = ref_data.get('title', [''])[0] if ref_data.get('title') else ''
+                        if title:
+                            reference_texts.append(title)
+    
+    # 2. Analyzed works (анализируемые статьи)
+    for analyzed in analyzed_metadata:
+        if analyzed and analyzed.get('crossref'):
+            cr = analyzed['crossref']
+            title = cr.get('title', [''])[0] if cr.get('title') else ''
+            if title:
+                analyzed_texts.append(title)
+    
+    # 3. Citing works (цитирующие статьи)
+    for citing in citing_metadata:
+        if citing and citing.get('crossref'):
+            cr = citing['crossref']
+            title = cr.get('title', [''])[0] if cr.get('title') else ''
+            if title:
+                citing_texts.append(title)
+    
+    # Анализируем каждую категорию
+    ref_content, ref_compound, ref_scientific = word_analyzer.analyze_text_collection(reference_texts)
+    analyzed_content, analyzed_compound, analyzed_scientific = word_analyzer.analyze_text_collection(analyzed_texts)
+    citing_content, citing_compound, citing_scientific = word_analyzer.analyze_text_collection(citing_texts)
+    
+    # Находим общие слова
+    common_content_words = word_analyzer.find_common_words_across_categories(
+        ref_content, analyzed_content, citing_content, top_n=30
+    )
+    
+    common_compound_words = word_analyzer.find_common_words_across_categories(
+        ref_compound, analyzed_compound, citing_compound, top_n=10
+    )
+    
+    common_scientific_words = word_analyzer.find_common_words_across_categories(
+        ref_scientific, analyzed_scientific, citing_scientific, top_n=10
+    )
+    
+    return {
+        'reference': {
+            'content_words': ref_content.most_common(30),
+            'compound_words': ref_compound.most_common(30),
+            'scientific_words': ref_scientific.most_common(30),
+            'text_count': len(reference_texts)
+        },
+        'analyzed': {
+            'content_words': analyzed_content.most_common(30),
+            'compound_words': analyzed_compound.most_common(30),
+            'scientific_words': analyzed_scientific.most_common(30),
+            'text_count': len(analyzed_texts)
+        },
+        'citing': {
+            'content_words': citing_content.most_common(30),
+            'compound_words': citing_compound.most_common(30),
+            'scientific_words': citing_scientific.most_common(30),
+            'text_count': len(citing_texts)
+        },
+        'common_words': {
+            'content_words': common_content_words[:10],
+            'compound_words': common_compound_words[:10],
+            'scientific_words': common_scientific_words[:10]
+        }
+    }
 
 # === 20. Main Interface ===
 def main():
@@ -3057,7 +3690,8 @@ def main():
                 "- " + translation_manager.get_text('capability_5') + "\n" +
                 "- " + translation_manager.get_text('capability_6') + "\n" +
                 "- " + translation_manager.get_text('capability_7') + "\n" +
-                "- " + translation_manager.get_text('capability_8'))
+                "- " + translation_manager.get_text('capability_8') + "\n" +
+                "- **NEW:** Advanced word frequency analysis across references, analyzed works, and citing works")
         
         st.warning("**" + translation_manager.get_text('note') + ":** \n" +
                   "- " + translation_manager.get_text('note_text_1') + "\n" +
@@ -3124,18 +3758,20 @@ def main():
             results['enhanced_stats'],
             results['citation_timing'],
             results['overlap_details'],
-            results.get('fast_metrics', {})
+            results.get('fast_metrics', {}),
+            results.get('word_analysis', {})  # NEW
         )
         
         # Detailed statistics
         st.markdown("---")
         st.header("📈 " + translation_manager.get_text('detailed_statistics'))
         
-        tab1, tab2, tab3, tab4 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
             translation_manager.get_text('analyzed_articles'), 
             translation_manager.get_text('citing_works'), 
             translation_manager.get_text('comparative_analysis'), 
-            translation_manager.get_text('fast_metrics')
+            translation_manager.get_text('fast_metrics'),
+            '📊 Word Analysis'  # NEW TAB
         ])
         
         with tab1:
@@ -3243,7 +3879,72 @@ def main():
                 st.write(translation_manager.get_text('dbi_unique_concepts').format(value=fast_metrics.get('unique_concepts', 0)))
                 st.write(translation_manager.get_text('dbi_total_mentions').format(value=fast_metrics.get('total_concept_mentions', 0)))
 
+        with tab5:
+            st.subheader("📊 Word Frequency Analysis")
+            
+            if not results.get('word_analysis'):
+                st.info("No word frequency analysis data available")
+                return
+            
+            word_analysis = results['word_analysis']
+            
+            # Common words across all categories
+            st.subheader("🔗 Top 10 Common Words Across All Categories")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.write("**Content Words:**")
+                for i, (word, freq) in enumerate(word_analysis['common_words']['content_words'][:10], 1):
+                    st.write(f"{i}. {word} ({freq})")
+            
+            with col2:
+                st.write("**Compound Words:**")
+                for i, (word, freq) in enumerate(word_analysis['common_words']['compound_words'][:10], 1):
+                    st.write(f"{i}. {word} ({freq})")
+            
+            with col3:
+                st.write("**Scientific Stopwords:**")
+                for i, (word, freq) in enumerate(word_analysis['common_words']['scientific_words'][:10], 1):
+                    st.write(f"{i}. {word} ({freq})")
+            
+            # Category-wise analysis
+            st.subheader("📈 Word Frequencies by Category")
+            
+            category = st.selectbox(
+                "Select Category:",
+                ["References", "Analyzed Works", "Citing Works"]
+            )
+            
+            if category == "References":
+                data = word_analysis['reference']
+            elif category == "Analyzed Works":
+                data = word_analysis['analyzed']
+            else:
+                data = word_analysis['citing']
+            
+            st.write(f"**Texts analyzed:** {data['text_count']}")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**Top 10 Content Words:**")
+                for i, (word, freq) in enumerate(data['content_words'][:10], 1):
+                    st.write(f"{i}. {word} ({freq})")
+            
+            with col2:
+                st.write("**Top 10 Scientific Stopwords:**")
+                for i, (word, freq) in enumerate(data['scientific_words'][:10], 1):
+                    st.write(f"{i}. {word} ({freq})")
+            
+            if data['compound_words']:
+                st.write("**Top 10 Compound Words:**")
+                for i, (word, freq) in enumerate(data['compound_words'][:10], 1):
+                    st.write(f"{i}. {word} ({freq})")
+            
+
 # Run application
 if __name__ == "__main__":
     main()
+
 
