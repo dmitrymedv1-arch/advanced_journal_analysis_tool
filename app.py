@@ -18,6 +18,7 @@ import base64
 import os
 import random
 
+
 # Import translation manager
 from languages import translation_manager
 
@@ -3230,6 +3231,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
