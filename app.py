@@ -1450,34 +1450,70 @@ def calculate_oa_impact_premium_fast(analyzed_metadata):
         'non_OA_avg_citations': round(non_oa_avg, 1)
     }
 
-def calculate_elite_index_proper(analyzed_metadata):
-    """Proper Elite Index calculation using field-normalized data if available"""
+def calculate_elite_index_fast(analyzed_metadata):
+    """Elite Index - percentage of articles in top-10% by citations"""
     if not analyzed_metadata:
         return {'elite_index': 0}
     
     citations = []
-    concepts_data = []
-    
-    # Собираем данные о цитированиях и концептах
     for meta in analyzed_metadata:
         oa = meta.get('openalex')
         if oa:
             cites = oa.get('cited_by_count', 0)
             citations.append(cites)
-            
-            # Пытаемся получить нормализованные данные по полю
-            concepts = oa.get('concepts', [])
-            if concepts:
-                # Берем основной концепт (с наибольшим score)
-                main_concept = max(concepts, key=lambda x: x.get('score', 0))
-                concepts_data.append({
-                    'citations': cites,
-                    'concept': main_concept.get('display_name', 'Unknown'),
-                    'score': main_concept.get('score', 0)
-                })
     
     if not citations:
         return {'elite_index': 0}
+    
+    # ДИАГНОСТИКА: выведем статистику цитирований
+    print(f"🔍 Elite Index диагностика:")
+    print(f"   Всего статей с данными о цитированиях: {len(citations)}")
+    print(f"   Распределение цитирований: min={min(citations)}, max={max(citations)}, mean={np.mean(citations):.1f}, median={np.median(citations)}")
+    
+    # Проблема: np.percentile(citations, 90) всегда дает 90-й перцентиль ВНУТРИ нашего набора
+    # Но Elite Index должен сравниваться с ГЛОБАЛЬНЫМИ данными
+    
+    # Временное решение: используем эвристику на основе распределения
+    if max(citations) == 0:
+        return {'elite_index': 0}
+    
+    # Альтернативный подход 1: считаем топ-10% от максимального значения
+    max_citations = max(citations)
+    threshold_alt1 = max_citations * 0.1  # 10% от максимального
+    
+    # Альтернативный подход 2: используем квантили более агрессивно
+    threshold_alt2 = np.percentile(citations, 95)  # Более строгий порог
+    
+    # Альтернативный подход 3: на основе стандартного отклонения
+    if len(citations) > 1:
+        mean_cites = np.mean(citations)
+        std_cites = np.std(citations)
+        threshold_alt3 = mean_cites + std_cites  # Статьи выше среднего + одно стандартное отклонение
+    else:
+        threshold_alt3 = max(citations)
+    
+    # Используем самый осмысленный подход
+    threshold = threshold_alt3
+    
+    elite_count = sum(1 for c in citations if c >= threshold)
+    elite_index = round(elite_count / len(citations) * 100, 2)
+    
+    print(f"   Пороги: percent90={np.percentile(citations, 90):.1f}, alt1={threshold_alt1:.1f}, alt2={threshold_alt2:.1f}, alt3={threshold_alt3:.1f}")
+    print(f"   Результат: elite_count={elite_count}, elite_index={elite_index}%")
+    
+    return {
+        'elite_index': elite_index,
+        'elite_articles': elite_count,
+        'total_articles': len(citations),
+        'citation_threshold': int(threshold),
+        'method_used': 'mean_plus_std',
+        'debug_info': {
+            'percentile_90': np.percentile(citations, 90),
+            'max_citations': max(citations),
+            'mean_citations': np.mean(citations),
+            'median_citations': np.median(citations)
+        }
+    }
     
     print(f"🔍 Elite Index расширенная диагностика:")
     print(f"   Статьи с концептами: {len(concepts_data)}/{len(citations)}")
@@ -3284,6 +3320,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
