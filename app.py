@@ -17,20 +17,35 @@ from plotly.subplots import make_subplots
 import base64
 import os
 import random
-
-# Добавьте эти импорты для типов
 from typing import List, Tuple, Dict, Set, Any, Optional
 
-# Также добавьте импорты для nltk, которые используются в WordFrequencyAnalyzer
-import nltk
-from nltk.corpus import stopwords
-from nltk.stem import PorterStemmer
-
-# Скачиваем необходимые данные nltk (если нужно)
+# Проверяем и устанавливаем nltk если нужно
 try:
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    nltk.download('stopwords')
+    import nltk
+    from nltk.corpus import stopwords
+    from nltk.stem import PorterStemmer
+    
+    # Пытаемся загрузить стоп-слова
+    try:
+        nltk.data.find('corpora/stopwords')
+    except LookupError:
+        nltk.download('stopwords', quiet=True)
+        
+except ImportError:
+    st.error("nltk не установлен. Установите его с помощью: pip install nltk")
+    # Создаем заглушки для случая, когда nltk недоступен
+    class PorterStemmer:
+        def stem(self, word):
+            return word
+    
+    # Базовый набор стоп-слов на случай отсутствия nltk
+    class Stopwords:
+        def words(self, language):
+            if language == 'english':
+                return {'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
+            return set()
+    
+    stopwords = Stopwords()
 
 # Import translation manager
 from languages import translation_manager
@@ -3971,6 +3986,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
