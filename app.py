@@ -50,6 +50,7 @@ class AnalysisState:
         self.progress_text = ""
         self.analysis_complete = False
         self.excel_buffer = None
+        self.created_time = time.time()
 
 # --- Terms Dictionary ---
 class JournalAnalysisGlossary:
@@ -228,7 +229,13 @@ glossary = JournalAnalysisGlossary()
 def initialize_analysis_state():
     if 'analysis_state' not in st.session_state:
         st.session_state.analysis_state = AnalysisState()
-    
+    else:
+        # Добавьте эту проверку для существующего состояния
+        state = st.session_state.analysis_state
+        if time.time() - state.created_time > 3600:
+            st.session_state.analysis_state = AnalysisState()
+            st.info("🔄 Кэш автоматически очищен после 1 часа работы")
+            
     # Initialize learned terms
     if 'learned_terms' not in st.session_state:
         st.session_state.learned_terms = set()
@@ -238,6 +245,14 @@ def initialize_analysis_state():
         st.session_state.viewed_terms = set()
 
 def get_analysis_state():
+    if 'analysis_state' in st.session_state:
+        state = st.session_state.analysis_state
+        # Проверяем, прошло ли больше 1 часа (3600 секунд)
+        if time.time() - state.created_time > 3600:
+            # Очищаем кэш, создавая новый объект
+            st.session_state.analysis_state = AnalysisState()
+            st.info("🔄 Кэш автоматически очищен после 1 часа работы")
+            
     return st.session_state.analysis_state
 
 # --- Rate Limiter ---
@@ -3231,3 +3246,4 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
