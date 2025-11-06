@@ -3557,137 +3557,134 @@ def analyze_journal(issn, period_str):
 
 # === NEW: Word Frequency Analysis Function ===
 def perform_word_frequency_analysis(analyzed_metadata, citing_metadata, state):
-    """Выполняет анализ частоты слов для трех категорий статей"""
+    """Выполняет анализ частоты слов для трех категорий статей с исправленной логикой"""
     
-    # Собираем тексты для трех категорий
     reference_texts = []
     analyzed_texts = []
     citing_texts = []
     
-    print(f"🔍 Начинаем анализ слов: {len(analyzed_metadata)} анализируемых статей, {len(citing_metadata)} цитирующих работ")
+    print(f"🔍 Анализ слов: {len(analyzed_metadata)} анализируемых статей, {len(citing_metadata)} цитирующих работ")
     
-    # 1. REFERENCES - названия статей, на которые ссылаются анализируемые работы
-    reference_count = 0
-    successful_references = 0
+    # 1. REFERENCES - заголовки всех ссылок с DOI
+    references_with_doi = 0
+    references_with_title = 0
     
     for analyzed in analyzed_metadata:
         if analyzed and analyzed.get('crossref'):
             cr = analyzed['crossref']
             
-            # Анализируем каждую ссылку в библиографии
             for ref in cr.get('reference', []):
-                reference_count += 1
-                text_parts = []
-                
-                # Источник 1: Неструктурированное поле (самое информативное)
-                if ref.get('unstructured'):
-                    unstructured_text = ref['unstructured']
-                    # Извлекаем только названия из неструктурированного текста
-                    # Часто содержит: "Автор (Год) Название. Журнал"
-                    if len(unstructured_text) > 20:  # Фильтруем слишком короткие
-                        text_parts.append(unstructured_text)
-                
-                # Источник 2: Поле с названием
-                if ref.get('title'):
-                    title_text = ref['title']
-                    if title_text and len(title_text) > 5:  # Фильтруем мусор
-                        text_parts.append(title_text)
-                
-                # Источник 3: DOI + кэш (дополнительный источник)
+                # Считаем ссылки с DOI
                 if ref.get('DOI'):
+                    references_with_doi += 1
+                    
+                    title = None
+                    
+                    # ПРИОРИТЕТ 1: Заголовок из кэша по DOI (самый надежный)
                     ref_doi = ref['DOI']
                     if ref_doi in state.crossref_cache:
                         ref_data = state.crossref_cache[ref_doi]
                         if ref_data.get('title'):
                             title = ref_data.get('title', [''])[0] if isinstance(ref_data.get('title'), list) else ref_data.get('title', '')
-                            if title and len(title) > 5:
-                                text_parts.append(title)
-                
-                # Объединяем все найденные тексты
-                if text_parts:
-                    full_text = ' '.join([str(part).strip() for part in text_parts if part and str(part).strip()])
-                    if len(full_text) > 10:  # Фильтруем слишком короткие тексты
-                        reference_texts.append(full_text)
-                        successful_references += 1
+                    
+                    # ПРИОРИТЕТ 2: Поле 'title' в самой ссылке
+                    if not title and ref.get('title'):
+                        title = ref['title']
+                        if isinstance(title, list):
+                            title = title[0] if title else ''
+                    
+                    # ПРИОРИТЕТ 3: Из unstructured (последний вариант)
+                    if not title and ref.get('unstructured'):
+                        unstructured = ref['unstructured']
+                        # Пытаемся извлечь осмысленный фрагмент
+                        sentences = re.split(r'[.!?]', unstructured)
+                        for sentence in sentences:
+                            sentence = sentence.strip()
+                            if len(sentence) > 20 and len(sentence) < 200:
+                                # Проверяем, что это похоже на заголовок (не список авторов)
+                                if not re.search(r'\d{4}', sentence):  # не содержит года
+                                    title = sentence
+                                    break
+                    
+                    # Добавляем если нашли заголовок
+                    if title and len(title) > 10:
+                        reference_texts.append(title)
+                        references_with_title += 1
+                    else:
+                        print(f"⚠️ Не найден заголовок для DOI: {ref_doi}")
     
-    print(f"📚 Ссылки: {successful_references}/{reference_count} успешно обработаны")
+    print(f"📚 References: {references_with_title}/{references_with_doi} заголовков найдено (должно быть ~{references_with_doi})")
     
-    # 2. ANALYZED WORKS - названия самих анализируемых статей
-    for analyzed in analyzed_metadata:
+    # 2. ANALYZED WORKS - заголовки анализируемых статей (должно быть 250)
+    analyzed_titles_count = 0
+    
+    for i, analyzed in enumerate(analyzed_metadata):
         if analyzed and analyzed.get('crossref'):
             cr = analyzed['crossref']
             
-            # Основной источник: заголовок статьи
+            # Заголовок статьи
             if cr.get('title'):
                 title = cr.get('title', [''])[0] if isinstance(cr.get('title'), list) else cr.get('title', '')
-                if title and len(title) > 10:  # Фильтруем мусор
+                if title and len(title) > 10:
                     analyzed_texts.append(title)
-            
-            # Дополнительный источник: журнал
-            if cr.get('container-title'):
-                journal = cr.get('container-title', [''])[0] if isinstance(cr.get('container-title'), list) else cr.get('container-title', '')
-                if journal and len(journal) > 5:
-                    analyzed_texts.append(journal)
+                    analyzed_titles_count += 1
+                else:
+                    print(f"⚠️ Проблемный заголовок analyzed #{i}: {title}")
+            else:
+                print(f"⚠️ Нет заголовка у analyzed #{i}")
     
-    print(f"📄 Анализируемые работы: {len(analyzed_texts)} текстов")
+    print(f"📄 Analyzed: {analyzed_titles_count}/{len(analyzed_metadata)} заголовков")
     
-    # 3. CITING WORKS - названия статей, которые цитируют анализируемые работы
-    for citing in citing_metadata:
+    # 3. CITING WORKS - заголовки цитирующих статей (должно быть 439)
+    citing_titles_count = 0
+    unique_citing_dois = set()
+    
+    for i, citing in enumerate(citing_metadata):
         if citing and citing.get('crossref'):
             cr = citing['crossref']
+            doi = cr.get('DOI')
             
-            # Основной источник: заголовок цитирующей статьи
+            # Проверяем уникальность
+            if doi and doi in unique_citing_dois:
+                continue
+            if doi:
+                unique_citing_dois.add(doi)
+            
+            # Заголовок цитирующей статьи
             if cr.get('title'):
                 title = cr.get('title', [''])[0] if isinstance(cr.get('title'), list) else cr.get('title', '')
                 if title and len(title) > 10:
                     citing_texts.append(title)
-            
-            # Дополнительный источник: журнал цитирующей статьи
-            if cr.get('container-title'):
-                journal = cr.get('container-title', [''])[0] if isinstance(cr.get('container-title'), list) else cr.get('container-title', '')
-                if journal and len(journal) > 5:
-                    citing_texts.append(journal)
+                    citing_titles_count += 1
+                else:
+                    print(f"⚠️ Проблемный заголовок citing #{i}: {title}")
+            else:
+                print(f"⚠️ Нет заголовка у citing #{i}")
     
-    print(f"🔗 Цитирующие работы: {len(citing_texts)} текстов")
+    print(f"🔗 Citing: {citing_titles_count} уникальных заголовков (должно быть ~{len(unique_citing_dois)})")
     
-    # ДЕТАЛЬНАЯ СТАТИСТИКА ДЛЯ ДЕБАГГИНГА
-    if reference_texts:
-        sample_refs = reference_texts[:3]
-        print(f"📖 Примеры ссылок: {[text[:50] + '...' for text in sample_refs]}")
+    # ДЕТАЛЬНАЯ ДИАГНОСТИКА
+    print("\n🔎 ДИАГНОСТИКА:")
+    print(f"   References: {len(reference_texts)} текстов")
+    print(f"   Analyzed: {len(analyzed_texts)} текстов (ожидалось: {len(analyzed_metadata)})")
+    print(f"   Citing: {len(citing_texts)} текстов (уникальных DOI: {len(unique_citing_dois)})")
     
-    if analyzed_texts:
-        sample_analyzed = analyzed_texts[:3] 
-        print(f"📝 Примеры анализируемых: {[text[:50] + '...' for text in sample_analyzed]}")
+    # Проверяем расхождения
+    if len(analyzed_texts) != len(analyzed_metadata):
+        print(f"❌ РАСХОЖДЕНИЕ: Analyzed texts {len(analyzed_texts)} != articles {len(analyzed_metadata)}")
     
-    if citing_texts:
-        sample_citing = citing_texts[:3]
-        print(f"🔍 Примеры цитирующих: {[text[:50] + '...' for text in sample_citing]}")
+    if len(citing_texts) != len(unique_citing_dois):
+        print(f"❌ РАСХОЖДЕНИЕ: Citing texts {len(citing_texts)} != unique works {len(unique_citing_dois)}")
     
-    # Анализируем каждую категорию
-    print("🔤 Начинаем частотный анализ...")
-    
+    # Анализируем частоты
     ref_content, ref_compound, ref_scientific = word_analyzer.analyze_text_collection(reference_texts)
     analyzed_content, analyzed_compound, analyzed_scientific = word_analyzer.analyze_text_collection(analyzed_texts)
     citing_content, citing_compound, citing_scientific = word_analyzer.analyze_text_collection(citing_texts)
     
-    # Находим общие слова
+    # Общие слова
     common_content_words = word_analyzer.find_common_words_across_categories(
         ref_content, analyzed_content, citing_content, top_n=30
     )
-    
-    common_compound_words = word_analyzer.find_common_words_across_categories(
-        ref_compound, analyzed_compound, citing_compound, top_n=10
-    )
-    
-    common_scientific_words = word_analyzer.find_common_words_across_categories(
-        ref_scientific, analyzed_scientific, citing_scientific, top_n=10
-    )
-    
-    # ФИНАЛЬНАЯ СТАТИСТИКА
-    print("📊 РЕЗУЛЬТАТЫ АНАЛИЗА СЛОВ:")
-    print(f"   Ссылки: {len(reference_texts)} текстов, топ слово: {ref_content.most_common(1)[0] if ref_content else 'нет данных'}")
-    print(f"   Анализируемые: {len(analyzed_texts)} текстов, топ слово: {analyzed_content.most_common(1)[0] if analyzed_content else 'нет данных'}")
-    print(f"   Цитирующие: {len(citing_texts)} текстов, топ слово: {citing_content.most_common(1)[0] if citing_content else 'нет данных'}")
     
     return {
         'reference': {
@@ -3695,24 +3692,29 @@ def perform_word_frequency_analysis(analyzed_metadata, citing_metadata, state):
             'compound_words': ref_compound.most_common(30),
             'scientific_words': ref_scientific.most_common(30),
             'text_count': len(reference_texts),
-            'total_references_processed': reference_count
+            'references_with_doi': references_with_doi,
+            'coverage_pct': round(len(reference_texts) / references_with_doi * 100, 1) if references_with_doi > 0 else 0
         },
         'analyzed': {
             'content_words': analyzed_content.most_common(30),
             'compound_words': analyzed_compound.most_common(30),
             'scientific_words': analyzed_scientific.most_common(30),
-            'text_count': len(analyzed_texts)
+            'text_count': len(analyzed_texts),
+            'expected_count': len(analyzed_metadata),
+            'coverage_pct': round(len(analyzed_texts) / len(analyzed_metadata) * 100, 1) if analyzed_metadata else 0
         },
         'citing': {
             'content_words': citing_content.most_common(30),
             'compound_words': citing_compound.most_common(30),
             'scientific_words': citing_scientific.most_common(30),
-            'text_count': len(citing_texts)
+            'text_count': len(citing_texts),
+            'unique_citing_dois': len(unique_citing_dois),
+            'coverage_pct': round(len(citing_texts) / len(unique_citing_dois) * 100, 1) if unique_citing_dois else 0
         },
         'common_words': {
             'content_words': common_content_words[:10],
-            'compound_words': common_compound_words[:10],
-            'scientific_words': common_scientific_words[:10]
+            'compound_words': [],
+            'scientific_words': []
         }
     }
 
@@ -4067,6 +4069,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
