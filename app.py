@@ -3183,13 +3183,24 @@ def main():
                 state.journal_cache.clear_expired()
                 st.success(translation_manager.get_text('expired_cleared'))
         
-        # Cache statistics
+        # Cache statistics - безопасный подсчет
+        def get_cache_size(cache_obj):
+            try:
+                # Пытаемся получить размер через защищенный атрибут
+                return len(cache_obj._cache)
+            except (AttributeError, TypeError):
+                try:
+                    # Альтернативный способ - через публичные методы
+                    return sum(1 for _ in cache_obj._cache.keys()) if hasattr(cache_obj, '_cache') else 0
+                except:
+                    return 0
+        
         cache_stats = {
-            'Crossref': len(state.crossref_cache._cache),
-            'OpenAlex': len(state.openalex_cache._cache),
-            'Unified': len(state.unified_cache._cache),
-            'Citing': len(state.citing_cache._cache),
-            'Journal': len(state.journal_cache._cache)
+            'Crossref': get_cache_size(state.crossref_cache),
+            'OpenAlex': get_cache_size(state.openalex_cache),
+            'Unified': get_cache_size(state.unified_cache),
+            'Citing': get_cache_size(state.citing_cache),
+            'Journal': get_cache_size(state.journal_cache)
         }
         
         st.caption("📊 " + translation_manager.get_text('cache_statistics'))
@@ -3382,5 +3393,6 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
