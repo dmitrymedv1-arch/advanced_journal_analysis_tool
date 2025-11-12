@@ -13,3 +13,4 @@ crossrefapi==1.5.0
 PyPDF2
 openpyxl
 nltk>=3.8.1
+seaborn>=0.12.2
