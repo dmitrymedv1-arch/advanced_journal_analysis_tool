@@ -1873,36 +1873,54 @@ def is_valid_value(value):
 
 # === NEW FUNCTIONS FOR ADDITIONAL FEATURES ===
 
+def get_reference_publication_year(ref, state):
+    """Get publication year for a reference using DOI from Crossref"""
+    ref_year = None
+    
+    # Try to get year from reference directly
+    if 'year' in ref:
+        try:
+            ref_year = int(ref['year'])
+            if 1900 <= ref_year <= 2030:
+                return ref_year
+        except:
+            pass
+    
+    # Try to get year from Crossref using DOI
+    doi = ref.get('DOI')
+    if doi and doi in state.crossref_cache:
+        cached = state.crossref_cache[doi]
+        date_parts = cached.get('published', {}).get('date-parts', [[0]])[0]
+        if date_parts and date_parts[0] and 1900 <= date_parts[0] <= 2030:
+            return date_parts[0]
+    
+    return ref_year
+
 def calculate_reference_year_analysis(analyzed_metadata, state):
     """Calculate reference publication years in 5-year intervals starting from 1900"""
     reference_years = []
+    reference_details = []
     
     for meta in analyzed_metadata:
         cr = meta.get('crossref')
         if not cr:
             continue
+        
+        article_doi = cr.get('DOI', 'Unknown')
+        article_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
             
         for ref in cr.get('reference', []):
-            ref_year = None
-            
-            # Try to get year from reference
-            if 'year' in ref:
-                try:
-                    ref_year = int(ref['year'])
-                except:
-                    pass
-            
-            # Try to get year from cached DOI data
-            if not ref_year:
-                doi = ref.get('DOI')
-                if doi and doi in state.crossref_cache:
-                    cached = state.crossref_cache[doi]
-                    date_parts = cached.get('published', {}).get('date-parts', [[0]])[0]
-                    if date_parts and date_parts[0]:
-                        ref_year = date_parts[0]
+            ref_year = get_reference_publication_year(ref, state)
             
             if ref_year and 1900 <= ref_year <= 2030:
                 reference_years.append(ref_year)
+                reference_details.append({
+                    'article_doi': article_doi,
+                    'article_year': article_year,
+                    'reference_doi': ref.get('DOI', ''),
+                    'reference_year': ref_year,
+                    'reference_title': ref.get('article-title', '') or ref.get('journal-title', '') or 'Unknown'
+                })
     
     # Create 5-year intervals
     year_intervals = []
@@ -1918,7 +1936,7 @@ def calculate_reference_year_analysis(analyzed_metadata, state):
             'percentage': round((interval_count / len(reference_years) * 100), 2) if reference_years else 0
         })
     
-    return year_intervals
+    return year_intervals, reference_details
 
 def calculate_reference_age_distribution(analyzed_metadata, state):
     """Calculate reference age distribution by categories: 1-3, 4-5, 6-10, >10 years"""
@@ -1944,23 +1962,7 @@ def calculate_reference_age_distribution(analyzed_metadata, state):
         article_ages = []
         
         for ref in cr.get('reference', []):
-            ref_year = None
-            
-            # Try to get year from reference
-            if 'year' in ref:
-                try:
-                    ref_year = int(ref['year'])
-                except:
-                    pass
-            
-            # Try to get year from cached DOI data
-            if not ref_year:
-                doi = ref.get('DOI')
-                if doi and doi in state.crossref_cache:
-                    cached = state.crossref_cache[doi]
-                    date_parts = cached.get('published', {}).get('date-parts', [[0]])[0]
-                    if date_parts and date_parts[0]:
-                        ref_year = date_parts[0]
+            ref_year = get_reference_publication_year(ref, state)
             
             if ref_year and 1900 <= ref_year <= current_year:
                 age = current_year - ref_year
@@ -2656,7 +2658,23 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 heatmap_df = pd.DataFrame(heatmap_data)
                 heatmap_df.to_excel(writer, sheet_name='Reference_Age_Heatmap_Data', index=False)
 
-            # Sheet 25: Citation seasonality
+            # Sheet 25: Reference publication details (NEW)
+            if 'reference_details' in additional_data and additional_data['reference_details']:
+                ref_details_data = []
+                for ref in additional_data['reference_details']:
+                    ref_details_data.append({
+                        'Article_DOI': ref['article_doi'],
+                        'Article_Year': ref['article_year'],
+                        'Reference_DOI': ref['reference_doi'],
+                        'Reference_Year': ref['reference_year'],
+                        'Reference_Title': ref['reference_title']
+                    })
+                
+                if ref_details_data:
+                    ref_details_df = pd.DataFrame(ref_details_data)
+                    ref_details_df.to_excel(writer, sheet_name='Reference_Publication', index=False)
+
+            # Sheet 26: Citation seasonality
             if 'citation_seasonality' in additional_data:
                 seasonality_data = []
                 citation_seasonality = additional_data['citation_seasonality']
@@ -2692,7 +2710,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     optimal_months_df = pd.DataFrame(optimal_months_data)
                     optimal_months_df.to_excel(writer, sheet_name='Optimal_Publication_Months', index=False)
 
-            # Sheet 26: Potential reviewers
+            # Sheet 27: Potential reviewers
             if 'potential_reviewers' in additional_data:
                 reviewers_data = []
                 potential_reviewers_info = additional_data['potential_reviewers']
@@ -3489,7 +3507,7 @@ def analyze_journal(issn, period_str):
     overall_status.text("Calculating additional insights...")
     
     # 1. Reference year analysis (NEW)
-    reference_year_analysis = calculate_reference_year_analysis(analyzed_metadata, state)
+    reference_year_analysis, reference_details = calculate_reference_year_analysis(analyzed_metadata, state)
     
     # 2. Reference age distribution and heatmap data
     reference_age_distribution, article_age_data = calculate_reference_age_distribution(analyzed_metadata, state)
@@ -3512,6 +3530,7 @@ def analyze_journal(issn, period_str):
     # Combine all additional data
     additional_data = {
         'reference_year_analysis': reference_year_analysis,
+        'reference_details': reference_details,
         'reference_age_distribution': reference_age_distribution,
         'article_age_data': article_age_data,
         'citation_seasonality': citation_seasonality,
