@@ -17,6 +17,8 @@ from plotly.subplots import make_subplots
 import base64
 import os
 import random
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 
 # Import translation manager
@@ -500,7 +502,7 @@ def extract_affiliations_and_countries(openalex_data):
     if not openalex_data:
         return authors_list, list(affiliations), list(countries)
     
-    # Проверяем наличие ключа 'authorships'
+    # Check for 'authorships' key
     if 'authorships' not in openalex_data:
         return authors_list, list(affiliations), list(countries)
     
@@ -509,7 +511,7 @@ def extract_affiliations_and_countries(openalex_data):
             author_name = auth.get('author', {}).get('display_name', 'Unknown')
             authors_list.append(author_name)
             
-            # Проверяем наличие ключа 'institutions'
+            # Check for 'institutions' key
             if 'institutions' in auth:
                 for inst in auth.get('institutions', []):
                     inst_name = inst.get('display_name')
@@ -520,7 +522,7 @@ def extract_affiliations_and_countries(openalex_data):
                     if country_code:
                         countries.add(country_code.upper())
     except (KeyError, TypeError, AttributeError) as e:
-        # Логируем ошибку, но продолжаем выполнение
+        # Log error but continue execution
         print(f"Warning in extract_affiliations_and_countries: {e}")
         pass
     
@@ -866,7 +868,7 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
                     if citation_count >= 50:
                         articles_with_50_citations += 1
             except Exception as e:
-                # Пропускаем проблемные записи и продолжаем обработку
+                # Skip problematic records and continue processing
                 print(f"Warning processing OpenAlex data: {e}")
                 continue
 
@@ -1123,13 +1125,13 @@ def calculate_jscr_fast(citing_metadata, journal_issn):
     total_processed = 0
     debug_info = []
     
-    # Нормализуем ISSN для сравнения
+    # Normalize ISSN for comparison
     journal_issn_clean = journal_issn.replace('-', '').upper() if journal_issn else ""
     
     for i, c in enumerate(citing_metadata):
         current_debug = f"Item {i}: "
         
-        # Пропускаем записи без данных
+        # Skip records without data
         if not c:
             current_debug += "No data"
             debug_info.append(current_debug)
@@ -1141,7 +1143,7 @@ def calculate_jscr_fast(citing_metadata, journal_issn):
         found_match = False
         found_issns = []
         
-        # Проверяем OpenAlex данные
+        # Check OpenAlex data
         if oa:
             host_venue = oa.get('host_venue', {})
             if host_venue:
@@ -1157,7 +1159,7 @@ def calculate_jscr_fast(citing_metadata, journal_issn):
                             found_match = True
                             break
         
-        # Проверяем Crossref данные если не нашли в OpenAlex
+        # Check Crossref data if not found in OpenAlex
         if not found_match and cr:
             cr_issns = cr.get('ISSN', [])
             if isinstance(cr_issns, str):
@@ -1171,12 +1173,12 @@ def calculate_jscr_fast(citing_metadata, journal_issn):
                         found_match = True
                         break
         
-        # Также проверяем по названию журнала в crossref (дополнительный метод)
+        # Also check by journal name in crossref (additional method)
         if not found_match and cr:
             container_title = cr.get('container-title', [])
             if container_title and journal_issn:
-                # Если у нас есть название журнала, можем попробовать сопоставить
-                # но это менее надежно, поэтому используем как fallback
+                # If we have journal name, we can try to match
+                # but this is less reliable, so use as fallback
                 pass
         
         if found_match:
@@ -1188,7 +1190,7 @@ def calculate_jscr_fast(citing_metadata, journal_issn):
         debug_info.append(current_debug)
         total_processed += 1
     
-    # Расчет JSCR
+    # JSCR calculation
     jscr = round(self_cites / total_processed * 100, 2) if total_processed > 0 else 0
     
     result = {
@@ -1199,7 +1201,7 @@ def calculate_jscr_fast(citing_metadata, journal_issn):
         'journal_issn_clean': journal_issn_clean
     }
     
-    # Добавляем первую часть debug информации (первые 10 записей)
+    # Add first part of debug information (first 10 records)
     result['debug_samples'] = debug_info[:10]
     
     return result
@@ -1223,13 +1225,13 @@ def calculate_cited_half_life_fast(analyzed_metadata, state):
         
         yearly = defaultdict(int)
         for c in citings:
-            # Исправление: правильное получение года публикации
+            # Fix: correct way to get publication year
             if isinstance(c, dict):
-                # Если это словарь с данными цитирования
+                # If this is a dictionary with citation data
                 if c.get('openalex'):
                     y = c['openalex'].get('publication_year')
                 elif c.get('pub_date'):
-                    # Пытаемся извлечь год из даты
+                    # Try to extract year from date
                     try:
                         y = int(c['pub_date'][:4])
                     except:
@@ -1237,7 +1239,7 @@ def calculate_cited_half_life_fast(analyzed_metadata, state):
                 else:
                     y = None
             else:
-                # Если это просто DOI строка (резервный вариант)
+                # If this is just a DOI string (fallback)
                 y = None
                 
             if y: 
@@ -1277,7 +1279,7 @@ def calculate_fwci_fast(analyzed_metadata):
     articles_with_concepts = 0
     articles_processed = 0
     
-    # Собираем данные по цитированиям и концептам
+    # Collect citation and concept data
     concept_citations = {}
     
     for meta in analyzed_metadata:
@@ -1291,7 +1293,7 @@ def calculate_fwci_fast(analyzed_metadata):
         
         concepts = oa.get('concepts', [])
         if concepts:
-            # Используем топ-3 концепта по score
+            # Use top-3 concepts by score
             top_concepts = sorted(concepts, key=lambda x: x.get('score', 0), reverse=True)[:3]
             
             for concept in top_concepts:
@@ -1320,37 +1322,37 @@ def calculate_fwci_fast(analyzed_metadata):
             'method_used': 'no_citations'
         }
     
-    # Расчет ожидаемых цитирований
+    # Expected citations calculation
     if concept_citations:
-        # Метод 1: на основе средних по концептам
+        # Method 1: based on concept averages
         for concept_data in concept_citations.values():
             if concept_data['article_count'] > 0:
                 avg_cites_per_article = concept_data['total_cites'] / concept_data['article_count']
                 avg_score = concept_data['total_score'] / concept_data['article_count']
                 
-                # Взвешиваем по score концепта
+                # Weight by concept score
                 expected_contribution = avg_cites_per_article * avg_score
                 expected_sum += expected_contribution
         
         method_used = 'concept_based'
     else:
-        # Метод 2: fallback - используем глобальные средние по дисциплинам
-        # (это упрощение, в реальном FWCI используются нормализованные данные)
+        # Method 2: fallback - use global averages by discipline
+        # (this is a simplification, real FWCI uses normalized data)
         
-        # Предполагаем базовые ожидания по типам статей
+        # Assume basic expectations by article types
         for meta in analyzed_metadata:
             oa = meta.get('openalex')
             if not oa:
                 continue
                 
-            # Простой эвристический подход
+            # Simple heuristic approach
             cites = oa.get('cited_by_count', 0)
             work_type = oa.get('type', 'article')
             
-            # Базовые ожидания по типам публикаций
+            # Basic expectations by publication types
             type_expectations = {
                 'article': 1.0,
-                'review': 2.0,  # обзоры обычно цитируются больше
+                'review': 2.0,  # reviews usually cited more
                 'conference': 0.7,
                 'book': 0.5,
                 'other': 0.8
@@ -1361,7 +1363,7 @@ def calculate_fwci_fast(analyzed_metadata):
         
         method_used = 'type_based'
     
-    # Нормализация ожиданий
+    # Normalization of expectations
     if expected_sum == 0:
         expected_sum = articles_processed * 1.0  # Fallback
         method_used = 'fallback'
@@ -1465,41 +1467,41 @@ def calculate_elite_index_fast(analyzed_metadata):
     if not citations:
         return {'elite_index': 0}
     
-    # ДИАГНОСТИКА: выведем статистику цитирований
-    print(f"🔍 Elite Index диагностика:")
-    print(f"   Всего статей с данными о цитированиях: {len(citations)}")
-    print(f"   Распределение цитирований: min={min(citations)}, max={max(citations)}, mean={np.mean(citations):.1f}, median={np.median(citations)}")
+    # DIAGNOSTICS: output citation statistics
+    print(f"🔍 Elite Index diagnostics:")
+    print(f"   Total articles with citation data: {len(citations)}")
+    print(f"   Citation distribution: min={min(citations)}, max={max(citations)}, mean={np.mean(citations):.1f}, median={np.median(citations)}")
     
-    # Проблема: np.percentile(citations, 90) всегда дает 90-й перцентиль ВНУТРИ нашего набора
-    # Но Elite Index должен сравниваться с ГЛОБАЛЬНЫМИ данными
+    # Problem: np.percentile(citations, 90) always gives 90th percentile WITHIN our dataset
+    # But Elite Index should be compared with GLOBAL data
     
-    # Временное решение: используем эвристику на основе распределения
+    # Temporary solution: use heuristic based on distribution
     if max(citations) == 0:
         return {'elite_index': 0}
     
-    # Альтернативный подход 1: считаем топ-10% от максимального значения
+    # Alternative approach 1: count top-10% from maximum value
     max_citations = max(citations)
-    threshold_alt1 = max_citations * 0.1  # 10% от максимального
+    threshold_alt1 = max_citations * 0.1  # 10% of maximum
     
-    # Альтернативный подход 2: используем квантили более агрессивно
-    threshold_alt2 = np.percentile(citations, 95)  # Более строгий порог
+    # Alternative approach 2: use quantiles more aggressively
+    threshold_alt2 = np.percentile(citations, 95)  # More strict threshold
     
-    # Альтернативный подход 3: на основе стандартного отклонения
+    # Alternative approach 3: based on standard deviation
     if len(citations) > 1:
         mean_cites = np.mean(citations)
         std_cites = np.std(citations)
-        threshold_alt3 = mean_cites + std_cites  # Статьи выше среднего + одно стандартное отклонение
+        threshold_alt3 = mean_cites + std_cites  # Articles above average + one standard deviation
     else:
         threshold_alt3 = max(citations)
     
-    # Используем самый осмысленный подход
+    # Use the most meaningful approach
     threshold = threshold_alt3
     
     elite_count = sum(1 for c in citations if c >= threshold)
     elite_index = round(elite_count / len(citations) * 100, 2)
     
-    print(f"   Пороги: percent90={np.percentile(citations, 90):.1f}, alt1={threshold_alt1:.1f}, alt2={threshold_alt2:.1f}, alt3={threshold_alt3:.1f}")
-    print(f"   Результат: elite_count={elite_count}, elite_index={elite_index}%")
+    print(f"   Thresholds: percent90={np.percentile(citations, 90):.1f}, alt1={threshold_alt1:.1f}, alt2={threshold_alt2:.1f}, alt3={threshold_alt3:.1f}")
+    print(f"   Result: elite_count={elite_count}, elite_index={elite_index}%")
     
     return {
         'elite_index': elite_index,
@@ -1512,55 +1514,6 @@ def calculate_elite_index_fast(analyzed_metadata):
             'max_citations': max(citations),
             'mean_citations': np.mean(citations),
             'median_citations': np.median(citations)
-        }
-    }
-    
-    print(f"🔍 Elite Index расширенная диагностика:")
-    print(f"   Статьи с концептами: {len(concepts_data)}/{len(citations)}")
-    
-    # Если у нас есть данные по концептам, можем сделать более умный расчет
-    if len(concepts_data) > 10:
-        # Группируем по концептам и рассчитываем пороги для каждого
-        concept_stats = {}
-        for data in concepts_data:
-            concept = data['concept']
-            if concept not in concept_stats:
-                concept_stats[concept] = []
-            concept_stats[concept].append(data['citations'])
-        
-        # Рассчитываем elite статьи для каждого концепта
-        total_elite = 0
-        for concept, concept_citations in concept_stats.items():
-            if len(concept_citations) >= 5:  # Только для концептов с достаточным количеством статей
-                concept_threshold = np.percentile(concept_citations, 80)  # Топ-20% внутри концепта
-                concept_elite = sum(1 for c in concept_citations if c >= concept_threshold)
-                total_elite += concept_elite
-                print(f"   Концепт '{concept}': {concept_elite}/{len(concept_citations)} elite статей")
-        
-        elite_index = round(total_elite / len(citations) * 100, 2)
-        method = 'concept_based'
-        
-    else:
-        # Fallback: используем глобальный подход
-        # Более агрессивный порог для реального elite
-        threshold = np.percentile(citations, 85)  # Топ-15%
-        elite_count = sum(1 for c in citations if c >= threshold)
-        elite_index = round(elite_count / len(citations) * 100, 2)
-        method = 'global_85_percentile'
-    
-    return {
-        'elite_index': elite_index,
-        'elite_articles': total_elite if 'total_elite' in locals() else elite_count,
-        'total_articles': len(citations),
-        'method_used': method,
-        'debug_info': {
-            'citation_stats': {
-                'min': min(citations),
-                'max': max(citations), 
-                'mean': np.mean(citations),
-                'median': np.median(citations),
-                'percentile_85': np.percentile(citations, 85)
-            }
         }
     }
 
@@ -1918,8 +1871,236 @@ def is_valid_value(value):
     except Exception:
         return False
 
+# === NEW FUNCTIONS FOR ADDITIONAL FEATURES ===
+
+def calculate_publisher_frequency_with_percentage(citing_metadata):
+    """Calculate publisher frequency with percentages for citing works"""
+    publisher_counter = Counter()
+    total_citing_works = len(citing_metadata)
+    
+    for citing in citing_metadata:
+        if not citing:
+            continue
+            
+        cr = citing.get('crossref')
+        oa = citing.get('openalex')
+        
+        publisher = None
+        
+        # Try Crossref first
+        if cr and cr.get('publisher'):
+            publisher = cr.get('publisher')
+        
+        # Try OpenAlex if not found in Crossref
+        if not publisher and oa:
+            host_venue = oa.get('host_venue', {})
+            if host_venue and host_venue.get('publisher'):
+                publisher = host_venue.get('publisher')
+        
+        if publisher:
+            publisher_counter[publisher] += 1
+    
+    # Calculate percentages
+    publisher_data = []
+    for publisher, count in publisher_counter.most_common():
+        percentage = (count / total_citing_works * 100) if total_citing_works > 0 else 0
+        publisher_data.append({
+            'publisher': publisher,
+            'count': count,
+            'percentage': round(percentage, 2)
+        })
+    
+    return publisher_data
+
+def calculate_reference_age_distribution(analyzed_metadata, state):
+    """Calculate reference age distribution by categories: 1-3, 4-5, 6-10, >10 years"""
+    age_categories = {
+        '1-3_years': 0,
+        '4-5_years': 0, 
+        '6-10_years': 0,
+        'over_10_years': 0
+    }
+    
+    current_year = datetime.now().year
+    article_age_data = []
+    
+    for meta in analyzed_metadata:
+        cr = meta.get('crossref')
+        if not cr:
+            continue
+            
+        pub_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
+        if not pub_year:
+            continue
+            
+        article_ages = []
+        
+        for ref in cr.get('reference', []):
+            ref_year = None
+            
+            # Try to get year from reference
+            if 'year' in ref:
+                try:
+                    ref_year = int(ref['year'])
+                except:
+                    pass
+            
+            # Try to get year from cached DOI data
+            if not ref_year:
+                doi = ref.get('DOI')
+                if doi and doi in state.crossref_cache:
+                    cached = state.crossref_cache[doi]
+                    date_parts = cached.get('published', {}).get('date-parts', [[0]])[0]
+                    if date_parts and date_parts[0]:
+                        ref_year = date_parts[0]
+            
+            if ref_year and 1900 <= ref_year <= current_year:
+                age = current_year - ref_year
+                article_ages.append(age)
+                
+                # Categorize age
+                if age <= 3:
+                    age_categories['1-3_years'] += 1
+                elif age <= 5:
+                    age_categories['4-5_years'] += 1
+                elif age <= 10:
+                    age_categories['6-10_years'] += 1
+                else:
+                    age_categories['over_10_years'] += 1
+        
+        # Store article-level data for heatmap
+        if article_ages:
+            article_age_data.append({
+                'doi': cr.get('DOI', ''),
+                'publication_year': pub_year,
+                'reference_count': len(article_ages),
+                'ages_1_3': len([a for a in article_ages if a <= 3]),
+                'ages_4_5': len([a for a in article_ages if 4 <= a <= 5]),
+                'ages_6_10': len([a for a in article_ages if 6 <= a <= 10]),
+                'ages_over_10': len([a for a in article_ages if a > 10])
+            })
+    
+    # Calculate percentages
+    total_refs = sum(age_categories.values())
+    age_categories_with_pct = {}
+    
+    for category, count in age_categories.items():
+        percentage = (count / total_refs * 100) if total_refs > 0 else 0
+        age_categories_with_pct[category] = {
+            'count': count,
+            'percentage': round(percentage, 2)
+        }
+    
+    return age_categories_with_pct, article_age_data
+
+def analyze_citation_seasonality(analyzed_metadata, state, median_days_to_first_citation):
+    """Analyze citation seasonality and predict optimal publication months"""
+    citation_months = Counter()
+    publication_months = Counter()
+    
+    # Collect citation months
+    for analyzed in analyzed_metadata:
+        if analyzed and analyzed.get('crossref'):
+            analyzed_doi = analyzed['crossref'].get('DOI')
+            if not analyzed_doi:
+                continue
+                
+            citings = state.citing_cache.get(analyzed_doi, [])
+            
+            for citing in citings:
+                if citing.get('pub_date'):
+                    try:
+                        cite_date = datetime.fromisoformat(citing['pub_date'].replace('Z', '+00:00'))
+                        citation_months[cite_date.month] += 1
+                    except:
+                        continue
+    
+    # Collect publication months of analyzed articles
+    for analyzed in analyzed_metadata:
+        if analyzed and analyzed.get('crossref'):
+            date_parts = analyzed['crossref'].get('published', {}).get('date-parts', [[]])[0]
+            if len(date_parts) >= 2:  # Has at least year and month
+                publication_months[date_parts[1]] += 1
+    
+    # Calculate optimal publication months based on citation seasonality and median time to first citation
+    optimal_months = []
+    if citation_months and median_days_to_first_citation > 0:
+        # Find months with highest citations
+        top_citation_months = [month for month, count in citation_months.most_common(3)]
+        
+        # Calculate recommended publication months (considering median time to first citation)
+        for citation_month in top_citation_months:
+            # Calculate when to publish to get citations in high-citation months
+            days_to_subtract = median_days_to_first_citation
+            recommended_publication_month = (citation_month - (days_to_subtract // 30)) % 12
+            if recommended_publication_month == 0:
+                recommended_publication_month = 12
+            
+            optimal_months.append({
+                'citation_month': citation_month,
+                'citation_count': citation_months[citation_month],
+                'recommended_publication_month': recommended_publication_month,
+                'reasoning': f"Publish in month {recommended_publication_month} to receive citations in high-citation month {citation_month} (considering {median_days_to_first_citation} days median time to first citation)"
+            })
+    
+    return {
+        'citation_months': dict(citation_months),
+        'publication_months': dict(publication_months),
+        'optimal_publication_months': optimal_months,
+        'total_citations_by_month': sum(citation_months.values())
+    }
+
+def find_potential_reviewers(analyzed_metadata, citing_metadata, overlap_details, state):
+    """Find potential reviewers from citing authors who never published in the journal"""
+    
+    # Get all authors from analyzed articles (journal authors)
+    journal_authors = set()
+    for analyzed in analyzed_metadata:
+        if analyzed and analyzed.get('openalex'):
+            authors, _, _ = extract_affiliations_and_countries(analyzed.get('openalex'))
+            journal_authors.update(authors)
+    
+    # Get overlap authors (those who already have connections with the journal)
+    overlap_authors = set()
+    for overlap in overlap_details:
+        overlap_authors.update(overlap['common_authors'])
+    
+    # Find citing authors who are NOT in journal authors and NOT in overlap authors
+    potential_reviewer_candidates = Counter()
+    reviewer_citation_details = defaultdict(list)
+    
+    for citing in citing_metadata:
+        if not citing or not citing.get('openalex'):
+            continue
+            
+        authors, _, _ = extract_affiliations_and_countries(citing.get('openalex'))
+        citing_doi = citing.get('doi', 'Unknown DOI')
+        
+        for author in authors:
+            # Check if author is NOT a journal author and NOT an overlap author
+            if author not in journal_authors and author not in overlap_authors and author != 'Unknown':
+                potential_reviewer_candidates[author] += 1
+                reviewer_citation_details[author].append(citing_doi)
+    
+    # Prepare detailed results
+    potential_reviewers = []
+    for author, citation_count in potential_reviewer_candidates.most_common():
+        potential_reviewers.append({
+            'author': author,
+            'citation_count': citation_count,
+            'citing_dois': reviewer_citation_details[author][:10],  # Limit to first 10 DOIs
+            'total_citing_works': len(reviewer_citation_details[author])
+        })
+    
+    return {
+        'potential_reviewers': potential_reviewers,
+        'total_journal_authors': len(journal_authors),
+        'total_overlap_authors': len(overlap_authors),
+        'total_potential_reviewers': len(potential_reviewers)
+    }
+
 # === 17. Enhanced Excel Report Creation ===
-def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer):
+def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer, additional_data):
     """Create enhanced Excel report with error handling for large data"""
     try:
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
@@ -2363,6 +2544,124 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 top_concepts_df = pd.DataFrame(top_concepts_data)
                 top_concepts_df.to_excel(writer, sheet_name='Top_Concepts', index=False)
 
+            # === NEW SHEETS FOR ADDITIONAL FEATURES ===
+
+            # Sheet 22: Publisher frequency with percentages
+            if 'publisher_frequency' in additional_data:
+                publisher_freq_data = []
+                for publisher_info in additional_data['publisher_frequency']:
+                    publisher_freq_data.append({
+                        'Publisher': publisher_info['publisher'],
+                        'Count': publisher_info['count'],
+                        'Percentage': publisher_info['percentage']
+                    })
+                
+                if publisher_freq_data:
+                    publisher_freq_df = pd.DataFrame(publisher_freq_data)
+                    publisher_freq_df.to_excel(writer, sheet_name='Publisher_Frequency', index=False)
+
+            # Sheet 23: Reference age distribution
+            if 'reference_age_distribution' in additional_data:
+                ref_age_data = []
+                age_categories = additional_data['reference_age_distribution']
+                
+                for category, info in age_categories.items():
+                    ref_age_data.append({
+                        'Age_Category': category.replace('_', ' ').title(),
+                        'Count': info['count'],
+                        'Percentage': info['percentage']
+                    })
+                
+                if ref_age_data:
+                    ref_age_df = pd.DataFrame(ref_age_data)
+                    ref_age_df.to_excel(writer, sheet_name='Reference_Age_Distribution', index=False)
+
+            # Sheet 24: Reference age heatmap data
+            if 'article_age_data' in additional_data and additional_data['article_age_data']:
+                heatmap_data = []
+                for article in additional_data['article_age_data']:
+                    heatmap_data.append({
+                        'DOI': article['doi'],
+                        'Publication_Year': article['publication_year'],
+                        'Total_References': article['reference_count'],
+                        'References_1_3_Years': article['ages_1_3'],
+                        'References_4_5_Years': article['ages_4_5'],
+                        'References_6_10_Years': article['ages_6_10'],
+                        'References_Over_10_Years': article['ages_over_10']
+                    })
+                
+                heatmap_df = pd.DataFrame(heatmap_data)
+                heatmap_df.to_excel(writer, sheet_name='Reference_Age_Heatmap_Data', index=False)
+
+            # Sheet 25: Citation seasonality
+            if 'citation_seasonality' in additional_data:
+                seasonality_data = []
+                citation_seasonality = additional_data['citation_seasonality']
+                
+                # Citation months
+                for month in range(1, 13):
+                    month_name = datetime(2023, month, 1).strftime('%B')
+                    citation_count = citation_seasonality['citation_months'].get(month, 0)
+                    publication_count = citation_seasonality['publication_months'].get(month, 0)
+                    
+                    seasonality_data.append({
+                        'Month_Number': month,
+                        'Month_Name': month_name,
+                        'Citation_Count': citation_count,
+                        'Publication_Count': publication_count
+                    })
+                
+                if seasonality_data:
+                    seasonality_df = pd.DataFrame(seasonality_data)
+                    seasonality_df.to_excel(writer, sheet_name='Citation_Seasonality', index=False)
+
+                # Optimal publication months
+                if citation_seasonality['optimal_publication_months']:
+                    optimal_months_data = []
+                    for optimal in citation_seasonality['optimal_publication_months']:
+                        optimal_months_data.append({
+                            'High_Citation_Month': datetime(2023, optimal['citation_month'], 1).strftime('%B'),
+                            'Citation_Count': optimal['citation_count'],
+                            'Recommended_Publication_Month': datetime(2023, optimal['recommended_publication_month'], 1).strftime('%B'),
+                            'Reasoning': optimal['reasoning']
+                        })
+                    
+                    optimal_months_df = pd.DataFrame(optimal_months_data)
+                    optimal_months_df.to_excel(writer, sheet_name='Optimal_Publication_Months', index=False)
+
+            # Sheet 26: Potential reviewers
+            if 'potential_reviewers' in additional_data:
+                reviewers_data = []
+                potential_reviewers_info = additional_data['potential_reviewers']
+                
+                for reviewer in potential_reviewers_info['potential_reviewers']:
+                    reviewers_data.append({
+                        'Author': reviewer['author'],
+                        'Citation_Count': reviewer['citation_count'],
+                        'Total_Citing_Works': reviewer['total_citing_works'],
+                        'Example_Citing_DOIs': '; '.join(reviewer['citing_dois'])
+                    })
+                
+                if reviewers_data:
+                    reviewers_df = pd.DataFrame(reviewers_data)
+                    reviewers_df.to_excel(writer, sheet_name='Potential_Reviewers', index=False)
+
+                # Summary statistics
+                summary_data = {
+                    'Metric': [
+                        'Total Journal Authors',
+                        'Total Overlap Authors', 
+                        'Total Potential Reviewers Found'
+                    ],
+                    'Value': [
+                        potential_reviewers_info['total_journal_authors'],
+                        potential_reviewers_info['total_overlap_authors'],
+                        potential_reviewers_info['total_potential_reviewers']
+                    ]
+                }
+                summary_df = pd.DataFrame(summary_data)
+                summary_df.to_excel(writer, sheet_name='Reviewer_Discovery_Summary', index=False)
+
             # Ensure at least one sheet exists
             if len(writer.sheets) == 0:
                 error_df = pd.DataFrame({'Message': [translation_manager.get_text('no_data_for_report')]})
@@ -2394,18 +2693,20 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             return False
 
 # === 18. Data Visualization ===
-def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics):
+def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, additional_data):
     """Create visualizations for dashboard"""
     
     # Create tabs for different visualization types
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         translation_manager.get_text('tab_main_metrics'), 
         translation_manager.get_text('tab_authors_organizations'), 
         translation_manager.get_text('tab_geography'), 
         translation_manager.get_text('tab_citations'),
         translation_manager.get_text('tab_overlaps'),
         translation_manager.get_text('tab_citation_timing'),
-        translation_manager.get_text('tab_fast_metrics')  # NEW TAB
+        translation_manager.get_text('tab_fast_metrics'),
+        translation_manager.get_text('tab_reference_analysis'),  # NEW TAB
+        translation_manager.get_text('tab_predictive_insights')   # NEW TAB
     ])
     
     with tab1:
@@ -2862,6 +3163,164 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
                         st.write(f"**{translation_manager.get_text('interpretation')}:** {dbi_info['interpretation']}")
                         st.progress(fast_metrics['DBI'])
 
+    with tab8:
+        st.subheader("📚 Reference Age Analysis")
+        
+        if 'reference_age_distribution' in additional_data:
+            ref_age_data = additional_data['reference_age_distribution']
+            
+            # Display reference age distribution
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("1-3 Years", f"{ref_age_data['1-3_years']['count']} ({ref_age_data['1-3_years']['percentage']}%)")
+            with col2:
+                st.metric("4-5 Years", f"{ref_age_data['4-5_years']['count']} ({ref_age_data['4-5_years']['percentage']}%)")
+            with col3:
+                st.metric("6-10 Years", f"{ref_age_data['6-10_years']['count']} ({ref_age_data['6-10_years']['percentage']}%)")
+            with col4:
+                st.metric("Over 10 Years", f"{ref_age_data['over_10_years']['count']} ({ref_age_data['over_10_years']['percentage']}%)")
+            
+            # Reference age distribution chart
+            categories = ['1-3 Years', '4-5 Years', '6-10 Years', 'Over 10 Years']
+            counts = [ref_age_data['1-3_years']['count'], ref_age_data['4-5_years']['count'], 
+                     ref_age_data['6-10_years']['count'], ref_age_data['over_10_years']['count']]
+            percentages = [ref_age_data['1-3_years']['percentage'], ref_age_data['4-5_years']['percentage'],
+                          ref_age_data['6-10_years']['percentage'], ref_age_data['over_10_years']['percentage']]
+            
+            fig = px.pie(
+                values=counts,
+                names=categories,
+                title="Reference Age Distribution",
+                hover_data=[percentages],
+                labels={'value': 'Count', 'hover_data_0': 'Percentage'}
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Reference age heatmap
+            if 'article_age_data' in additional_data and additional_data['article_age_data']:
+                st.subheader("Reference Age Heatmap by Article")
+                
+                # Prepare data for heatmap
+                heatmap_data = []
+                for article in additional_data['article_age_data'][:50]:  # Limit to first 50 for readability
+                    heatmap_data.append({
+                        'DOI': article['doi'][:20] + '...' if len(article['doi']) > 20 else article['doi'],
+                        '1-3 Years': article['ages_1_3'],
+                        '4-5 Years': article['ages_4_5'],
+                        '6-10 Years': article['ages_6_10'],
+                        'Over 10 Years': article['ages_over_10']
+                    })
+                
+                if heatmap_data:
+                    heatmap_df = pd.DataFrame(heatmap_data)
+                    heatmap_df.set_index('DOI', inplace=True)
+                    
+                    # Create heatmap
+                    fig = px.imshow(
+                        heatmap_df.T,
+                        title="Reference Age Distribution by Article (Top 50)",
+                        aspect="auto",
+                        color_continuous_scale="Blues"
+                    )
+                    fig.update_layout(
+                        xaxis_title="Articles (DOIs)",
+                        yaxis_title="Age Categories"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+    with tab9:
+        st.subheader("🔮 Predictive Insights & Recommendations")
+        
+        # Publisher frequency analysis
+        if 'publisher_frequency' in additional_data:
+            st.subheader("Top Citing Publishers")
+            
+            publisher_data = additional_data['publisher_frequency'][:10]  # Top 10
+            
+            publishers = [p['publisher'] for p in publisher_data]
+            counts = [p['count'] for p in publisher_data]
+            percentages = [p['percentage'] for p in publisher_data]
+            
+            fig = px.bar(
+                x=counts,
+                y=publishers,
+                orientation='h',
+                title="Top 10 Publishers Citing Your Journal",
+                labels={'x': 'Number of Citing Articles', 'y': 'Publisher'},
+                hover_data=[percentages]
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # Citation seasonality analysis
+        if 'citation_seasonality' in additional_data:
+            st.subheader("Citation Seasonality Analysis")
+            
+            seasonality = additional_data['citation_seasonality']
+            
+            # Citation by month chart
+            months = list(range(1, 13))
+            month_names = [datetime(2023, m, 1).strftime('%B') for m in months]
+            citation_counts = [seasonality['citation_months'].get(m, 0) for m in months]
+            
+            fig = px.line(
+                x=month_names,
+                y=citation_counts,
+                title="Citations by Month",
+                labels={'x': 'Month', 'y': 'Number of Citations'}
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Optimal publication months
+            if seasonality['optimal_publication_months']:
+                st.subheader("Recommended Publication Months")
+                
+                for optimal in seasonality['optimal_publication_months']:
+                    citation_month_name = datetime(2023, optimal['citation_month'], 1).strftime('%B')
+                    publication_month_name = datetime(2023, optimal['recommended_publication_month'], 1).strftime('%B')
+                    
+                    st.info(
+                        f"**Publish in {publication_month_name}** to target high-citation month {citation_month_name} "
+                        f"({optimal['citation_count']} citations)"
+                    )
+        
+        # Potential reviewers analysis
+        if 'potential_reviewers' in additional_data:
+            st.subheader("Potential Reviewer Discovery")
+            
+            reviewers_info = additional_data['potential_reviewers']
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Journal Authors", reviewers_info['total_journal_authors'])
+            with col2:
+                st.metric("Authors with Overlaps", reviewers_info['total_overlap_authors'])
+            with col3:
+                st.metric("Potential Reviewers Found", reviewers_info['total_potential_reviewers'])
+            
+            # Top potential reviewers
+            if reviewers_info['potential_reviewers']:
+                st.subheader("Top Potential Reviewers")
+                
+                top_reviewers = reviewers_info['potential_reviewers'][:10]
+                
+                reviewers_df = pd.DataFrame(top_reviewers)
+                st.dataframe(
+                    reviewers_df[['author', 'citation_count', 'total_citing_works']],
+                    column_config={
+                        'author': 'Author Name',
+                        'citation_count': 'Citation Count',
+                        'total_citing_works': 'Total Citing Works'
+                    }
+                )
+                
+                st.info(
+                    "💡 **These authors cite your journal but have never published in it. "
+                    "They represent excellent potential reviewers as they are familiar with "
+                    "your journal's content but maintain editorial independence.**"
+                )
+
 # === 19. Main Analysis Function ===
 def analyze_journal(issn, period_str):
     global delayer
@@ -2997,6 +3456,39 @@ def analyze_journal(issn, period_str):
     overall_status.text(translation_manager.get_text('calculating_fast_metrics'))
     fast_metrics = calculate_all_fast_metrics(analyzed_metadata, all_citing_metadata, state, issn)
     
+    # === NEW ADDITIONAL ANALYSES ===
+    overall_status.text("Calculating additional insights...")
+    
+    # 1. Publisher frequency with percentages
+    publisher_frequency = calculate_publisher_frequency_with_percentage(all_citing_metadata)
+    
+    # 2. Reference age distribution and heatmap data
+    reference_age_distribution, article_age_data = calculate_reference_age_distribution(analyzed_metadata, state)
+    
+    # 3. Citation seasonality analysis
+    citation_seasonality = analyze_citation_seasonality(
+        analyzed_metadata, 
+        state, 
+        citation_timing['days_median']
+    )
+    
+    # 4. Potential reviewer discovery
+    potential_reviewers = find_potential_reviewers(
+        analyzed_metadata, 
+        all_citing_metadata, 
+        overlap_details, 
+        state
+    )
+    
+    # Combine all additional data
+    additional_data = {
+        'publisher_frequency': publisher_frequency,
+        'reference_age_distribution': reference_age_distribution,
+        'article_age_data': article_age_data,
+        'citation_seasonality': citation_seasonality,
+        'potential_reviewers': potential_reviewers
+    }
+    
     overall_progress.progress(0.9)
     
     # Report creation
@@ -3007,7 +3499,18 @@ def analyze_journal(issn, period_str):
     
     # Create Excel file in memory
     excel_buffer = io.BytesIO()
-    create_enhanced_excel_report(analyzed_metadata, all_citing_metadata, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer)
+    create_enhanced_excel_report(
+        analyzed_metadata, 
+        all_citing_metadata, 
+        analyzed_stats, 
+        citing_stats, 
+        enhanced_stats, 
+        citation_timing, 
+        overlap_details, 
+        fast_metrics, 
+        excel_buffer,
+        additional_data  # NEW: pass additional data
+    )
     
     excel_buffer.seek(0)
     state.excel_buffer = excel_buffer
@@ -3022,7 +3525,8 @@ def analyze_journal(issn, period_str):
         'enhanced_stats': enhanced_stats,
         'citation_timing': citation_timing,
         'overlap_details': overlap_details,
-        'fast_metrics': fast_metrics,  # NEW
+        'fast_metrics': fast_metrics,
+        'additional_data': additional_data,  # NEW: store additional data
         'journal_name': journal_name,
         'issn': issn,
         'period': period_str,
@@ -3131,7 +3635,11 @@ def main():
                 "- " + translation_manager.get_text('capability_5') + "\n" +
                 "- " + translation_manager.get_text('capability_6') + "\n" +
                 "- " + translation_manager.get_text('capability_7') + "\n" +
-                "- " + translation_manager.get_text('capability_8'))
+                "- " + translation_manager.get_text('capability_8') + "\n" +
+                "- **NEW:** Publisher frequency analysis with percentages\n" +
+                "- **NEW:** Reference age distribution and heatmaps\n" +
+                "- **NEW:** Citation seasonality and optimal publication timing\n" +
+                "- **NEW:** Potential reviewer discovery")
         
         st.warning("**" + translation_manager.get_text('note') + ":** \n" +
                   "- " + translation_manager.get_text('note_text_1') + "\n" +
@@ -3198,18 +3706,20 @@ def main():
             results['enhanced_stats'],
             results['citation_timing'],
             results['overlap_details'],
-            results.get('fast_metrics', {})
+            results.get('fast_metrics', {}),
+            results.get('additional_data', {})  # NEW: pass additional data
         )
         
         # Detailed statistics
         st.markdown("---")
         st.header("📈 " + translation_manager.get_text('detailed_statistics'))
         
-        tab1, tab2, tab3, tab4 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
             translation_manager.get_text('analyzed_articles'), 
             translation_manager.get_text('citing_works'), 
             translation_manager.get_text('comparative_analysis'), 
-            translation_manager.get_text('fast_metrics')
+            translation_manager.get_text('fast_metrics'),
+            "🔮 Predictive Insights"  # NEW TAB
         ])
         
         with tab1:
@@ -3317,20 +3827,66 @@ def main():
                 st.write(translation_manager.get_text('dbi_unique_concepts').format(value=fast_metrics.get('unique_concepts', 0)))
                 st.write(translation_manager.get_text('dbi_total_mentions').format(value=fast_metrics.get('total_concept_mentions', 0)))
 
+        with tab5:
+            st.subheader("🔮 Predictive Insights & Advanced Analytics")
+            
+            additional_data = results.get('additional_data', {})
+            
+            if additional_data:
+                # Reference age analysis
+                if 'reference_age_distribution' in additional_data:
+                    st.subheader("📚 Reference Age Analysis")
+                    
+                    ref_age = additional_data['reference_age_distribution']
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("1-3 Years", f"{ref_age['1-3_years']['count']}", f"{ref_age['1-3_years']['percentage']}%")
+                    with col2:
+                        st.metric("4-5 Years", f"{ref_age['4-5_years']['count']}", f"{ref_age['4-5_years']['percentage']}%")
+                    with col3:
+                        st.metric("6-10 Years", f"{ref_age['6-10_years']['count']}", f"{ref_age['6-10_years']['percentage']}%")
+                    with col4:
+                        st.metric("Over 10 Years", f"{ref_age['over_10_years']['count']}", f"{ref_age['over_10_years']['percentage']}%")
+                
+                # Publisher frequency
+                if 'publisher_frequency' in additional_data:
+                    st.subheader("🏢 Top Citing Publishers")
+                    
+                    top_publishers = additional_data['publisher_frequency'][:5]
+                    
+                    for i, publisher in enumerate(top_publishers, 1):
+                        st.write(f"{i}. **{publisher['publisher']}** - {publisher['count']} articles ({publisher['percentage']}%)")
+                
+                # Citation seasonality
+                if 'citation_seasonality' in additional_data:
+                    st.subheader("📅 Citation Seasonality")
+                    
+                    seasonality = additional_data['citation_seasonality']
+                    
+                    if seasonality['optimal_publication_months']:
+                        st.write("**Recommended Publication Months:**")
+                        for optimal in seasonality['optimal_publication_months']:
+                            citation_month = datetime(2023, optimal['citation_month'], 1).strftime('%B')
+                            pub_month = datetime(2023, optimal['recommended_publication_month'], 1).strftime('%B')
+                            st.info(f"• Publish in **{pub_month}** to target high-citation month **{citation_month}**")
+                
+                # Potential reviewers
+                if 'potential_reviewers' in additional_data:
+                    st.subheader("👥 Potential Reviewer Discovery")
+                    
+                    reviewers = additional_data['potential_reviewers']
+                    st.write(f"**Found {reviewers['total_potential_reviewers']} potential reviewers** who cite your journal but have never published in it.")
+                    
+                    if reviewers['potential_reviewers']:
+                        st.write("**Top candidates:**")
+                        for i, reviewer in enumerate(reviewers['potential_reviewers'][:5], 1):
+                            st.write(f"{i}. **{reviewer['author']}** - {reviewer['citation_count']} citations across {reviewer['total_citing_works']} works")
+            else:
+                st.info("No additional predictive insights available for this analysis.")
+
 # Run application
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
 
 
