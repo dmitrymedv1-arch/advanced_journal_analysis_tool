@@ -1484,7 +1484,7 @@ def calculate_elite_index_fast(analyzed_metadata):
     threshold_alt1 = max_citations * 0.1  # 10% of maximum
     
     # Alternative approach 2: use quantiles more aggressively
-    threshold_alt2 = np.percentile(citations, 95)  # More strict threshold
+    threshold_alt2 = int(np.percentile(citations, 85))  # More strict threshold
     
     # Alternative approach 3: based on standard deviation
     if len(citations) > 1:
@@ -1960,7 +1960,7 @@ def calculate_reference_age_distribution(analyzed_metadata, state):
                 
                 # Categorize age
                 if age <= 3:
-                    age_categories['1-3_years'] += 1
+                    age_categories['1-3_years'] = int(age_categories['1-3_years']) + 1
                 elif age <= 5:
                     age_categories['4-5_years'] += 1
                 elif age <= 10:
@@ -2032,7 +2032,7 @@ def analyze_citation_seasonality(analyzed_metadata, state, median_days_to_first_
         for citation_month in top_citation_months:
             # Calculate when to publish to get citations in high-citation months
             days_to_subtract = median_days_to_first_citation
-            recommended_publication_month = (citation_month - (days_to_subtract // 30)) % 12
+            recommended_publication_month = int((citation_month - (days_to_subtract // 30)) % 12)
             if recommended_publication_month == 0:
                 recommended_publication_month = 12
             
@@ -2102,6 +2102,21 @@ def find_potential_reviewers(analyzed_metadata, citing_metadata, overlap_details
 # === 17. Enhanced Excel Report Creation ===
 def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer, additional_data):
     """Create enhanced Excel report with error handling for large data"""
+
+    def safe_convert(value):
+        """Safely convert numpy types to Python native types"""
+        if value is None:
+            return 0
+        if hasattr(value, 'item'):
+            return value.item()
+        elif isinstance(value, (np.integer, np.int32, np.int64)):
+            return int(value)
+        elif isinstance(value, (np.floating, np.float32, np.float64)):
+            return float(value)
+        elif isinstance(value, np.bool_):
+            return bool(value)
+        return value
+            
     try:
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
             # Sheet 1: Analyzed articles (with optimization)
@@ -3276,8 +3291,8 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
                 st.subheader("Recommended Publication Months")
                 
                 for optimal in seasonality['optimal_publication_months']:
-                    citation_month_name = datetime(2023, optimal['citation_month'], 1).strftime('%B')
-                    publication_month_name = datetime(2023, optimal['recommended_publication_month'], 1).strftime('%B')
+                    citation_month_name = datetime(2023, int(optimal['citation_month']), 1).strftime('%B')
+                    publication_month_name = datetime(2023, int(optimal['recommended_publication_month']), 1).strftime('%B')
                     
                     st.info(
                         f"**Publish in {publication_month_name}** to target high-citation month {citation_month_name} "
@@ -3888,5 +3903,6 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
