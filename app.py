@@ -1873,44 +1873,52 @@ def is_valid_value(value):
 
 # === NEW FUNCTIONS FOR ADDITIONAL FEATURES ===
 
-def calculate_publisher_frequency_with_percentage(citing_metadata):
-    """Calculate publisher frequency with percentages for citing works"""
-    publisher_counter = Counter()
-    total_citing_works = len(citing_metadata)
+def calculate_reference_year_analysis(analyzed_metadata, state):
+    """Calculate reference publication years in 5-year intervals starting from 1900"""
+    reference_years = []
     
-    for citing in citing_metadata:
-        if not citing:
+    for meta in analyzed_metadata:
+        cr = meta.get('crossref')
+        if not cr:
             continue
             
-        cr = citing.get('crossref')
-        oa = citing.get('openalex')
-        
-        publisher = None
-        
-        # Try Crossref first
-        if cr and cr.get('publisher'):
-            publisher = cr.get('publisher')
-        
-        # Try OpenAlex if not found in Crossref
-        if not publisher and oa:
-            host_venue = oa.get('host_venue', {})
-            if host_venue and host_venue.get('publisher'):
-                publisher = host_venue.get('publisher')
-        
-        if publisher:
-            publisher_counter[publisher] += 1
+        for ref in cr.get('reference', []):
+            ref_year = None
+            
+            # Try to get year from reference
+            if 'year' in ref:
+                try:
+                    ref_year = int(ref['year'])
+                except:
+                    pass
+            
+            # Try to get year from cached DOI data
+            if not ref_year:
+                doi = ref.get('DOI')
+                if doi and doi in state.crossref_cache:
+                    cached = state.crossref_cache[doi]
+                    date_parts = cached.get('published', {}).get('date-parts', [[0]])[0]
+                    if date_parts and date_parts[0]:
+                        ref_year = date_parts[0]
+            
+            if ref_year and 1900 <= ref_year <= 2030:
+                reference_years.append(ref_year)
     
-    # Calculate percentages
-    publisher_data = []
-    for publisher, count in publisher_counter.most_common():
-        percentage = (count / total_citing_works * 100) if total_citing_works > 0 else 0
-        publisher_data.append({
-            'publisher': publisher,
-            'count': count,
-            'percentage': round(percentage, 2)
+    # Create 5-year intervals
+    year_intervals = []
+    current_year = datetime.now().year
+    for start_year in range(1900, current_year + 10, 5):
+        end_year = start_year + 4
+        if end_year > current_year:
+            end_year = current_year
+        interval_count = len([y for y in reference_years if start_year <= y <= end_year])
+        year_intervals.append({
+            'interval': f"{start_year}-{end_year}",
+            'count': interval_count,
+            'percentage': round((interval_count / len(reference_years) * 100), 2) if reference_years else 0
         })
     
-    return publisher_data
+    return year_intervals
 
 def calculate_reference_age_distribution(analyzed_metadata, state):
     """Calculate reference age distribution by categories: 1-3, 4-5, 6-10, >10 years"""
@@ -2082,15 +2090,15 @@ def find_potential_reviewers(analyzed_metadata, citing_metadata, overlap_details
                 potential_reviewer_candidates[author] += 1
                 reviewer_citation_details[author].append(citing_doi)
     
-    # Prepare detailed results
+    # Prepare detailed results - filter out authors with only 1 citation
     potential_reviewers = []
     for author, citation_count in potential_reviewer_candidates.most_common():
-        potential_reviewers.append({
-            'author': author,
-            'citation_count': citation_count,
-            'citing_dois': reviewer_citation_details[author][:10],  # Limit to first 10 DOIs
-            'total_citing_works': len(reviewer_citation_details[author])
-        })
+        if citation_count > 1:  # Only include authors with more than 1 citation
+            potential_reviewers.append({
+                'author': author,
+                'citation_count': citation_count,
+                'citing_dois': reviewer_citation_details[author]  # Keep all DOIs for detailed analysis
+            })
     
     return {
         'potential_reviewers': potential_reviewers,
@@ -2422,75 +2430,115 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 citation_network_df = pd.DataFrame(citation_network_data)
                 citation_network_df.to_excel(writer, sheet_name='Citation_Network', index=False)
 
-            # Sheet 12: All authors analyzed
+            # Sheet 12: All authors analyzed (with percentages)
             if analyzed_stats['all_authors']:
-                all_authors_data = {
-                    'Author': [author[0] for author in analyzed_stats['all_authors']],
-                    'Articles_Count': [author[1] for author in analyzed_stats['all_authors']]
-                }
+                all_authors_data = []
+                total_articles = analyzed_stats['n_items']
+                for author, count in analyzed_stats['all_authors']:
+                    percentage = (count / total_articles * 100) if total_articles > 0 else 0
+                    all_authors_data.append({
+                        'Author': author,
+                        'Articles_Count': count,
+                        'Percentage': round(percentage, 2)
+                    })
                 all_authors_df = pd.DataFrame(all_authors_data)
                 all_authors_df.to_excel(writer, sheet_name='All_Authors_Analyzed', index=False)
 
-            # Sheet 13: All authors citing
+            # Sheet 13: All authors citing (with percentages)
             if citing_stats['all_authors']:
-                all_citing_authors_data = {
-                    'Author': [author[0] for author in citing_stats['all_authors']],
-                    'Articles_Count': [author[1] for author in citing_stats['all_authors']]
-                }
+                all_citing_authors_data = []
+                total_citing_articles = citing_stats['n_items']
+                for author, count in citing_stats['all_authors']:
+                    percentage = (count / total_citing_articles * 100) if total_citing_articles > 0 else 0
+                    all_citing_authors_data.append({
+                        'Author': author,
+                        'Articles_Count': count,
+                        'Percentage': round(percentage, 2)
+                    })
                 all_citing_authors_df = pd.DataFrame(all_citing_authors_data)
                 all_citing_authors_df.to_excel(writer, sheet_name='All_Authors_Citing', index=False)
 
-            # Sheet 14: All affiliations analyzed
+            # Sheet 14: All affiliations analyzed (with percentages)
             if analyzed_stats['all_affiliations']:
-                all_affiliations_data = {
-                    'Affiliation': [aff[0] for aff in analyzed_stats['all_affiliations']],
-                    'Mentions_Count': [aff[1] for aff in analyzed_stats['all_affiliations']]
-                }
+                all_affiliations_data = []
+                total_mentions = sum(count for _, count in analyzed_stats['all_affiliations'])
+                for affiliation, count in analyzed_stats['all_affiliations']:
+                    percentage = (count / total_mentions * 100) if total_mentions > 0 else 0
+                    all_affiliations_data.append({
+                        'Affiliation': affiliation,
+                        'Mentions_Count': count,
+                        'Percentage': round(percentage, 2)
+                    })
                 all_affiliations_df = pd.DataFrame(all_affiliations_data)
                 all_affiliations_df.to_excel(writer, sheet_name='All_Affiliations_Analyzed', index=False)
 
-            # Sheet 15: All affiliations citing
+            # Sheet 15: All affiliations citing (with percentages)
             if citing_stats['all_affiliations']:
-                all_citing_affiliations_data = {
-                    'Affiliation': [aff[0] for aff in citing_stats['all_affiliations']],
-                    'Mentions_Count': [aff[1] for aff in citing_stats['all_affiliations']]
-                }
+                all_citing_affiliations_data = []
+                total_mentions = sum(count for _, count in citing_stats['all_affiliations'])
+                for affiliation, count in citing_stats['all_affiliations']:
+                    percentage = (count / total_mentions * 100) if total_mentions > 0 else 0
+                    all_citing_affiliations_data.append({
+                        'Affiliation': affiliation,
+                        'Mentions_Count': count,
+                        'Percentage': round(percentage, 2)
+                    })
                 all_citing_affiliations_df = pd.DataFrame(all_citing_affiliations_data)
                 all_citing_affiliations_df.to_excel(writer, sheet_name='All_Affiliations_Citing', index=False)
 
-            # Sheet 16: All countries analyzed
+            # Sheet 16: All countries analyzed (with percentages)
             if analyzed_stats['all_countries']:
-                all_countries_data = {
-                    'Country': [country[0] for country in analyzed_stats['all_countries']],
-                    'Mentions_Count': [country[1] for country in analyzed_stats['all_countries']]
-                }
+                all_countries_data = []
+                total_mentions = sum(count for _, count in analyzed_stats['all_countries'])
+                for country, count in analyzed_stats['all_countries']:
+                    percentage = (count / total_mentions * 100) if total_mentions > 0 else 0
+                    all_countries_data.append({
+                        'Country': country,
+                        'Mentions_Count': count,
+                        'Percentage': round(percentage, 2)
+                    })
                 all_countries_df = pd.DataFrame(all_countries_data)
                 all_countries_df.to_excel(writer, sheet_name='All_Countries_Analyzed', index=False)
 
-            # Sheet 17: All countries citing
+            # Sheet 17: All countries citing (with percentages)
             if citing_stats['all_countries']:
-                all_citing_countries_data = {
-                    'Country': [country[0] for country in citing_stats['all_countries']],
-                    'Mentions_Count': [country[1] for country in citing_stats['all_countries']]
-                }
+                all_citing_countries_data = []
+                total_mentions = sum(count for _, count in citing_stats['all_countries'])
+                for country, count in citing_stats['all_countries']:
+                    percentage = (count / total_mentions * 100) if total_mentions > 0 else 0
+                    all_citing_countries_data.append({
+                        'Country': country,
+                        'Mentions_Count': count,
+                        'Percentage': round(percentage, 2)
+                    })
                 all_citing_countries_df = pd.DataFrame(all_citing_countries_data)
                 all_citing_countries_df.to_excel(writer, sheet_name='All_Countries_Citing', index=False)
 
-            # Sheet 18: All journals citing
+            # Sheet 18: All journals citing (with percentages)
             if citing_stats['all_journals']:
-                all_citing_journals_data = {
-                    'Journal': [journal[0] for journal in citing_stats['all_journals']],
-                    'Articles_Count': [journal[1] for journal in citing_stats['all_journals']]
-                }
+                all_citing_journals_data = []
+                total_articles = citing_stats['n_items']
+                for journal, count in citing_stats['all_journals']:
+                    percentage = (count / total_articles * 100) if total_articles > 0 else 0
+                    all_citing_journals_data.append({
+                        'Journal': journal,
+                        'Articles_Count': count,
+                        'Percentage': round(percentage, 2)
+                    })
                 all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
                 all_citing_journals_df.to_excel(writer, sheet_name='All_Journals_Citing', index=False)
 
-            # Sheet 19: All publishers citing
+            # Sheet 19: All publishers citing (with percentages)
             if citing_stats['all_publishers']:
-                all_citing_publishers_data = {
-                    'Publisher': [publisher[0] for publisher in citing_stats['all_publishers']],
-                    'Articles_Count': [publisher[1] for publisher in citing_stats['all_publishers']]
-                }
+                all_citing_publishers_data = []
+                total_articles = citing_stats['n_items']
+                for publisher, count in citing_stats['all_publishers']:
+                    percentage = (count / total_articles * 100) if total_articles > 0 else 0
+                    all_citing_publishers_data.append({
+                        'Publisher': publisher,
+                        'Articles_Count': count,
+                        'Percentage': round(percentage, 2)
+                    })
                 all_citing_publishers_df = pd.DataFrame(all_citing_publishers_data)
                 all_citing_publishers_df.to_excel(writer, sheet_name='All_Publishers_Citing', index=False)
 
@@ -2561,19 +2609,19 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
 
             # === NEW SHEETS FOR ADDITIONAL FEATURES ===
 
-            # Sheet 22: Publisher frequency with percentages
-            if 'publisher_frequency' in additional_data:
-                publisher_freq_data = []
-                for publisher_info in additional_data['publisher_frequency']:
-                    publisher_freq_data.append({
-                        'Publisher': publisher_info['publisher'],
-                        'Count': publisher_info['count'],
-                        'Percentage': publisher_info['percentage']
+            # Sheet 22: Reference year analysis (NEW)
+            if 'reference_year_analysis' in additional_data:
+                ref_year_data = []
+                for interval_data in additional_data['reference_year_analysis']:
+                    ref_year_data.append({
+                        'Year_Interval': interval_data['interval'],
+                        'Reference_Count': interval_data['count'],
+                        'Percentage': interval_data['percentage']
                     })
                 
-                if publisher_freq_data:
-                    publisher_freq_df = pd.DataFrame(publisher_freq_data)
-                    publisher_freq_df.to_excel(writer, sheet_name='Publisher_Frequency', index=False)
+                if ref_year_data:
+                    ref_year_df = pd.DataFrame(ref_year_data)
+                    ref_year_df.to_excel(writer, sheet_name='Reference_Year_Analysis', index=False)
 
             # Sheet 23: Reference age distribution
             if 'reference_age_distribution' in additional_data:
@@ -2650,12 +2698,13 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 potential_reviewers_info = additional_data['potential_reviewers']
                 
                 for reviewer in potential_reviewers_info['potential_reviewers']:
-                    reviewers_data.append({
-                        'Author': reviewer['author'],
-                        'Citation_Count': reviewer['citation_count'],
-                        'Total_Citing_Works': reviewer['total_citing_works'],
-                        'Example_Citing_DOIs': '; '.join(reviewer['citing_dois'])
-                    })
+                    # Create separate rows for each DOI
+                    for i, doi in enumerate(reviewer['citing_dois']):
+                        reviewers_data.append({
+                            'Author': reviewer['author'] if i == 0 else '',  # Only show author name in first row
+                            'Citation_Count': reviewer['citation_count'] if i == 0 else '',
+                            'Citing_DOI': doi
+                        })
                 
                 if reviewers_data:
                     reviewers_df = pd.DataFrame(reviewers_data)
@@ -2720,8 +2769,8 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
         translation_manager.get_text('tab_overlaps'),
         translation_manager.get_text('tab_citation_timing'),
         translation_manager.get_text('tab_fast_metrics'),
-        translation_manager.get_text('tab_reference_analysis'),  # NEW TAB
-        translation_manager.get_text('tab_predictive_insights')   # NEW TAB
+        translation_manager.get_text('tab_reference_analysis'),
+        translation_manager.get_text('tab_predictive_insights')
     ])
     
     with tab1:
@@ -3212,60 +3261,25 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
             )
             st.plotly_chart(fig, use_container_width=True)
             
-            # Reference age heatmap
-            if 'article_age_data' in additional_data and additional_data['article_age_data']:
-                st.subheader("Reference Age Heatmap by Article")
+            # Reference year analysis
+            if 'reference_year_analysis' in additional_data:
+                st.subheader("Reference Publication Year Analysis")
                 
-                # Prepare data for heatmap
-                heatmap_data = []
-                for article in additional_data['article_age_data'][:50]:  # Limit to first 50 for readability
-                    heatmap_data.append({
-                        'DOI': article['doi'][:20] + '...' if len(article['doi']) > 20 else article['doi'],
-                        '1-3 Years': article['ages_1_3'],
-                        '4-5 Years': article['ages_4_5'],
-                        '6-10 Years': article['ages_6_10'],
-                        'Over 10 Years': article['ages_over_10']
-                    })
+                ref_year_data = additional_data['reference_year_analysis']
+                intervals = [item['interval'] for item in ref_year_data]
+                counts = [item['count'] for item in ref_year_data]
                 
-                if heatmap_data:
-                    heatmap_df = pd.DataFrame(heatmap_data)
-                    heatmap_df.set_index('DOI', inplace=True)
-                    
-                    # Create heatmap
-                    fig = px.imshow(
-                        heatmap_df.T,
-                        title="Reference Age Distribution by Article (Top 50)",
-                        aspect="auto",
-                        color_continuous_scale="Blues"
-                    )
-                    fig.update_layout(
-                        xaxis_title="Articles (DOIs)",
-                        yaxis_title="Age Categories"
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
+                fig = px.bar(
+                    x=intervals,
+                    y=counts,
+                    title="References by Publication Year Intervals",
+                    labels={'x': 'Year Interval', 'y': 'Number of References'}
+                )
+                fig.update_layout(xaxis_tickangle=-45)
+                st.plotly_chart(fig, use_container_width=True)
 
     with tab9:
         st.subheader("🔮 Predictive Insights & Recommendations")
-        
-        # Publisher frequency analysis
-        if 'publisher_frequency' in additional_data:
-            st.subheader("Top Citing Publishers")
-            
-            publisher_data = additional_data['publisher_frequency'][:10]  # Top 10
-            
-            publishers = [p['publisher'] for p in publisher_data]
-            counts = [p['count'] for p in publisher_data]
-            percentages = [p['percentage'] for p in publisher_data]
-            
-            fig = px.bar(
-                x=counts,
-                y=publishers,
-                orientation='h',
-                title="Top 10 Publishers Citing Your Journal",
-                labels={'x': 'Number of Citing Articles', 'y': 'Publisher'},
-                hover_data=[percentages]
-            )
-            st.plotly_chart(fig, use_container_width=True)
         
         # Citation seasonality analysis
         if 'citation_seasonality' in additional_data:
@@ -3320,15 +3334,15 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
                 
                 top_reviewers = reviewers_info['potential_reviewers'][:10]
                 
-                reviewers_df = pd.DataFrame(top_reviewers)
-                st.dataframe(
-                    reviewers_df[['author', 'citation_count', 'total_citing_works']],
-                    column_config={
-                        'author': 'Author Name',
-                        'citation_count': 'Citation Count',
-                        'total_citing_works': 'Total Citing Works'
+                reviewers_df = pd.DataFrame([
+                    {
+                        'Author': reviewer['author'],
+                        'Citation_Count': reviewer['citation_count'],
+                        'Example_Citing_DOIs': ', '.join(reviewer['citing_dois'][:3]) + ('...' if len(reviewer['citing_dois']) > 3 else '')
                     }
-                )
+                    for reviewer in top_reviewers
+                ])
+                st.dataframe(reviewers_df)
                 
                 st.info(
                     "💡 **These authors cite your journal but have never published in it. "
@@ -3474,8 +3488,8 @@ def analyze_journal(issn, period_str):
     # === NEW ADDITIONAL ANALYSES ===
     overall_status.text("Calculating additional insights...")
     
-    # 1. Publisher frequency with percentages
-    publisher_frequency = calculate_publisher_frequency_with_percentage(all_citing_metadata)
+    # 1. Reference year analysis (NEW)
+    reference_year_analysis = calculate_reference_year_analysis(analyzed_metadata, state)
     
     # 2. Reference age distribution and heatmap data
     reference_age_distribution, article_age_data = calculate_reference_age_distribution(analyzed_metadata, state)
@@ -3497,7 +3511,7 @@ def analyze_journal(issn, period_str):
     
     # Combine all additional data
     additional_data = {
-        'publisher_frequency': publisher_frequency,
+        'reference_year_analysis': reference_year_analysis,
         'reference_age_distribution': reference_age_distribution,
         'article_age_data': article_age_data,
         'citation_seasonality': citation_seasonality,
@@ -3524,7 +3538,7 @@ def analyze_journal(issn, period_str):
         overlap_details, 
         fast_metrics, 
         excel_buffer,
-        additional_data  # NEW: pass additional data
+        additional_data
     )
     
     excel_buffer.seek(0)
@@ -3541,7 +3555,7 @@ def analyze_journal(issn, period_str):
         'citation_timing': citation_timing,
         'overlap_details': overlap_details,
         'fast_metrics': fast_metrics,
-        'additional_data': additional_data,  # NEW: store additional data
+        'additional_data': additional_data,
         'journal_name': journal_name,
         'issn': issn,
         'period': period_str,
@@ -3651,7 +3665,7 @@ def main():
                 "- " + translation_manager.get_text('capability_6') + "\n" +
                 "- " + translation_manager.get_text('capability_7') + "\n" +
                 "- " + translation_manager.get_text('capability_8') + "\n" +
-                "- **NEW:** Publisher frequency analysis with percentages\n" +
+                "- **NEW:** Reference publication year analysis\n" +
                 "- **NEW:** Reference age distribution and heatmaps\n" +
                 "- **NEW:** Citation seasonality and optimal publication timing\n" +
                 "- **NEW:** Potential reviewer discovery")
@@ -3722,7 +3736,7 @@ def main():
             results['citation_timing'],
             results['overlap_details'],
             results.get('fast_metrics', {}),
-            results.get('additional_data', {})  # NEW: pass additional data
+            results.get('additional_data', {})
         )
         
         # Detailed statistics
@@ -3734,7 +3748,7 @@ def main():
             translation_manager.get_text('citing_works'), 
             translation_manager.get_text('comparative_analysis'), 
             translation_manager.get_text('fast_metrics'),
-            "🔮 Predictive Insights"  # NEW TAB
+            "🔮 Predictive Insights"
         ])
         
         with tab1:
@@ -3848,9 +3862,20 @@ def main():
             additional_data = results.get('additional_data', {})
             
             if additional_data:
+                # Reference year analysis
+                if 'reference_year_analysis' in additional_data:
+                    st.subheader("📚 Reference Publication Year Analysis")
+                    
+                    ref_year = additional_data['reference_year_analysis']
+                    
+                    # Display top intervals
+                    top_intervals = ref_year[:10]
+                    for interval in top_intervals:
+                        st.write(f"**{interval['interval']}**: {interval['count']} references ({interval['percentage']}%)")
+                
                 # Reference age analysis
                 if 'reference_age_distribution' in additional_data:
-                    st.subheader("📚 Reference Age Analysis")
+                    st.subheader("📊 Reference Age Distribution")
                     
                     ref_age = additional_data['reference_age_distribution']
                     
@@ -3863,15 +3888,6 @@ def main():
                         st.metric("6-10 Years", f"{ref_age['6-10_years']['count']}", f"{ref_age['6-10_years']['percentage']}%")
                     with col4:
                         st.metric("Over 10 Years", f"{ref_age['over_10_years']['count']}", f"{ref_age['over_10_years']['percentage']}%")
-                
-                # Publisher frequency
-                if 'publisher_frequency' in additional_data:
-                    st.subheader("🏢 Top Citing Publishers")
-                    
-                    top_publishers = additional_data['publisher_frequency'][:5]
-                    
-                    for i, publisher in enumerate(top_publishers, 1):
-                        st.write(f"{i}. **{publisher['publisher']}** - {publisher['count']} articles ({publisher['percentage']}%)")
                 
                 # Citation seasonality
                 if 'citation_seasonality' in additional_data:
@@ -3896,13 +3912,10 @@ def main():
                     if reviewers['potential_reviewers']:
                         st.write("**Top candidates:**")
                         for i, reviewer in enumerate(reviewers['potential_reviewers'][:5], 1):
-                            st.write(f"{i}. **{reviewer['author']}** - {reviewer['citation_count']} citations across {reviewer['total_citing_works']} works")
+                            st.write(f"{i}. **{reviewer['author']}** - {reviewer['citation_count']} citations")
             else:
                 st.info("No additional predictive insights available for this analysis.")
 
 # Run application
 if __name__ == "__main__":
     main()
-
-
-
