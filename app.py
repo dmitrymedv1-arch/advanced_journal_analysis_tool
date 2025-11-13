@@ -1966,8 +1966,8 @@ def get_journal_metrics(journal_issns):
                     'quartile': if_match.iloc[0]['Quartile']
                 }
                 break  # Use first match
-        
-        # Search in Scopus data - CORRECTED VERSION
+                  
+        # Search in Scopus data - FIXED VERSION
         if not state.cs_data.empty:
             # Use exact column names from your file
             print_issn_col = 'Print ISSN'
@@ -1983,18 +1983,30 @@ def get_journal_metrics(journal_issns):
                 print(f"❌ CS.xlsx missing columns: {missing_cols}")
                 print(f"   Available columns: {state.cs_data.columns.tolist()}")
             else:
-                # Function for safe ISSN normalization
-                def safe_normalize_issn(issn_series):
+                # Function for safe ISSN normalization with debug
+                def safe_normalize_issn_cs(issn_series):
                     try:
-                        return issn_series.astype(str).apply(normalize_issn_for_comparison)
-                    except:
+                        # Handle NaN values and convert to string
+                        return issn_series.fillna('').astype(str).apply(normalize_issn_for_comparison)
+                    except Exception as e:
+                        print(f"Error normalizing CS ISSN: {e}")
                         return pd.Series([""] * len(issn_series))
+                
+                # Normalize ISSN columns
+                normalized_print_issn = safe_normalize_issn_cs(state.cs_data[print_issn_col])
+                normalized_eissn = safe_normalize_issn_cs(state.cs_data[eissn_col])
+                
+                # Debug: show sample of normalized ISSNs
+                print(f"Sample normalized Print ISSN: {normalized_print_issn.head(3).tolist()}")
+                print(f"Sample normalized E-ISSN: {normalized_eissn.head(3).tolist()}")
                 
                 # Search by Print ISSN and E-ISSN
                 cs_match = state.cs_data[
-                    (safe_normalize_issn(state.cs_data[print_issn_col]) == normalized_issn) |
-                    (safe_normalize_issn(state.cs_data[eissn_col]) == normalized_issn)
+                    (normalized_print_issn == normalized_issn) |
+                    (normalized_eissn == normalized_issn)
                 ]
+                
+                print(f"🔍 CS search result: {len(cs_match)} matches for {normalized_issn}")
                 
                 if not cs_match.empty:
                     # Remove duplicates and find best quartile
@@ -3867,4 +3879,5 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
