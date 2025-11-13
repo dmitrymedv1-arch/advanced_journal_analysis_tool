@@ -2129,6 +2129,14 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         elif isinstance(value, np.bool_):
             return bool(value)
         return value
+
+    def safe_join(items, sep='; ', max_len=None):
+        """Safely join list, filtering None and applying length limit"""
+        if not items:
+            return ''
+        cleaned = [str(x).strip() for x in items if x is not None and str(x).strip()]
+        result = sep.join(cleaned)
+        return result[:max_len] if max_len else result
             
     try:
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
@@ -2146,21 +2154,21 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     journal_info = extract_journal_info(item)
                     
                     analyzed_list.append({
-                        'DOI': cr.get('DOI', '')[:100],
+                        'DOI': safe_convert(cr.get('DOI', ''))[:100],
                         'Title': (cr.get('title', [''])[0] if cr.get('title') else 'No title')[:200],
-                        'Authors_Crossref': '; '.join([f"{a.get('given', '')} {a.get('family', '')}" for a in cr.get('author', [])])[:300],
-                        'Authors_OpenAlex': '; '.join(authors_list)[:300],
-                        'Affiliations': '; '.join(affiliations_list)[:500],
-                        'Countries': '; '.join(countries_list)[:100],
-                        'Publication_Year': cr.get('published', {}).get('date-parts', [[0]])[0][0],
-                        'Journal': journal_info['journal_name'][:100],
-                        'Publisher': journal_info['publisher'][:100],
-                        'ISSN': '; '.join(journal_info['issn'])[:50],
-                        'Reference_Count': cr.get('reference-count', 0),
-                        'Citations_Crossref': cr.get('is-referenced-by-count', 0),
-                        'Citations_OpenAlex': oa.get('cited_by_count', 0) if oa else 0,
-                        'Author_Count': len(cr.get('author', [])),
-                        'Work_Type': cr.get('type', '')[:50]
+                        'Authors_Crossref': safe_join([f"{a.get('given', '')} {a.get('family', '')}".strip() for a in cr.get('author', []) if a.get('given') or a.get('family')])[:300],
+                        'Authors_OpenAlex': safe_join(authors_list)[:300],
+                        'Affiliations': safe_join(affiliations_list)[:500],
+                        'Countries': safe_join(countries_list)[:100],
+                        'Publication_Year': safe_convert(cr.get('published', {}).get('date-parts', [[0]])[0][0]),
+                        'Journal': safe_convert(journal_info['journal_name'])[:100],
+                        'Publisher': safe_convert(journal_info['publisher'])[:100],
+                        'ISSN': safe_join([str(issn) for issn in journal_info['issn'] if issn])[:50],
+                        'Reference_Count': safe_convert(cr.get('reference-count', 0)),
+                        'Citations_Crossref': safe_convert(cr.get('is-referenced-by-count', 0)),
+                        'Citations_OpenAlex': safe_convert(oa.get('cited_by_count', 0)) if oa else 0,
+                        'Author_Count': safe_convert(len(cr.get('author', []))),
+                        'Work_Type': safe_convert(cr.get('type', ''))[:50]
                     })
             
             if analyzed_list:
@@ -2179,21 +2187,21 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     journal_info = extract_journal_info(item)
                     
                     citing_list.append({
-                        'DOI': cr.get('DOI', '')[:100],
+                        'DOI': safe_convert(cr.get('DOI', ''))[:100],
                         'Title': (cr.get('title', [''])[0] if cr.get('title') else 'No title')[:200],
-                        'Authors_Crossref': '; '.join([f"{a.get('given', '')} {a.get('family', '')}" for a in cr.get('author', [])])[:300],
-                        'Authors_OpenAlex': '; '.join(authors_list)[:300],
-                        'Affiliations': '; '.join(affiliations_list)[:500],
-                        'Countries': '; '.join(countries_list)[:100],
-                        'Publication_Year': cr.get('published', {}).get('date-parts', [[0]])[0][0],
-                        'Journal': journal_info['journal_name'][:100],
-                        'Publisher': journal_info['publisher'][:100],
-                        'ISSN': '; '.join(journal_info['issn'])[:50],
-                        'Reference_Count': cr.get('reference-count', 0),
-                        'Citations_Crossref': cr.get('is-referenced-by-count', 0),
-                        'Citations_OpenAlex': oa.get('cited_by_count', 0) if oa else 0,
-                        'Author_Count': len(cr.get('author', [])),
-                        'Work_Type': cr.get('type', '')[:50]
+                        'Authors_Crossref': safe_join([f"{a.get('given', '')} {a.get('family', '')}".strip() for a in cr.get('author', []) if a.get('given') or a.get('family')])[:300],
+                        'Authors_OpenAlex': safe_join(authors_list)[:300],
+                        'Affiliations': safe_join(affiliations_list)[:500],
+                        'Countries': safe_join(countries_list)[:100],
+                        'Publication_Year': safe_convert(cr.get('published', {}).get('date-parts', [[0]])[0][0]),
+                        'Journal': safe_convert(journal_info['journal_name'])[:100],
+                        'Publisher': safe_convert(journal_info['publisher'])[:100],
+                        'ISSN': safe_join([str(issn) for issn in journal_info['issn'] if issn])[:50],
+                        'Reference_Count': safe_convert(cr.get('reference-count', 0)),
+                        'Citations_Crossref': safe_convert(cr.get('is-referenced-by-count', 0)),
+                        'Citations_OpenAlex': safe_convert(oa.get('cited_by_count', 0)) if oa else 0,
+                        'Author_Count': safe_convert(len(cr.get('author', []))),
+                        'Work_Type': safe_convert(cr.get('type', ''))[:50]
                     })
             
             if citing_list:
@@ -2204,12 +2212,12 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             overlap_list = []
             for overlap in overlap_details:
                 overlap_list.append({
-                    'Analyzed_DOI': overlap['analyzed_doi'][:100],
-                    'Citing_DOI': overlap['citing_doi'][:100],
-                    'Common_Authors': '; '.join(overlap['common_authors'])[:300],
-                    'Common_Authors_Count': overlap['common_authors_count'],
-                    'Common_Affiliations': '; '.join(overlap['common_affiliations'])[:500],
-                    'Common_Affiliations_Count': overlap['common_affiliations_count']
+                    'Analyzed_DOI': safe_convert(overlap['analyzed_doi'])[:100],
+                    'Citing_DOI': safe_convert(overlap['citing_doi'])[:100],
+                    'Common_Authors': safe_join(overlap['common_authors'])[:300],
+                    'Common_Authors_Count': safe_convert(overlap['common_authors_count']),
+                    'Common_Affiliations': safe_join(overlap['common_affiliations'])[:500],
+                    'Common_Affiliations_Count': safe_convert(overlap['common_affiliations_count'])
                 })
             
             if overlap_list:
@@ -2220,11 +2228,11 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             first_citation_list = []
             for detail in citation_timing.get('first_citation_details', []):
                 first_citation_list.append({
-                    'Analyzed_DOI': detail['analyzed_doi'][:100],
-                    'First_Citing_DOI': detail['citing_doi'][:100],
-                    'Publication_Date': detail['analyzed_date'].strftime('%Y-%m-%d'),
-                    'First_Citation_Date': detail['first_citation_date'].strftime('%Y-%m-%d'),
-                    'Days_to_First_Citation': detail['days_to_first_citation']
+                    'Analyzed_DOI': safe_convert(detail['analyzed_doi'])[:100],
+                    'First_Citing_DOI': safe_convert(detail['citing_doi'])[:100],
+                    'Publication_Date': detail['analyzed_date'].strftime('%Y-%m-%d') if detail['analyzed_date'] else 'N/A',
+                    'First_Citation_Date': detail['first_citation_date'].strftime('%Y-%m-%d') if detail['first_citation_date'] else 'N/A',
+                    'Days_to_First_Citation': safe_convert(detail['days_to_first_citation'])
                 })
             
             if first_citation_list:
@@ -2263,33 +2271,33 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     'Articles with ≥50 citations'
                 ],
                 'Value': [
-                    analyzed_stats['n_items'],
-                    analyzed_stats['total_refs'],
-                    'References with DOI', analyzed_stats['refs_with_doi'], f"{analyzed_stats['refs_with_doi_pct']:.1f}%",
-                    'References without DOI', analyzed_stats['refs_without_doi'], f"{analyzed_stats['refs_without_doi_pct']:.1f}%",
-                    'Self-Citations', analyzed_stats['self_cites'], f"{analyzed_stats['self_cites_pct']:.1f}%",
-                    analyzed_stats['single_authors'],
-                    analyzed_stats['multi_authors_gt10'],
-                    analyzed_stats['ref_min'],
-                    analyzed_stats['ref_max'],
-                    f"{analyzed_stats['ref_mean']:.1f}",
-                    analyzed_stats['ref_median'],
-                    analyzed_stats['auth_min'],
-                    analyzed_stats['auth_max'],
-                    f"{analyzed_stats['auth_mean']:.1f}",
-                    analyzed_stats['auth_median'],
-                    analyzed_stats['single_country_articles'], f"{analyzed_stats['single_country_pct']:.1f}%",
-                    analyzed_stats['multi_country_articles'], f"{analyzed_stats['multi_country_pct']:.1f}%",
-                    analyzed_stats['no_country_articles'], f"{analyzed_stats['no_country_pct']:.1f}%",
-                    analyzed_stats['total_affiliations_count'],
-                    analyzed_stats['unique_affiliations_count'],
-                    analyzed_stats['unique_countries_count'],
-                    analyzed_stats['unique_journals_count'],
-                    analyzed_stats['unique_publishers_count'],
-                    analyzed_stats['articles_with_10_citations'],
-                    analyzed_stats['articles_with_20_citations'],
-                    analyzed_stats['articles_with_30_citations'],
-                    analyzed_stats['articles_with_50_citations']
+                    safe_convert(analyzed_stats['n_items']),
+                    safe_convert(analyzed_stats['total_refs']),
+                    'References with DOI', safe_convert(analyzed_stats['refs_with_doi']), f"{safe_convert(analyzed_stats['refs_with_doi_pct']):.1f}%",
+                    'References without DOI', safe_convert(analyzed_stats['refs_without_doi']), f"{safe_convert(analyzed_stats['refs_without_doi_pct']):.1f}%",
+                    'Self-Citations', safe_convert(analyzed_stats['self_cites']), f"{safe_convert(analyzed_stats['self_cites_pct']):.1f}%",
+                    safe_convert(analyzed_stats['single_authors']),
+                    safe_convert(analyzed_stats['multi_authors_gt10']),
+                    safe_convert(analyzed_stats['ref_min']),
+                    safe_convert(analyzed_stats['ref_max']),
+                    f"{safe_convert(analyzed_stats['ref_mean']):.1f}",
+                    safe_convert(analyzed_stats['ref_median']),
+                    safe_convert(analyzed_stats['auth_min']),
+                    safe_convert(analyzed_stats['auth_max']),
+                    f"{safe_convert(analyzed_stats['auth_mean']):.1f}",
+                    safe_convert(analyzed_stats['auth_median']),
+                    safe_convert(analyzed_stats['single_country_articles']), f"{safe_convert(analyzed_stats['single_country_pct']):.1f}%",
+                    safe_convert(analyzed_stats['multi_country_articles']), f"{safe_convert(analyzed_stats['multi_country_pct']):.1f}%",
+                    safe_convert(analyzed_stats['no_country_articles']), f"{safe_convert(analyzed_stats['no_country_pct']):.1f}%",
+                    safe_convert(analyzed_stats['total_affiliations_count']),
+                    safe_convert(analyzed_stats['unique_affiliations_count']),
+                    safe_convert(analyzed_stats['unique_countries_count']),
+                    safe_convert(analyzed_stats['unique_journals_count']),
+                    safe_convert(analyzed_stats['unique_publishers_count']),
+                    safe_convert(analyzed_stats['articles_with_10_citations']),
+                    safe_convert(analyzed_stats['articles_with_20_citations']),
+                    safe_convert(analyzed_stats['articles_with_30_citations']),
+                    safe_convert(analyzed_stats['articles_with_50_citations'])
                 ]
             }
             analyzed_stats_df = pd.DataFrame(analyzed_stats_data)
@@ -2323,29 +2331,29 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     'Unique Publishers'
                 ],
                 'Value': [
-                    citing_stats['n_items'],
-                    citing_stats['total_refs'],
-                    'References with DOI', citing_stats['refs_with_doi'], f"{citing_stats['refs_with_doi_pct']:.1f}%",
-                    'References without DOI', citing_stats['refs_without_doi'], f"{citing_stats['refs_without_doi_pct']:.1f}%",
-                    'Self-Citations', citing_stats['self_cites'], f"{citing_stats['self_cites_pct']:.1f}%",
-                    citing_stats['single_authors'],
-                    citing_stats['multi_authors_gt10'],
-                    citing_stats['ref_min'],
-                    citing_stats['ref_max'],
-                    f"{citing_stats['ref_mean']:.1f}",
-                    citing_stats['ref_median'],
-                    citing_stats['auth_min'],
-                    citing_stats['auth_max'],
-                    f"{citing_stats['auth_mean']:.1f}",
-                    citing_stats['auth_median'],
-                    citing_stats['single_country_articles'], f"{citing_stats['single_country_pct']:.1f}%",
-                    citing_stats['multi_country_articles'], f"{citing_stats['multi_country_pct']:.1f}%",
-                    citing_stats['no_country_articles'], f"{citing_stats['no_country_pct']:.1f}%",
-                    citing_stats['total_affiliations_count'],
-                    citing_stats['unique_affiliations_count'],
-                    citing_stats['unique_countries_count'],
-                    citing_stats['unique_journals_count'],
-                    citing_stats['unique_publishers_count']
+                    safe_convert(citing_stats['n_items']),
+                    safe_convert(citing_stats['total_refs']),
+                    'References with DOI', safe_convert(citing_stats['refs_with_doi']), f"{safe_convert(citing_stats['refs_with_doi_pct']):.1f}%",
+                    'References without DOI', safe_convert(citing_stats['refs_without_doi']), f"{safe_convert(citing_stats['refs_without_doi_pct']):.1f}%",
+                    'Self-Citations', safe_convert(citing_stats['self_cites']), f"{safe_convert(citing_stats['self_cites_pct']):.1f}%",
+                    safe_convert(citing_stats['single_authors']),
+                    safe_convert(citing_stats['multi_authors_gt10']),
+                    safe_convert(citing_stats['ref_min']),
+                    safe_convert(citing_stats['ref_max']),
+                    f"{safe_convert(citing_stats['ref_mean']):.1f}",
+                    safe_convert(citing_stats['ref_median']),
+                    safe_convert(citing_stats['auth_min']),
+                    safe_convert(citing_stats['auth_max']),
+                    f"{safe_convert(citing_stats['auth_mean']):.1f}",
+                    safe_convert(citing_stats['auth_median']),
+                    safe_convert(citing_stats['single_country_articles']), f"{safe_convert(citing_stats['single_country_pct']):.1f}%",
+                    safe_convert(citing_stats['multi_country_articles']), f"{safe_convert(citing_stats['multi_country_pct']):.1f}%",
+                    safe_convert(citing_stats['no_country_articles']), f"{safe_convert(citing_stats['no_country_pct']):.1f}%",
+                    safe_convert(citing_stats['total_affiliations_count']),
+                    safe_convert(citing_stats['unique_affiliations_count']),
+                    safe_convert(citing_stats['unique_countries_count']),
+                    safe_convert(citing_stats['unique_journals_count']),
+                    safe_convert(citing_stats['unique_publishers_count'])
                 ]
             }
             citing_stats_df = pd.DataFrame(citing_stats_data)
@@ -2360,13 +2368,13 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     'Articles without Citations'
                 ],
                 'Value': [
-                    enhanced_stats['h_index'],
-                    enhanced_stats['total_citations'],
-                    f"{enhanced_stats['avg_citations_per_article']:.1f}",
-                    enhanced_stats['max_citations'],
-                    enhanced_stats['min_citations'],
-                    enhanced_stats['articles_with_citations'],
-                    enhanced_stats['articles_without_citations']
+                    safe_convert(enhanced_stats['h_index']),
+                    safe_convert(enhanced_stats['total_citations']),
+                    f"{safe_convert(enhanced_stats['avg_citations_per_article']):.1f}",
+                    safe_convert(enhanced_stats['max_citations']),
+                    safe_convert(enhanced_stats['min_citations']),
+                    safe_convert(enhanced_stats['articles_with_citations']),
+                    safe_convert(enhanced_stats['articles_without_citations'])
                 ]
             }
             enhanced_stats_df = pd.DataFrame(enhanced_stats_data)
@@ -2383,12 +2391,12 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     'Total Years Covered by Citation Data'
                 ],
                 'Value': [
-                    citation_timing['days_min'],
-                    citation_timing['days_max'],
-                    f"{citation_timing['days_mean']:.1f}",
-                    citation_timing['days_median'],
-                    citation_timing['articles_with_timing_data'],
-                    citation_timing['total_years_covered']
+                    safe_convert(citation_timing['days_min']),
+                    safe_convert(citation_timing['days_max']),
+                    f"{safe_convert(citation_timing['days_mean']):.1f}",
+                    safe_convert(citation_timing['days_median']),
+                    safe_convert(citation_timing['articles_with_timing_data']),
+                    safe_convert(citation_timing['total_years_covered'])
                 ]
             }
             citation_timing_df = pd.DataFrame(citation_timing_data)
@@ -2398,8 +2406,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             yearly_citations_data = []
             for yearly_stat in citation_timing['yearly_citations']:
                 yearly_citations_data.append({
-                    'Year': yearly_stat['year'],
-                    'Citations_Count': yearly_stat['citations_count']
+                    'Year': safe_convert(yearly_stat['year']),
+                    'Citations_Count': safe_convert(yearly_stat['citations_count'])
                 })
             
             if yearly_citations_data:
@@ -2411,9 +2419,9 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             for pub_year, curve_data in citation_timing['accumulation_curves'].items():
                 for data_point in curve_data:
                     accumulation_data.append({
-                        'Publication_Year': pub_year,
-                        'Years_Since_Publication': data_point['years_since_publication'],
-                        'Cumulative_Citations': data_point['cumulative_citations']
+                        'Publication_Year': safe_convert(pub_year),
+                        'Years_Since_Publication': safe_convert(data_point['years_since_publication']),
+                        'Cumulative_Citations': safe_convert(data_point['cumulative_citations'])
                     })
             
             if accumulation_data:
@@ -2426,9 +2434,9 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 year_counts = Counter(citing_years)
                 for citing_year, count in year_counts.items():
                     citation_network_data.append({
-                        'Publication_Year': year,
-                        'Citation_Year': citing_year,
-                        'Citations_Count': count
+                        'Publication_Year': safe_convert(year),
+                        'Citation_Year': safe_convert(citing_year),
+                        'Citations_Count': safe_convert(count)
                     })
             
             if citation_network_data:
@@ -2438,12 +2446,12 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             # Sheet 12: All authors analyzed (with percentages)
             if analyzed_stats['all_authors']:
                 all_authors_data = []
-                total_articles = analyzed_stats['n_items']
+                total_articles = safe_convert(analyzed_stats['n_items'])
                 for author, count in analyzed_stats['all_authors']:
-                    percentage = (count / total_articles * 100) if total_articles > 0 else 0
+                    percentage = (safe_convert(count) / total_articles * 100) if total_articles > 0 else 0
                     all_authors_data.append({
-                        'Author': author,
-                        'Articles_Count': count,
+                        'Author': safe_convert(author),
+                        'Articles_Count': safe_convert(count),
                         'Percentage': round(percentage, 2)
                     })
                 all_authors_df = pd.DataFrame(all_authors_data)
@@ -2452,12 +2460,12 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             # Sheet 13: All authors citing (with percentages)
             if citing_stats['all_authors']:
                 all_citing_authors_data = []
-                total_citing_articles = citing_stats['n_items']
+                total_citing_articles = safe_convert(citing_stats['n_items'])
                 for author, count in citing_stats['all_authors']:
-                    percentage = (count / total_citing_articles * 100) if total_citing_articles > 0 else 0
+                    percentage = (safe_convert(count) / total_citing_articles * 100) if total_citing_articles > 0 else 0
                     all_citing_authors_data.append({
-                        'Author': author,
-                        'Articles_Count': count,
+                        'Author': safe_convert(author),
+                        'Articles_Count': safe_convert(count),
                         'Percentage': round(percentage, 2)
                     })
                 all_citing_authors_df = pd.DataFrame(all_citing_authors_data)
@@ -2466,12 +2474,12 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             # Sheet 14: All affiliations analyzed (with percentages)
             if analyzed_stats['all_affiliations']:
                 all_affiliations_data = []
-                total_mentions = sum(count for _, count in analyzed_stats['all_affiliations'])
+                total_mentions = sum(safe_convert(count) for _, count in analyzed_stats['all_affiliations'])
                 for affiliation, count in analyzed_stats['all_affiliations']:
-                    percentage = (count / total_mentions * 100) if total_mentions > 0 else 0
+                    percentage = (safe_convert(count) / total_mentions * 100) if total_mentions > 0 else 0
                     all_affiliations_data.append({
-                        'Affiliation': affiliation,
-                        'Mentions_Count': count,
+                        'Affiliation': safe_convert(affiliation),
+                        'Mentions_Count': safe_convert(count),
                         'Percentage': round(percentage, 2)
                     })
                 all_affiliations_df = pd.DataFrame(all_affiliations_data)
@@ -2480,12 +2488,12 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             # Sheet 15: All affiliations citing (with percentages)
             if citing_stats['all_affiliations']:
                 all_citing_affiliations_data = []
-                total_mentions = sum(count for _, count in citing_stats['all_affiliations'])
+                total_mentions = sum(safe_convert(count) for _, count in citing_stats['all_affiliations'])
                 for affiliation, count in citing_stats['all_affiliations']:
-                    percentage = (count / total_mentions * 100) if total_mentions > 0 else 0
+                    percentage = (safe_convert(count) / total_mentions * 100) if total_mentions > 0 else 0
                     all_citing_affiliations_data.append({
-                        'Affiliation': affiliation,
-                        'Mentions_Count': count,
+                        'Affiliation': safe_convert(affiliation),
+                        'Mentions_Count': safe_convert(count),
                         'Percentage': round(percentage, 2)
                     })
                 all_citing_affiliations_df = pd.DataFrame(all_citing_affiliations_data)
@@ -2494,12 +2502,12 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             # Sheet 16: All countries analyzed (with percentages)
             if analyzed_stats['all_countries']:
                 all_countries_data = []
-                total_mentions = sum(count for _, count in analyzed_stats['all_countries'])
+                total_mentions = sum(safe_convert(count) for _, count in analyzed_stats['all_countries'])
                 for country, count in analyzed_stats['all_countries']:
-                    percentage = (count / total_mentions * 100) if total_mentions > 0 else 0
+                    percentage = (safe_convert(count) / total_mentions * 100) if total_mentions > 0 else 0
                     all_countries_data.append({
-                        'Country': country,
-                        'Mentions_Count': count,
+                        'Country': safe_convert(country),
+                        'Mentions_Count': safe_convert(count),
                         'Percentage': round(percentage, 2)
                     })
                 all_countries_df = pd.DataFrame(all_countries_data)
@@ -2508,12 +2516,12 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             # Sheet 17: All countries citing (with percentages)
             if citing_stats['all_countries']:
                 all_citing_countries_data = []
-                total_mentions = sum(count for _, count in citing_stats['all_countries'])
+                total_mentions = sum(safe_convert(count) for _, count in citing_stats['all_countries'])
                 for country, count in citing_stats['all_countries']:
-                    percentage = (count / total_mentions * 100) if total_mentions > 0 else 0
+                    percentage = (safe_convert(count) / total_mentions * 100) if total_mentions > 0 else 0
                     all_citing_countries_data.append({
-                        'Country': country,
-                        'Mentions_Count': count,
+                        'Country': safe_convert(country),
+                        'Mentions_Count': safe_convert(count),
                         'Percentage': round(percentage, 2)
                     })
                 all_citing_countries_df = pd.DataFrame(all_citing_countries_data)
@@ -2522,7 +2530,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             # Sheet 18: All journals citing (with percentages) - UPDATED VERSION WITH CS DATA
             if citing_stats['all_journals']:
                 all_citing_journals_data = []
-                total_articles = citing_stats['n_items']
+                total_articles = safe_convert(citing_stats['n_items'])
                 
                 # Load metrics data if not already loaded
                 if get_analysis_state().if_data is None or get_analysis_state().cs_data is None:
@@ -2531,7 +2539,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 for journal_info in citing_stats['all_journals']:
                     journal_name = journal_info[0]
                     count = journal_info[1]
-                    percentage = (count / total_articles * 100) if total_articles > 0 else 0
+                    percentage = (safe_convert(count) / total_articles * 100) if total_articles > 0 else 0
                     
                     # Extract ISSNs for this journal from citing data
                     journal_issns = []
@@ -2541,8 +2549,11 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                             container_title = cr.get('container-title', [''])[0] if cr.get('container-title') else ''
                             if container_title == journal_name:
                                 issns = cr.get('ISSN', [])
+                                if issns is None:
+                                    issns = []
                                 if isinstance(issns, str):
                                     issns = [issns]
+                                issns = [str(issn).strip() for issn in issns if issn and isinstance(issn, str)]
                                 journal_issns.extend(issns)
                     
                     # Remove duplicates
@@ -2556,16 +2567,16 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     metrics = get_journal_metrics(journal_issns)
                     
                     all_citing_journals_data.append({
-                        'Journal': journal_name,
-                        'ISSN_1': issn_1,
-                        'ISSN_2': issn_2,
-                        'Articles_Count': count,
+                        'Journal': safe_convert(journal_name),
+                        'ISSN_1': safe_convert(issn_1),
+                        'ISSN_2': safe_convert(issn_2),
+                        'Articles_Count': safe_convert(count),
                         'Percentage': round(percentage, 2),
                         '': '',  # Empty column
-                        'IF (WoS)': metrics['if_metrics'].get('if', '') if metrics['if_metrics'] else '',
-                        'Q(WoS)': metrics['if_metrics'].get('quartile', '') if metrics['if_metrics'] else '',
-                        'SC(Scopus)': metrics['cs_metrics'].get('citescore', '') if metrics['cs_metrics'] else '',
-                        'Q(Scopus)': metrics['cs_metrics'].get('quartile', '') if metrics['cs_metrics'] else ''
+                        'IF (WoS)': safe_convert(metrics['if_metrics'].get('if', '')) if metrics['if_metrics'] else '',
+                        'Q(WoS)': safe_convert(metrics['if_metrics'].get('quartile', '')) if metrics['if_metrics'] else '',
+                        'SC(Scopus)': safe_convert(metrics['cs_metrics'].get('citescore', '')) if metrics['cs_metrics'] else '',
+                        'Q(Scopus)': safe_convert(metrics['cs_metrics'].get('quartile', '')) if metrics['cs_metrics'] else ''
                     })
                 
                 all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
@@ -2574,12 +2585,12 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             # Sheet 19: All publishers citing (with percentages)
             if citing_stats['all_publishers']:
                 all_citing_publishers_data = []
-                total_articles = citing_stats['n_items']
+                total_articles = safe_convert(citing_stats['n_items'])
                 for publisher, count in citing_stats['all_publishers']:
-                    percentage = (count / total_articles * 100) if total_articles > 0 else 0
+                    percentage = (safe_convert(count) / total_articles * 100) if total_articles > 0 else 0
                     all_citing_publishers_data.append({
-                        'Publisher': publisher,
-                        'Articles_Count': count,
+                        'Publisher': safe_convert(publisher),
+                        'Articles_Count': safe_convert(count),
                         'Percentage': round(percentage, 2)
                     })
                 all_citing_publishers_df = pd.DataFrame(all_citing_publishers_data)
@@ -2606,36 +2617,36 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     'Total Concept Mentions'
                 ],
                 'Value': [
-                    fast_metrics.get('ref_median_age', 'N/A'),
-                    fast_metrics.get('ref_mean_age', 'N/A'),
-                    f"{fast_metrics.get('ref_ages_25_75', ['N/A', 'N/A'])[0]}-{fast_metrics.get('ref_ages_25_75', ['N/A', 'N/A'])[1]}",
-                    fast_metrics.get('total_refs_analyzed', 0),
-                    f"{fast_metrics.get('JSCR', 0)}%",
-                    fast_metrics.get('self_cites', 0),
-                    fast_metrics.get('total_cites', 0),
-                    fast_metrics.get('cited_half_life_median', 'N/A'),
-                    fast_metrics.get('cited_half_life_mean', 'N/A'),
-                    fast_metrics.get('articles_with_chl', 0),
-                    fast_metrics.get('FWCI', 0),
-                    fast_metrics.get('total_cites', 0),
-                    fast_metrics.get('expected_cites', 0),
-                    fast_metrics.get('citation_velocity', 0),
-                    fast_metrics.get('articles_with_velocity', 0),
-                    f"{fast_metrics.get('OA_impact_premium', 0)}%",
-                    fast_metrics.get('OA_articles', 0),
-                    fast_metrics.get('non_OA_articles', 0),
-                    fast_metrics.get('OA_avg_citations', 0),
-                    fast_metrics.get('non_OA_avg_citations', 0),
-                    f"{fast_metrics.get('elite_index', 0)}%",
-                    fast_metrics.get('elite_articles', 0),
-                    fast_metrics.get('citation_threshold', 0),
-                    fast_metrics.get('author_gini', 0),
-                    fast_metrics.get('total_authors', 0),
-                    fast_metrics.get('articles_per_author_avg', 0),
-                    fast_metrics.get('articles_per_author_median', 0),
-                    fast_metrics.get('DBI', 0),
-                    fast_metrics.get('unique_concepts', 0),
-                    fast_metrics.get('total_concept_mentions', 0)
+                    safe_convert(fast_metrics.get('ref_median_age', 'N/A')),
+                    safe_convert(fast_metrics.get('ref_mean_age', 'N/A')),
+                    f"{safe_convert(fast_metrics.get('ref_ages_25_75', ['N/A', 'N/A'])[0])}-{safe_convert(fast_metrics.get('ref_ages_25_75', ['N/A', 'N/A'])[1])}",
+                    safe_convert(fast_metrics.get('total_refs_analyzed', 0)),
+                    f"{safe_convert(fast_metrics.get('JSCR', 0))}%",
+                    safe_convert(fast_metrics.get('self_cites', 0)),
+                    safe_convert(fast_metrics.get('total_cites', 0)),
+                    safe_convert(fast_metrics.get('cited_half_life_median', 'N/A')),
+                    safe_convert(fast_metrics.get('cited_half_life_mean', 'N/A')),
+                    safe_convert(fast_metrics.get('articles_with_chl', 0)),
+                    safe_convert(fast_metrics.get('FWCI', 0)),
+                    safe_convert(fast_metrics.get('total_cites', 0)),
+                    safe_convert(fast_metrics.get('expected_cites', 0)),
+                    safe_convert(fast_metrics.get('citation_velocity', 0)),
+                    safe_convert(fast_metrics.get('articles_with_velocity', 0)),
+                    f"{safe_convert(fast_metrics.get('OA_impact_premium', 0))}%",
+                    safe_convert(fast_metrics.get('OA_articles', 0)),
+                    safe_convert(fast_metrics.get('non_OA_articles', 0)),
+                    safe_convert(fast_metrics.get('OA_avg_citations', 0)),
+                    safe_convert(fast_metrics.get('non_OA_avg_citations', 0)),
+                    f"{safe_convert(fast_metrics.get('elite_index', 0))}%",
+                    safe_convert(fast_metrics.get('elite_articles', 0)),
+                    safe_convert(fast_metrics.get('citation_threshold', 0)),
+                    safe_convert(fast_metrics.get('author_gini', 0)),
+                    safe_convert(fast_metrics.get('total_authors', 0)),
+                    safe_convert(fast_metrics.get('articles_per_author_avg', 0)),
+                    safe_convert(fast_metrics.get('articles_per_author_median', 0)),
+                    safe_convert(fast_metrics.get('DBI', 0)),
+                    safe_convert(fast_metrics.get('unique_concepts', 0)),
+                    safe_convert(fast_metrics.get('total_concept_mentions', 0))
                 ]
             }
             fast_metrics_df = pd.DataFrame(fast_metrics_data)
@@ -2644,8 +2655,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             # Sheet 21: Top concepts (NEW)
             if fast_metrics.get('top_concepts'):
                 top_concepts_data = {
-                    'Concept': [concept[0] for concept in fast_metrics['top_concepts']],
-                    'Mentions_Count': [concept[1] for concept in fast_metrics['top_concepts']]
+                    'Concept': [safe_convert(concept[0]) for concept in fast_metrics['top_concepts']],
+                    'Mentions_Count': [safe_convert(concept[1]) for concept in fast_metrics['top_concepts']]
                 }
                 top_concepts_df = pd.DataFrame(top_concepts_data)
                 top_concepts_df.to_excel(writer, sheet_name='Top_Concepts', index=False)
@@ -2660,12 +2671,12 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 # Citation months
                 for month in range(1, 13):
                     month_name = datetime(2023, month, 1).strftime('%B')
-                    citation_count = citation_seasonality['citation_months'].get(month, 0)
-                    publication_count = citation_seasonality['publication_months'].get(month, 0)
+                    citation_count = safe_convert(citation_seasonality['citation_months'].get(month, 0))
+                    publication_count = safe_convert(citation_seasonality['publication_months'].get(month, 0))
                     
                     seasonality_data.append({
-                        'Month_Number': month,
-                        'Month_Name': month_name,
+                        'Month_Number': safe_convert(month),
+                        'Month_Name': safe_convert(month_name),
                         'Citation_Count': citation_count,
                         'Publication_Count': publication_count
                     })
@@ -2679,10 +2690,10 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     optimal_months_data = []
                     for optimal in citation_seasonality['optimal_publication_months']:
                         optimal_months_data.append({
-                            'High_Citation_Month': datetime(2023, optimal['citation_month'], 1).strftime('%B'),
-                            'Citation_Count': optimal['citation_count'],
-                            'Recommended_Publication_Month': datetime(2023, optimal['recommended_publication_month'], 1).strftime('%B'),
-                            'Reasoning': optimal['reasoning']
+                            'High_Citation_Month': datetime(2023, safe_convert(optimal['citation_month']), 1).strftime('%B'),
+                            'Citation_Count': safe_convert(optimal['citation_count']),
+                            'Recommended_Publication_Month': datetime(2023, safe_convert(optimal['recommended_publication_month']), 1).strftime('%B'),
+                            'Reasoning': safe_convert(optimal['reasoning'])
                         })
                     
                     optimal_months_df = pd.DataFrame(optimal_months_data)
@@ -2697,9 +2708,9 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     # Create separate rows for each DOI
                     for i, doi in enumerate(reviewer['citing_dois']):
                         reviewers_data.append({
-                            'Author': reviewer['author'] if i == 0 else '',  # Only show author name in first row
-                            'Citation_Count': reviewer['citation_count'] if i == 0 else '',
-                            'Citing_DOI': doi
+                            'Author': safe_convert(reviewer['author']) if i == 0 else '',  # Only show author name in first row
+                            'Citation_Count': safe_convert(reviewer['citation_count']) if i == 0 else '',
+                            'Citing_DOI': safe_convert(doi)
                         })
                 
                 if reviewers_data:
@@ -2714,9 +2725,9 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                         'Total Potential Reviewers Found'
                     ],
                     'Value': [
-                        potential_reviewers_info['total_journal_authors'],
-                        potential_reviewers_info['total_overlap_authors'],
-                        potential_reviewers_info['total_potential_reviewers']
+                        safe_convert(potential_reviewers_info['total_journal_authors']),
+                        safe_convert(potential_reviewers_info['total_overlap_authors']),
+                        safe_convert(potential_reviewers_info['total_potential_reviewers'])
                     ]
                 }
                 summary_df = pd.DataFrame(summary_data)
@@ -2724,8 +2735,11 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
 
             # Ensure at least one sheet exists
             if len(writer.sheets) == 0:
-                error_df = pd.DataFrame({'Message': [translation_manager.get_text('no_data_for_report')]})
-                error_df.to_excel(writer, sheet_name='Information', index=False)
+                summary_df = pd.DataFrame({
+                    'Status': ['Analysis completed'],
+                    'Message': ['No data matched the criteria. Check ISSN and period.']
+                })
+                summary_df.to_excel(writer, sheet_name='Summary', index=False)
 
         excel_buffer.seek(0)
         return True
