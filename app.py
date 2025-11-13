@@ -3675,6 +3675,7 @@ def main():
             options=list(translation_manager.languages.keys()),
             format_func=lambda x: translation_manager.languages[x],
             index=0  # English by default
+            key="language_selector"
         )
         translation_manager.set_language(selected_language)
     
@@ -3707,6 +3708,7 @@ def main():
             options=[""] + list(glossary.terms.keys()),
             format_func=lambda x: translation_manager.get_text('choose_term') if x == "" else f"{x} ({glossary.terms[x]['category']})",
             help=translation_manager.get_text('study_metric_meanings')
+            key="term_search_selector"
         )
         
         if search_term:
@@ -3776,7 +3778,7 @@ def main():
     with col1:
         st.subheader("🚀 " + translation_manager.get_text('start_analysis'))
         
-        if st.button(translation_manager.get_text('start_analysis'), type="primary", use_container_width=True):
+        if st.button(translation_manager.get_text('start_analysis'), type="primary", use_container_width=True, key="start_analysis_button"):
             if not issn:
                 st.error(translation_manager.get_text('issn_required'))
                 return
@@ -4013,4 +4015,5 @@ def main():
 if __name__ == "__main__":
     main()
     main()
+
 
