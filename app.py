@@ -1920,8 +1920,17 @@ def load_metrics_data():
         # Removed error message to avoid showing in interface
         state.if_data = pd.DataFrame()
     
-    # Load CS data (Scopus) - REMOVED
-    state.cs_data = pd.DataFrame()
+    # Load CS data (Scopus) - UPDATED: Now loading CS.xlsx
+    try:
+        if os.path.exists('CS.xlsx'):
+            state.cs_data = pd.read_excel('CS.xlsx')
+            # Removed success message to avoid showing in interface
+        else:
+            # Removed warning message to avoid showing in interface
+            state.cs_data = pd.DataFrame()
+    except Exception as e:
+        # Removed error message to avoid showing in interface
+        state.cs_data = pd.DataFrame()
 
 def get_journal_metrics(journal_issns):
     """Get metrics for a journal based on its ISSNs"""
@@ -1962,9 +1971,34 @@ def get_journal_metrics(journal_issns):
                 }
                 break  # Use first match
                   
-        # Search in Scopus data - REMOVED
-        # CS data collection removed as requested
-    
+        # Search in Scopus data - UPDATED: Now searching in CS.xlsx
+        if not state.cs_data.empty:
+            # Apply normalization for CS data
+            def safe_normalize_cs_issn(issn_series):
+                try:
+                    return issn_series.fillna('').astype(str).apply(normalize_issn_for_comparison)
+                except Exception as e:
+                    print(f"Error normalizing CS ISSN: {e}")
+                    return pd.Series([""] * len(issn_series))
+            
+            # Search for matches in Print ISSN or E-ISSN columns
+            cs_match = state.cs_data[
+                (safe_normalize_cs_issn(state.cs_data['Print ISSN']) == normalized_issn) |
+                (safe_normalize_cs_issn(state.cs_data['E-ISSN']) == normalized_issn)
+            ]
+            
+            if not cs_match.empty:
+                print(f"✅ Found CS match: {len(cs_match)} records")
+                # Handle duplicates - take the best quartile (lowest number)
+                best_quartile = cs_match['Quartile'].min()
+                corresponding_citescore = cs_match[cs_match['Quartile'] == best_quartile]['CiteScore'].iloc[0]
+                
+                cs_metrics = {
+                    'citescore': corresponding_citescore,
+                    'quartile': best_quartile
+                }
+                break  # Use first match
+
     print(f"🎯 Final metrics - IF: {if_metrics}, CS: {cs_metrics}")
 
     return {
@@ -2485,7 +2519,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 all_citing_countries_df = pd.DataFrame(all_citing_countries_data)
                 all_citing_countries_df.to_excel(writer, sheet_name='All_Countries_Citing', index=False)
 
-            # Sheet 18: All journals citing (with percentages) - UPDATED VERSION WITHOUT CS DATA
+            # Sheet 18: All journals citing (with percentages) - UPDATED VERSION WITH CS DATA
             if citing_stats['all_journals']:
                 all_citing_journals_data = []
                 total_articles = citing_stats['n_items']
@@ -2518,7 +2552,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     issn_1 = journal_issns[0] if len(journal_issns) > 0 else ""
                     issn_2 = journal_issns[1] if len(journal_issns) > 1 else ""
                     
-                    # Get metrics for this journal - UPDATED WITHOUT CS DATA
+                    # Get metrics for this journal - UPDATED WITH CS DATA
                     metrics = get_journal_metrics(journal_issns)
                     
                     all_citing_journals_data.append({
@@ -2529,8 +2563,9 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                         'Percentage': round(percentage, 2),
                         '': '',  # Empty column
                         'IF (WoS)': metrics['if_metrics'].get('if', '') if metrics['if_metrics'] else '',
-                        'Q(WoS)': metrics['if_metrics'].get('quartile', '') if metrics['if_metrics'] else ''
-                        # CS (Scopus) columns removed as requested
+                        'Q(WoS)': metrics['if_metrics'].get('quartile', '') if metrics['if_metrics'] else '',
+                        'SC(Scopus)': metrics['cs_metrics'].get('citescore', '') if metrics['cs_metrics'] else '',
+                        'Q(Scopus)': metrics['cs_metrics'].get('quartile', '') if metrics['cs_metrics'] else ''
                     })
                 
                 all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
@@ -3811,5 +3846,3 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
-
-
