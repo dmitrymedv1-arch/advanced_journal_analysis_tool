@@ -3710,7 +3710,7 @@ def main():
             options=[""] + list(glossary.terms.keys()),
             format_func=lambda x: translation_manager.get_text('choose_term') if x == "" else f"{x} ({glossary.terms[x]['category']})",
             help=translation_manager.get_text('study_metric_meanings'),
-            key="sidebar_term_search_selector
+            key="sidebar_term_search_selector"
         )
         
         if search_term:
@@ -4018,6 +4018,7 @@ def main():
 if __name__ == "__main__":
     main()
     main()
+
 
 
 
