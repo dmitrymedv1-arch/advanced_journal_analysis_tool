@@ -2048,12 +2048,6 @@ def get_journal_metrics(journal_issns):
                         }
                         print(f"📊 CS metrics: CiteScore={best_citescore}, Quartile={best_quartile}")
                         break  # Use first successful match
-                   else:
-                        # ДОБАВИТЬ ЭТУ СТРОКУ ДЛЯ ОТЛАДКИ:
-                        print("❌ No unique matches found after deduplication")
-                else:
-                    # ДОБАВИТЬ ЭТУ СТРОКУ ДЛЯ ОТЛАДКИ:
-                    print(f"❌ No CS matches found for {normalized_issn}")
     
     print(f"🎯 Final metrics - IF: {if_metrics}, CS: {cs_metrics}")
 
@@ -3893,6 +3887,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
