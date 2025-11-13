@@ -1946,10 +1946,9 @@ def get_journal_metrics(journal_issns):
             
         normalized_issn = normalize_issn_for_comparison(issn)
         print(f"🔍 Searching for ISSN: {issn} -> normalized: {normalized_issn}")
-        print(f"🔍 WoS search for: {normalized_issn}")
         
-        # Search in Web of Science data
-        if not state.if_data.empty:
+        # Search in Web of Science data (IF)
+        if not state.if_data.empty and not if_metrics:  # Only search if not already found
             # Apply normalization with error handling
             def safe_normalize_issn(issn_series):
                 try:
@@ -1969,10 +1968,10 @@ def get_journal_metrics(journal_issns):
                     'if': if_match.iloc[0]['IF'],
                     'quartile': if_match.iloc[0]['Quartile']
                 }
-                break  # Use first match
+                # Do NOT break here - continue searching for CS metrics
                   
-        # Search in Scopus data - UPDATED: Now searching in CS.xlsx
-        if not state.cs_data.empty:
+        # Search in Scopus data (CS) - UPDATED: Now searching in CS.xlsx
+        if not state.cs_data.empty and not cs_metrics:  # Only search if not already found
             # Apply normalization for CS data
             def safe_normalize_cs_issn(issn_series):
                 try:
@@ -1997,7 +1996,11 @@ def get_journal_metrics(journal_issns):
                     'citescore': corresponding_citescore,
                     'quartile': best_quartile
                 }
-                break  # Use first match
+                # Do NOT break here - continue processing other ISSNs if needed
+    
+        # If we found both metrics, we can stop early
+        if if_metrics and cs_metrics:
+            break
 
     print(f"🎯 Final metrics - IF: {if_metrics}, CS: {cs_metrics}")
 
@@ -3860,3 +3863,4 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
