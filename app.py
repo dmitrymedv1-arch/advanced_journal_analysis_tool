@@ -3674,7 +3674,7 @@ def main():
             "Select language:",
             options=list(translation_manager.languages.keys()),
             format_func=lambda x: translation_manager.languages[x],
-            index=0  # English by default
+            index=0  # English by default,
             key="language_selector"
         )
         translation_manager.set_language(selected_language)
@@ -3707,7 +3707,7 @@ def main():
             translation_manager.get_text('select_term_to_learn'),
             options=[""] + list(glossary.terms.keys()),
             format_func=lambda x: translation_manager.get_text('choose_term') if x == "" else f"{x} ({glossary.terms[x]['category']})",
-            help=translation_manager.get_text('study_metric_meanings')
+            help=translation_manager.get_text('study_metric_meanings'),
             key="term_search_selector"
         )
         
@@ -4015,5 +4015,6 @@ def main():
 if __name__ == "__main__":
     main()
     main()
+
 
 
