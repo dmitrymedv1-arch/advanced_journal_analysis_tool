@@ -2203,9 +2203,16 @@ def get_journal_metrics(journal_issns):
         
         # Search in Scopus data
         if not state.cs_data.empty:
+            # Print column names for debugging
+            print("CS.xlsx columns:", state.cs_data.columns.tolist())
+        
+            # Use the actual column name from your file
+            # Common variations: 'E-ISSN', '"E-ISSN"', 'E-ISSN		', 'E-ISSN ', etc.
+            eissn_column = 'E-ISSN'  # Change this to match your actual column name
+            
             cs_match = state.cs_data[
                 (safe_normalize_issn(state.cs_data['Print ISSN']) == normalized_issn) |
-                (safe_normalize_issn(state.cs_data['E-ISSN']) == normalized_issn)
+                (safe_normalize_issn(state.cs_data[eissn_column]) == normalized_issn)
             ]
             
             if not cs_match.empty:
@@ -4095,4 +4102,5 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
