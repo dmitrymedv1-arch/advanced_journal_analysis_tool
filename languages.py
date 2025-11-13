@@ -126,6 +126,8 @@ class TranslationManager:
             'excel_creation_error': '❌ Error creating Excel report: {error}',
             'simplified_report_created': '⚠️ Simplified report created due to memory limitations',
             'critical_excel_error': '❌ Critical error creating simplified report: {error}',
+            'failed_create_full_report': 'Failed to create full report',
+            'try_reduce_data_or_period': 'Try to reduce the amount of analyzed data or analysis period',
             
             # Metric labels
             'h_index': 'H-index',
@@ -189,6 +191,7 @@ class TranslationManager:
             'tab_overlaps': '🔀 Overlaps',
             'tab_citation_timing': '⏱️ Citation Timing',
             'tab_fast_metrics': '🚀 Fast Metrics',
+            'tab_predictive_insights': '🔮 Predictive Insights',
             
             # Analysis details
             'total_references': 'Total References',
@@ -218,8 +221,6 @@ class TranslationManager:
             'analysis_may_take_time': 'Analysis may take a long time in case of large number of analyzed articles or citations.',
             'reduce_period_recommended': 'For "quick" statistics, it is recommended to reduce the analysis period...',
             'journal_not_found': 'Journal not found',
-            'failed_create_full_report': 'Failed to create full report',
-            'try_reduce_data_or_period': 'Try to reduce the amount of analyzed data or analysis period',
             
             # H-index explanation
             'what_is_h_index': 'What is H-index and how to interpret it?',
@@ -252,6 +253,9 @@ class TranslationManager:
             'max_days_to_citation': 'Max days to citation',
             'average_days': 'Average days',
             'median_days': 'Median days',
+            'time_to_first_citation_distribution': 'Time to First Citation Distribution',
+            'days_to_first_citation': 'Days to First Citation',
+            'article_count': 'Article Count',
             
             # Overlaps
             'total_overlaps': 'Total Overlaps',
@@ -287,7 +291,76 @@ class TranslationManager:
             
             # Progress and learning
             'learned_terms': 'Learned terms',
-            'analysis_starting': 'Starting analysis...'
+            'analysis_starting': 'Starting analysis...',
+            
+            # Citations by year
+            'citations_by_year': 'Citations by Year',
+            'year': 'Year',
+            'citations_count': 'Citations Count',
+            
+            # Top authors
+            'top_15_authors_analyzed': 'Top 15 Authors (Analyzed Articles)',
+            'author': 'Author',
+            'articles': 'Articles',
+            
+            # Author count distribution
+            'author_count_distribution': 'Author Count Distribution',
+            'category': 'Category',
+            
+            # Geography
+            'article_country_distribution': 'Article Country Distribution',
+            'country': 'Country',
+            
+            # International collaboration
+            'international_collaboration': 'International Collaboration',
+            'single_country': 'Single Country',
+            'multiple_countries': 'Multiple Countries',
+            'no_data': 'No Data',
+            
+            # Citations tab
+            'articles_by_citation_thresholds': 'Articles by Citation Thresholds',
+            'threshold': 'Threshold',
+            'articles': 'Articles',
+            'articles_by_citation_status': 'Articles by Citation Status',
+            'with_citations': 'With Citations',
+            'without_citations': 'Without Citations',
+            
+            # Overlaps tab
+            'no_overlaps_found': 'No overlaps found',
+            
+            # Citation timing tab
+            'articles_with_timing_data': 'Articles with Timing Data',
+            'total_years_covered': 'Total Years Covered',
+            
+            # Fast metrics tab
+            'fast_metrics_details': 'Fast Metrics Details',
+            
+            # Predictive insights
+            'citation_seasonality': 'Citation Seasonality',
+            'publication_months': 'Publication Months',
+            'optimal_publication_months': 'Optimal Publication Months',
+            'total_citations_by_month': 'Total Citations by Month',
+            'month_number': 'Month Number',
+            'month_name': 'Month Name',
+            'citation_count': 'Citation Count',
+            'publication_count': 'Publication Count',
+            'high_citation_month': 'High Citation Month',
+            'recommended_publication_month': 'Recommended Publication Month',
+            'reasoning': 'Reasoning',
+            'potential_reviewers': 'Potential Reviewers',
+            'total_journal_authors': 'Total Journal Authors',
+            'total_overlap_authors': 'Total Overlap Authors',
+            'total_potential_reviewers': 'Total Potential Reviewers Found',
+            'citation_count_reviewers': 'Citation Count',
+            'citing_dois': 'Citing DOIs',
+            'example_citing_dois': 'Example Citing DOIs',
+            'predictive_insights_recommendations': 'Predictive Insights & Recommendations',
+            'citation_seasonality_analysis': 'Citation Seasonality Analysis',
+            'recommended_publication_months': 'Recommended Publication Months',
+            'potential_reviewer_discovery': 'Potential Reviewer Discovery',
+            'top_potential_reviewers': 'Top Potential Reviewers',
+            'reviewer_discovery_summary': 'Reviewer Discovery Summary',
+            'these_authors_cite_journal': 'These authors cite your journal but have never published in it. They represent excellent potential reviewers as they are familiar with your journal\'s content but maintain editorial independence.'
         }
     
     def _get_russian_translations(self):
@@ -371,6 +444,8 @@ class TranslationManager:
             'excel_creation_error': '❌ Ошибка при создании Excel отчета: {error}',
             'simplified_report_created': '⚠️ Создан упрощенный отчет из-за ограничений памяти',
             'critical_excel_error': '❌ Критическая ошибка при создании упрощенного отчета: {error}',
+            'failed_create_full_report': 'Не удалось создать полный отчет',
+            'try_reduce_data_or_period': 'Попробуйте уменьшить объем анализируемых данных или период анализа',
             
             # Metric labels
             'h_index': 'H-index',
@@ -434,6 +509,7 @@ class TranslationManager:
             'tab_overlaps': '🔀 Пересечения',
             'tab_citation_timing': '⏱️ Время цитирования',
             'tab_fast_metrics': '🚀 Быстрые метрики',
+            'tab_predictive_insights': '🔮 Прогностические инсайты',
             
             # Analysis details
             'total_references': 'Общее количество ссылок',
@@ -463,8 +539,6 @@ class TranslationManager:
             'analysis_may_take_time': 'Анализ может занять длительное время в случае большого числа анализируемых статей или цитирований.',
             'reduce_period_recommended': 'Для получения "быстрой" статистики рекомендуется уменьшить период анализа...',
             'journal_not_found': 'Журнал не найден',
-            'failed_create_full_report': 'Не удалось создать полный отчет',
-            'try_reduce_data_or_period': 'Попробуйте уменьшить объем анализируемых данных или период анализа',
             
             # H-index explanation
             'what_is_h_index': 'Что такое H-index и как его интерпретировать?',
@@ -497,6 +571,9 @@ class TranslationManager:
             'max_days_to_citation': 'Макс. дней до цитирования',
             'average_days': 'Среднее дней',
             'median_days': 'Медиана дней',
+            'time_to_first_citation_distribution': 'Распределение времени до первого цитирования',
+            'days_to_first_citation': 'Дней до первого цитирования',
+            'article_count': 'Количество статей',
             
             # Overlaps
             'total_overlaps': 'Всего пересечений',
@@ -532,7 +609,76 @@ class TranslationManager:
             
             # Progress and learning
             'learned_terms': 'Изучено терминов',
-            'analysis_starting': 'Запуск анализа...'
+            'analysis_starting': 'Запуск анализа...',
+            
+            # Citations by year
+            'citations_by_year': 'Цитирования по годам',
+            'year': 'Год',
+            'citations_count': 'Количество цитирований',
+            
+            # Top authors
+            'top_15_authors_analyzed': 'Топ-15 авторов (анализируемые статьи)',
+            'author': 'Автор',
+            'articles': 'Статьи',
+            
+            # Author count distribution
+            'author_count_distribution': 'Распределение по количеству авторов',
+            'category': 'Категория',
+            
+            # Geography
+            'article_country_distribution': 'Распределение статей по странам',
+            'country': 'Страна',
+            
+            # International collaboration
+            'international_collaboration': 'Международное сотрудничество',
+            'single_country': 'Одна страна',
+            'multiple_countries': 'Несколько стран',
+            'no_data': 'Нет данных',
+            
+            # Citations tab
+            'articles_by_citation_thresholds': 'Статьи по порогам цитирований',
+            'threshold': 'Порог',
+            'articles': 'Статьи',
+            'articles_by_citation_status': 'Статьи по статусу цитирования',
+            'with_citations': 'С цитированиями',
+            'without_citations': 'Без цитирований',
+            
+            # Overlaps tab
+            'no_overlaps_found': 'Пересечения не найдены',
+            
+            # Citation timing tab
+            'articles_with_timing_data': 'Статьи с данными о времени',
+            'total_years_covered': 'Общее количество покрытых лет',
+            
+            # Fast metrics tab
+            'fast_metrics_details': 'Детали быстрых метрик',
+            
+            # Predictive insights
+            'citation_seasonality': 'Сезонность цитирования',
+            'publication_months': 'Месяцы публикаций',
+            'optimal_publication_months': 'Оптимальные месяцы публикаций',
+            'total_citations_by_month': 'Общее количество цитирований по месяцам',
+            'month_number': 'Номер месяца',
+            'month_name': 'Название месяца',
+            'citation_count': 'Количество цитирований',
+            'publication_count': 'Количество публикаций',
+            'high_citation_month': 'Месяц с высоким цитированием',
+            'recommended_publication_month': 'Рекомендуемый месяц публикации',
+            'reasoning': 'Обоснование',
+            'potential_reviewers': 'Потенциальные рецензенты',
+            'total_journal_authors': 'Общее количество авторов журнала',
+            'total_overlap_authors': 'Общее количество авторов с пересечениями',
+            'total_potential_reviewers': 'Найдено потенциальных рецензентов',
+            'citation_count_reviewers': 'Количество цитирований',
+            'citing_dois': 'Цитирующие DOI',
+            'example_citing_dois': 'Примеры цитирующих DOI',
+            'predictive_insights_recommendations': 'Прогностические инсайты и рекомендации',
+            'citation_seasonality_analysis': 'Анализ сезонности цитирования',
+            'recommended_publication_months': 'Рекомендуемые месяцы публикаций',
+            'potential_reviewer_discovery': 'Открытие потенциальных рецензентов',
+            'top_potential_reviewers': 'Топ потенциальных рецензентов',
+            'reviewer_discovery_summary': 'Сводка открытия рецензентов',
+            'these_authors_cite_journal': 'Эти авторы цитируют ваш журнал, но никогда не публиковались в нём. Они представляют отличных потенциальных рецензентов, поскольку знакомы с содержимым вашего журнала, но сохраняют редакционную независимость.'
         }
     
     def _get_german_translations(self):
@@ -616,6 +762,8 @@ class TranslationManager:
             'excel_creation_error': '❌ Fehler beim Erstellen des Excel-Berichts: {error}',
             'simplified_report_created': '⚠️ Vereinfachter Bericht aufgrund von Speicherbeschränkungen erstellt',
             'critical_excel_error': '❌ Kritischer Fehler beim Erstellen des vereinfachten Berichts: {error}',
+            'failed_create_full_report': 'Erstellung des vollständigen Berichts fehlgeschlagen',
+            'try_reduce_data_or_period': 'Versuchen Sie, die Menge der analysierten Daten oder den Analysezeitraum zu reduzieren',
             
             # Metric labels
             'h_index': 'H-Index',
@@ -679,6 +827,7 @@ class TranslationManager:
             'tab_overlaps': '🔀 Überschneidungen',
             'tab_citation_timing': '⏱️ Zitationszeit',
             'tab_fast_metrics': '🚀 Schnelle Metriken',
+            'tab_predictive_insights': '🔮 Prädiktive Einblicke',
             
             # Analysis details
             'total_references': 'Gesamtreferenzen',
@@ -708,8 +857,6 @@ class TranslationManager:
             'analysis_may_take_time': 'Die Analyse kann bei einer großen Anzahl analysierter Artikel oder Zitationen lange dauern.',
             'reduce_period_recommended': 'Für "schnelle" Statistiken wird empfohlen, den Analysezeitraum zu verkürzen...',
             'journal_not_found': 'Journal nicht gefunden',
-            'failed_create_full_report': 'Erstellung des vollständigen Berichts fehlgeschlagen',
-            'try_reduce_data_or_period': 'Versuchen Sie, die Menge der analysierten Daten oder den Analysezeitraum zu reduzieren',
             
             # H-index explanation
             'what_is_h_index': 'Was ist der H-Index und wie wird er interpretiert?',
@@ -742,6 +889,9 @@ class TranslationManager:
             'max_days_to_citation': 'Max. Tage bis Zitation',
             'average_days': 'Durchschnitt Tage',
             'median_days': 'Median Tage',
+            'time_to_first_citation_distribution': 'Verteilung der Zeit bis zur ersten Zitation',
+            'days_to_first_citation': 'Tage bis zur ersten Zitation',
+            'article_count': 'Artikelanzahl',
             
             # Overlaps
             'total_overlaps': 'Gesamtüberschneidungen',
@@ -777,7 +927,76 @@ class TranslationManager:
             
             # Progress and learning
             'learned_terms': 'Gelernte Begriffe',
-            'analysis_starting': 'Analyse wird gestartet...'
+            'analysis_starting': 'Analyse wird gestartet...',
+            
+            # Citations by year
+            'citations_by_year': 'Zitationen nach Jahr',
+            'year': 'Jahr',
+            'citations_count': 'Zitationsanzahl',
+            
+            # Top authors
+            'top_15_authors_analyzed': 'Top 15 Autoren (analysierte Artikel)',
+            'author': 'Autor',
+            'articles': 'Artikel',
+            
+            # Author count distribution
+            'author_count_distribution': 'Autorenanzahl-Verteilung',
+            'category': 'Kategorie',
+            
+            # Geography
+            'article_country_distribution': 'Artikel-Länder-Verteilung',
+            'country': 'Land',
+            
+            # International collaboration
+            'international_collaboration': 'Internationale Zusammenarbeit',
+            'single_country': 'Ein Land',
+            'multiple_countries': 'Mehrere Länder',
+            'no_data': 'Keine Daten',
+            
+            # Citations tab
+            'articles_by_citation_thresholds': 'Artikel nach Zitationsschwellen',
+            'threshold': 'Schwelle',
+            'articles': 'Artikel',
+            'articles_by_citation_status': 'Artikel nach Zitationsstatus',
+            'with_citations': 'Mit Zitationen',
+            'without_citations': 'Ohne Zitationen',
+            
+            # Overlaps tab
+            'no_overlaps_found': 'Keine Überschneidungen gefunden',
+            
+            # Citation timing tab
+            'articles_with_timing_data': 'Artikel mit Timing-Daten',
+            'total_years_covered': 'Gesamte abgedeckte Jahre',
+            
+            # Fast metrics tab
+            'fast_metrics_details': 'Schnelle Metriken-Details',
+            
+            # Predictive insights
+            'citation_seasonality': 'Zitationssaisonalität',
+            'publication_months': 'Publikationsmonate',
+            'optimal_publication_months': 'Optimale Publikationsmonate',
+            'total_citations_by_month': 'Gesamtzitationen nach Monat',
+            'month_number': 'Monatsnummer',
+            'month_name': 'Monatsname',
+            'citation_count': 'Zitationsanzahl',
+            'publication_count': 'Publikationsanzahl',
+            'high_citation_month': 'Monat mit hoher Zitation',
+            'recommended_publication_month': 'Empfohlener Publikationsmonat',
+            'reasoning': 'Begründung',
+            'potential_reviewers': 'Potenzielle Gutachter',
+            'total_journal_authors': 'Gesamte Journal-Autoren',
+            'total_overlap_authors': 'Gesamte Überlappungs-Autoren',
+            'total_potential_reviewers': 'Gefundene potenzielle Gutachter',
+            'citation_count_reviewers': 'Zitationsanzahl',
+            'citing_dois': 'Zitierende DOIs',
+            'example_citing_dois': 'Beispielzitierende DOIs',
+            'predictive_insights_recommendations': 'Prädiktive Einblicke & Empfehlungen',
+            'citation_seasonality_analysis': 'Zitationssaisonalitätsanalyse',
+            'recommended_publication_months': 'Empfohlene Publikationsmonate',
+            'potential_reviewer_discovery': 'Entdeckung potenzieller Gutachter',
+            'top_potential_reviewers': 'Top potenzielle Gutachter',
+            'reviewer_discovery_summary': 'Zusammenfassung der Gutachter-Entdeckung',
+            'these_authors_cite_journal': 'Diese Autoren zitieren Ihr Journal, haben aber nie darin veröffentlicht. Sie stellen ausgezeichnete potenzielle Gutachter dar, da sie mit dem Inhalt Ihres Journals vertraut sind, aber redaktionelle Unabhängigkeit wahren.'
         }
     
     def _get_spanish_translations(self):
@@ -861,6 +1080,8 @@ class TranslationManager:
             'excel_creation_error': '❌ Error al crear informe de Excel: {error}',
             'simplified_report_created': '⚠️ Informe simplificado creado debido a limitaciones de memoria',
             'critical_excel_error': '❌ Error crítico al crear informe simplificado: {error}',
+            'failed_create_full_report': 'No se pudo crear el informe completo',
+            'try_reduce_data_or_period': 'Intente reducir la cantidad de datos analizados o el período de análisis',
             
             # Metric labels
             'h_index': 'H-index',
@@ -924,6 +1145,7 @@ class TranslationManager:
             'tab_overlaps': '🔀 Superposiciones',
             'tab_citation_timing': '⏱️ Tiempo de Citación',
             'tab_fast_metrics': '🚀 Métricas Rápidas',
+            'tab_predictive_insights': '🔮 Perspectivas Predictivas',
             
             # Analysis details
             'total_references': 'Referencias Totales',
@@ -953,8 +1175,6 @@ class TranslationManager:
             'analysis_may_take_time': 'El análisis puede tomar mucho tiempo en caso de una gran cantidad de artículos analizados o citas.',
             'reduce_period_recommended': 'Para estadísticas "rápidas", se recomienda reducir el período de análisis...',
             'journal_not_found': 'Revista no encontrada',
-            'failed_create_full_report': 'No se pudo crear el informe completo',
-            'try_reduce_data_or_period': 'Intente reducir la cantidad de datos analizados o el período de análisis',
             
             # H-index explanation
             'what_is_h_index': '¿Qué es el H-index y cómo interpretarlo?',
@@ -987,6 +1207,9 @@ class TranslationManager:
             'max_days_to_citation': 'Máx. días hasta citación',
             'average_days': 'Promedio días',
             'median_days': 'Mediana días',
+            'time_to_first_citation_distribution': 'Distribución del Tiempo hasta la Primera Citación',
+            'days_to_first_citation': 'Días hasta la Primera Citación',
+            'article_count': 'Conteo de Artículos',
             
             # Overlaps
             'total_overlaps': 'Superposiciones Totales',
@@ -1022,7 +1245,76 @@ class TranslationManager:
             
             # Progress and learning
             'learned_terms': 'Términos aprendidos',
-            'analysis_starting': 'Iniciando análisis...'
+            'analysis_starting': 'Iniciando análisis...',
+            
+            # Citations by year
+            'citations_by_year': 'Citas por Año',
+            'year': 'Año',
+            'citations_count': 'Conteo de Citas',
+            
+            # Top authors
+            'top_15_authors_analyzed': 'Top 15 Autores (Artículos Analizados)',
+            'author': 'Autor',
+            'articles': 'Artículos',
+            
+            # Author count distribution
+            'author_count_distribution': 'Distribución de Conteo de Autores',
+            'category': 'Categoría',
+            
+            # Geography
+            'article_country_distribution': 'Distribución de Artículos por País',
+            'country': 'País',
+            
+            # International collaboration
+            'international_collaboration': 'Colaboración Internacional',
+            'single_country': 'Un Solo País',
+            'multiple_countries': 'Múltiples Países',
+            'no_data': 'Sin Datos',
+            
+            # Citations tab
+            'articles_by_citation_thresholds': 'Artículos por Umbrales de Citación',
+            'threshold': 'Umbral',
+            'articles': 'Artículos',
+            'articles_by_citation_status': 'Artículos por Estado de Citación',
+            'with_citations': 'Con Citas',
+            'without_citations': 'Sin Citas',
+            
+            # Overlaps tab
+            'no_overlaps_found': 'No se encontraron superposiciones',
+            
+            # Citation timing tab
+            'articles_with_timing_data': 'Artículos con Datos de Tiempo',
+            'total_years_covered': 'Total de Años Cubiertos',
+            
+            # Fast metrics tab
+            'fast_metrics_details': 'Detalles de Métricas Rápidas',
+            
+            # Predictive insights
+            'citation_seasonality': 'Estacionalidad de Citaciones',
+            'publication_months': 'Meses de Publicación',
+            'optimal_publication_months': 'Meses Óptimos de Publicación',
+            'total_citations_by_month': 'Total de Citaciones por Mes',
+            'month_number': 'Número de Mes',
+            'month_name': 'Nombre del Mes',
+            'citation_count': 'Conteo de Citaciones',
+            'publication_count': 'Conteo de Publicaciones',
+            'high_citation_month': 'Mes de Alta Citación',
+            'recommended_publication_month': 'Mes Recomendado de Publicación',
+            'reasoning': 'Razonamiento',
+            'potential_reviewers': 'Revisaadores Potenciales',
+            'total_journal_authors': 'Total de Autores del Journal',
+            'total_overlap_authors': 'Total de Autores con Superposiciones',
+            'total_potential_reviewers': 'Total de Revisaadores Potenciales Encontrados',
+            'citation_count_reviewers': 'Conteo de Citaciones',
+            'citing_dois': 'DOIs Citantes',
+            'example_citing_dois': 'DOIs Citantes de Ejemplo',
+            'predictive_insights_recommendations': 'Perspectivas Predictivas y Recomendaciones',
+            'citation_seasonality_analysis': 'Análisis de Estacionalidad de Citaciones',
+            'recommended_publication_months': 'Meses Recomendados de Publicación',
+            'potential_reviewer_discovery': 'Descubrimiento de Revisaadores Potenciales',
+            'top_potential_reviewers': 'Top Revisaadores Potenciales',
+            'reviewer_discovery_summary': 'Resumen del Descubrimiento de Revisaadores',
+            'these_authors_cite_journal': 'Estos autores citan su revista pero nunca han publicado en ella. Representan excelentes revisaadores potenciales ya que están familiarizados con el contenido de su revista pero mantienen la independencia editorial.'
         }
     
     def _get_italian_translations(self):
@@ -1106,6 +1398,8 @@ class TranslationManager:
             'excel_creation_error': '❌ Errore nella creazione report Excel: {error}',
             'simplified_report_created': '⚠️ Report semplificato creato per limiti memoria',
             'critical_excel_error': '❌ Errore critico nella creazione report semplificato: {error}',
+            'failed_create_full_report': 'Creazione report completo fallita',
+            'try_reduce_data_or_period': 'Prova a ridurre la quantità di dati analizzati o il periodo di analisi',
             
             # Metric labels
             'h_index': 'H-index',
@@ -1169,6 +1463,7 @@ class TranslationManager:
             'tab_overlaps': '🔀 Sovrapposizioni',
             'tab_citation_timing': '⏱️ Tempo Citazione',
             'tab_fast_metrics': '🚀 Metriche Veloci',
+            'tab_predictive_insights': '🔮 Insight Predittivi',
             
             # Analysis details
             'total_references': 'Riferimenti Totali',
@@ -1198,8 +1493,6 @@ class TranslationManager:
             'analysis_may_take_time': 'L\'analisi può richiedere molto tempo in caso di un gran numero di articoli analizzati o citazioni.',
             'reduce_period_recommended': 'Per statistiche "veloci", si consiglia di ridurre il periodo di analisi...',
             'journal_not_found': 'Rivista non trovata',
-            'failed_create_full_report': 'Creazione report completo fallita',
-            'try_reduce_data_or_period': 'Prova a ridurre la quantità di dati analizzati o il periodo di analisi',
             
             # H-index explanation
             'what_is_h_index': 'Cos\'è l\'H-index e come interpretarlo?',
@@ -1232,6 +1525,9 @@ class TranslationManager:
             'max_days_to_citation': 'Max. giorni fino citazione',
             'average_days': 'Media giorni',
             'median_days': 'Mediana giorni',
+            'time_to_first_citation_distribution': 'Distribuzione del Tempo alla Prima Citazione',
+            'days_to_first_citation': 'Giorni alla Prima Citazione',
+            'article_count': 'Conteggio Articoli',
             
             # Overlaps
             'total_overlaps': 'Sovrapposizioni Totali',
@@ -1267,7 +1563,76 @@ class TranslationManager:
             
             # Progress and learning
             'learned_terms': 'Termini imparati',
-            'analysis_starting': 'Avvio analisi...'
+            'analysis_starting': 'Avvio analisi...',
+            
+            # Citations by year
+            'citations_by_year': 'Citazioni per Anno',
+            'year': 'Anno',
+            'citations_count': 'Conteggio Citazioni',
+            
+            # Top authors
+            'top_15_authors_analyzed': 'Top 15 Autori (Articoli Analizzati)',
+            'author': 'Autore',
+            'articles': 'Articoli',
+            
+            # Author count distribution
+            'author_count_distribution': 'Distribuzione Conteggio Autori',
+            'category': 'Categoria',
+            
+            # Geography
+            'article_country_distribution': 'Distribuzione Articoli per Paese',
+            'country': 'Paese',
+            
+            # International collaboration
+            'international_collaboration': 'Collaborazione Internazionale',
+            'single_country': 'Un Solo Paese',
+            'multiple_countries': 'Multipli Paesi',
+            'no_data': 'Nessun Dato',
+            
+            # Citations tab
+            'articles_by_citation_thresholds': 'Articoli per Soglie di Citazione',
+            'threshold': 'Soglia',
+            'articles': 'Articoli',
+            'articles_by_citation_status': 'Articoli per Stato di Citazione',
+            'with_citations': 'Con Citazioni',
+            'without_citations': 'Senza Citazioni',
+            
+            # Overlaps tab
+            'no_overlaps_found': 'Nessuna sovrapposizione trovata',
+            
+            # Citation timing tab
+            'articles_with_timing_data': 'Articoli con Dati di Timing',
+            'total_years_covered': 'Totale Anni Coperti',
+            
+            # Fast metrics tab
+            'fast_metrics_details': 'Dettagli Metriche Veloci',
+            
+            # Predictive insights
+            'citation_seasonality': 'Stagionalità Citazioni',
+            'publication_months': 'Mesi di Pubblicazione',
+            'optimal_publication_months': 'Mesi Ottimali di Pubblicazione',
+            'total_citations_by_month': 'Totale Citazioni per Mese',
+            'month_number': 'Numero Mese',
+            'month_name': 'Nome Mese',
+            'citation_count': 'Conteggio Citazioni',
+            'publication_count': 'Conteggio Pubblicazioni',
+            'high_citation_month': 'Mese Alta Citazione',
+            'recommended_publication_month': 'Mese Raccomandato di Pubblicazione',
+            'reasoning': 'Ragionamento',
+            'potential_reviewers': 'Recensori Potenziali',
+            'total_journal_authors': 'Totale Autori Journal',
+            'total_overlap_authors': 'Totale Autori Sovrapposizioni',
+            'total_potential_reviewers': 'Totale Recensori Potenziali Trovati',
+            'citation_count_reviewers': 'Conteggio Citazioni',
+            'citing_dois': 'DOIs Citanti',
+            'example_citing_dois': 'DOIs Citanti Esempio',
+            'predictive_insights_recommendations': 'Insight Predittivi e Raccomandazioni',
+            'citation_seasonality_analysis': 'Analisi Stagionalità Citazioni',
+            'recommended_publication_months': 'Mesi Raccomandati di Pubblicazione',
+            'potential_reviewer_discovery': 'Scoperta Recensori Potenziali',
+            'top_potential_reviewers': 'Top Recensori Potenziali',
+            'reviewer_discovery_summary': 'Riepilogo Scoperta Recensori',
+            'these_authors_cite_journal': 'Questi autori citano la tua rivista ma non hanno mai pubblicato in essa. Rappresentano eccellenti recensori potenziali poiché sono familiari con il contenuto della tua rivista ma mantengono l\'indipendenza editoriale.'
         }
     
     def _get_arabic_translations(self):
@@ -1351,6 +1716,8 @@ class TranslationManager:
             'excel_creation_error': '❌ خطأ في إنشاء تقرير Excel: {error}',
             'simplified_report_created': '⚠️ تم إنشاء تقرير مبسط بسبب قيود الذاكرة',
             'critical_excel_error': '❌ خطأ حرج في إنشاء التقرير المبسط: {error}',
+            'failed_create_full_report': 'فشل في إنشاء التقرير الكامل',
+            'try_reduce_data_or_period': 'حاول تقليل كمية البيانات التي تم تحليلها أو فترة التحليل',
             
             # Metric labels
             'h_index': 'مؤشر H',
@@ -1414,6 +1781,7 @@ class TranslationManager:
             'tab_overlaps': '🔀 التداخلات',
             'tab_citation_timing': '⏱️ توقيت الاقتباس',
             'tab_fast_metrics': '🚀 المقاييس السريعة',
+            'tab_predictive_insights': '🔮 رؤى تنبؤية',
             
             # Analysis details
             'total_references': 'إجمالي المراجع',
@@ -1443,8 +1811,6 @@ class TranslationManager:
             'analysis_may_take_time': 'قد يستغرق التحليل وقتًا طويلاً في حالة وجود عدد كبير من المقالات المحللة أو الاقتباسات.',
             'reduce_period_recommended': 'للحصول على إحصائيات "سريعة"، يوصى بتقليل فترة التحليل...',
             'journal_not_found': 'المجلة غير موجودة',
-            'failed_create_full_report': 'فشل في إنشاء التقرير الكامل',
-            'try_reduce_data_or_period': 'حاول تقليل كمية البيانات التي تم تحليلها أو فترة التحليل',
             
             # H-index explanation
             'what_is_h_index': 'ما هو مؤشر H وكيفية تفسيره؟',
@@ -1477,6 +1843,9 @@ class TranslationManager:
             'max_days_to_citation': 'الحد الأقصى للأيام حتى الاقتباس',
             'average_days': 'متوسط الأيام',
             'median_days': 'وسيط الأيام',
+            'time_to_first_citation_distribution': 'توزيع الوقت حتى الاقتباس الأول',
+            'days_to_first_citation': 'الأيام حتى الاقتباس الأول',
+            'article_count': 'عدد المقالات',
             
             # Overlaps
             'total_overlaps': 'إجمالي التداخلات',
@@ -1596,6 +1965,8 @@ class TranslationManager:
             'excel_creation_error': '❌ 创建Excel报告错误: {error}',
             'simplified_report_created': '⚠️ 由于内存限制创建了简化报告',
             'critical_excel_error': '❌ 创建简化报告时出现严重错误: {error}',
+            'failed_create_full_report': '创建完整报告失败',
+            'try_reduce_data_or_period': '尝试减少分析数据量或分析期间',
             
             # Metric labels
             'h_index': 'H指数',
@@ -1659,6 +2030,7 @@ class TranslationManager:
             'tab_overlaps': '🔀 重叠',
             'tab_citation_timing': '⏱️ 引用时间',
             'tab_fast_metrics': '🚀 快速指标',
+            'tab_predictive_insights': '🔮 预测洞察',
             
             # Analysis details
             'total_references': '总参考文献',
@@ -1688,8 +2060,6 @@ class TranslationManager:
             'analysis_may_take_time': '在分析大量文章或引用的情况下，分析可能需要很长时间。',
             'reduce_period_recommended': '对于"快速"统计，建议减少分析期间...',
             'journal_not_found': '未找到期刊',
-            'failed_create_full_report': '创建完整报告失败',
-            'try_reduce_data_or_period': '尝试减少分析数据量或分析期间',
             
             # H-index explanation
             'what_is_h_index': '什么是H指数以及如何解释它？',
@@ -1722,6 +2092,9 @@ class TranslationManager:
             'max_days_to_citation': '最大引用天数',
             'average_days': '平均天数',
             'median_days': '中位数天数',
+            'time_to_first_citation_distribution': '首次引用时间分布',
+            'days_to_first_citation': '首次引用天数',
+            'article_count': '文章数量',
             
             # Overlaps
             'total_overlaps': '总重叠数',
@@ -1841,6 +2214,8 @@ class TranslationManager:
             'excel_creation_error': '❌ Excelレポート作成エラー: {error}',
             'simplified_report_created': '⚠️ メモリ制限のため簡略化レポートを作成',
             'critical_excel_error': '❌ 簡略化レポート作成中の重大なエラー: {error}',
+            'failed_create_full_report': '完全なレポートの作成に失敗しました',
+            'try_reduce_data_or_period': '分析データ量または分析期間を減らしてみてください',
             
             # Metric labels
             'h_index': 'H指数',
@@ -1904,6 +2279,7 @@ class TranslationManager:
             'tab_overlaps': '🔀 重複',
             'tab_citation_timing': '⏱️ 引用タイミング',
             'tab_fast_metrics': '🚀 高速指標',
+            'tab_predictive_insights': '🔮 予測洞察',
             
             # Analysis details
             'total_references': '総参考文献',
@@ -1933,8 +2309,6 @@ class TranslationManager:
             'analysis_may_take_time': '分析対象の記事数や引用数が多い場合、分析に時間がかかる可能性があります。',
             'reduce_period_recommended': '「高速」統計を得るには、分析期間を短縮することをお勧めします...',
             'journal_not_found': 'ジャーナルが見つかりません',
-            'failed_create_full_report': '完全なレポートの作成に失敗しました',
-            'try_reduce_data_or_period': '分析データ量または分析期間を減らしてみてください',
             
             # H-index explanation
             'what_is_h_index': 'H指数とは何か、どのように解釈するか？',
@@ -1967,6 +2341,9 @@ class TranslationManager:
             'max_days_to_citation': '最大引用日数',
             'average_days': '平均日数',
             'median_days': '中央値日数',
+            'time_to_first_citation_distribution': '最初の引用までの時間分布',
+            'days_to_first_citation': '最初の引用までの日数',
+            'article_count': '記事数',
             
             # Overlaps
             'total_overlaps': '総重複数',
@@ -2007,5 +2384,3 @@ class TranslationManager:
 
 # Global translation manager instance
 translation_manager = TranslationManager()
-
-
