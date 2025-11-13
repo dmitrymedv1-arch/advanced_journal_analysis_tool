@@ -3566,6 +3566,27 @@ def analyze_journal(issn, period_str):
     overall_progress.empty()
     overall_status.empty()
 
+def debug_issn_matching():
+    """Debug function to check ISSN matching"""
+    state = get_analysis_state()
+    
+    if state.cs_data is not None and not state.cs_data.empty:
+        st.write("### 🔍 DEBUG: Scopus Data Sample")
+        st.write("Columns:", state.cs_data.columns.tolist())
+        st.write("First 5 rows:")
+        st.dataframe(state.cs_data.head())
+        
+        # Check ISSN formats
+        if 'Print ISSN' in state.cs_data.columns:
+            st.write("### Print ISSN samples:")
+            st.write(state.cs_data['Print ISSN'].head(10).tolist())
+            st.write("Normalized versions:")
+            normalized = state.cs_data['Print ISSN'].fillna('').astype(str).apply(normalize_issn_for_comparison)
+            st.write(normalized.head(10).tolist())
+
+def main():
+    # ... остальной код
+
 # === 20. Main Interface ===
 def main():
     initialize_analysis_state()
@@ -3887,6 +3908,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
