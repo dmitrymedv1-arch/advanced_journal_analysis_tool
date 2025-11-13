@@ -1994,7 +1994,7 @@ def get_journal_metrics(journal_issns):
                 
                 cs_metrics = {
                     'citescore': corresponding_citescore,
-                    'quartile': f"Q{best_quartile}"
+                    'quartile': f"Q{int(best_quartile)}"
                 }
                 # Do NOT break here - continue processing other ISSNs if needed
     
@@ -3863,5 +3863,6 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
