@@ -1908,7 +1908,7 @@ def load_metrics_data():
     """Load IF and CS data from Excel files"""
     state = get_analysis_state()
     
-    # Load IF data (Web of Science) - ВОЗВРАЩАЕМ ПРЕЖНЮЮ РАБОЧУЮ ВЕРСИЮ
+    # Load IF data (Web of Science)
     try:
         if os.path.exists('IF.xlsx'):
             state.if_data = pd.read_excel('IF.xlsx')
@@ -1920,16 +1920,16 @@ def load_metrics_data():
         # Removed error message to avoid showing in interface
         state.if_data = pd.DataFrame()
     
-    # Load CS data (Scopus) - МИНИМАЛЬНОЕ ИСПРАВЛЕНИЕ ДЛЯ CS
+    # Load CS data (Scopus) - UPDATED: Now loading CS.xlsx
     try:
         if os.path.exists('CS.xlsx'):
             state.cs_data = pd.read_excel('CS.xlsx')
-            # Простая очистка: заменяем NaN на пустые строки
-            state.cs_data['Print ISSN'] = state.cs_data['Print ISSN'].fillna('')
-            state.cs_data['E-ISSN'] = state.cs_data['E-ISSN'].fillna('')
+            # Removed success message to avoid showing in interface
         else:
+            # Removed warning message to avoid showing in interface
             state.cs_data = pd.DataFrame()
     except Exception as e:
+        # Removed error message to avoid showing in interface
         state.cs_data = pd.DataFrame()
 
 def get_journal_metrics(journal_issns):
@@ -1939,7 +1939,7 @@ def get_journal_metrics(journal_issns):
     if_metrics = {}
     cs_metrics = {}
     
-    # Process each ISSN to find matches - УБИРАЕМ break ДЛЯ РАЗДЕЛЬНОГО ПОИСКА
+    # Process each ISSN to find matches - INDEPENDENT SEARCH FOR IF AND CS
     for issn in journal_issns:
         if not issn or pd.isna(issn):
             continue
@@ -1947,51 +1947,73 @@ def get_journal_metrics(journal_issns):
         normalized_issn = normalize_issn_for_comparison(issn)
         print(f"🔍 Searching for ISSN: {issn} -> normalized: {normalized_issn}")
         
-        # Search in Web of Science data - НЕ ПРЕРЫВАЕМ ПОСЛЕ IF
-        if not state.if_data.empty and not if_metrics:  # Ищем только если еще не нашли
-            def safe_normalize_issn(issn_series):
+        # INDEPENDENT SEARCH FOR IF DATA (Web of Science)
+        if not state.if_data.empty and not if_metrics:  # Only search if not already found
+            print(f"🔍 WoS search for: {normalized_issn}")
+            
+            # Apply normalization with error handling for IF data
+            def safe_normalize_if_issn(issn_series):
                 try:
-                    return issn_series.fillna('').astype(str).apply(normalize_issn_for_comparison)
+                    return issn_series.apply(lambda x: 
+                        normalize_issn_for_comparison(x) 
+                        if pd.notna(x) and str(x).strip() != '' 
+                        else ""
+                    )
                 except Exception as e:
+                    print(f"Error normalizing IF ISSN: {e}")
                     return pd.Series([""] * len(issn_series))
     
             if_match = state.if_data[
-                (safe_normalize_issn(state.if_data['ISSN']) == normalized_issn) |
-                (safe_normalize_issn(state.if_data['eISSN']) == normalized_issn)
+                (safe_normalize_if_issn(state.if_data['ISSN']) == normalized_issn) |
+                (safe_normalize_if_issn(state.if_data['eISSN']) == normalized_issn)
             ]
             
             if not if_match.empty:
+                print(f"✅ Found IF match: {len(if_match)} records")
                 if_metrics = {
                     'if': if_match.iloc[0]['IF'],
                     'quartile': if_match.iloc[0]['Quartile']
                 }
-                print(f"✅ Found IF match: {if_metrics}")
-                # УБИРАЕМ break - продолжаем поиск CS данных
+                # NO BREAK - continue to search for CS data
                   
-        # Search in Scopus data - ИЩЕМ ДЛЯ ВСЕХ ISSN
-        if not state.cs_data.empty and not cs_metrics:  # Ищем только если еще не нашли
+        # INDEPENDENT SEARCH FOR CS DATA (Scopus) - UPDATED: Now searching in CS.xlsx
+        if not state.cs_data.empty and not cs_metrics:  # Only search if not already found
+            print(f"🔍 Scopus search for: {normalized_issn}")
+            
+            # Apply normalization for CS data with improved empty value handling
             def safe_normalize_cs_issn(issn_series):
                 try:
-                    return issn_series.fillna('').astype(str).apply(normalize_issn_for_comparison)
+                    return issn_series.apply(lambda x: 
+                        normalize_issn_for_comparison(x) 
+                        if pd.notna(x) and str(x).strip() != '' 
+                        else ""
+                    )
                 except Exception as e:
+                    print(f"Error normalizing CS ISSN: {e}")
                     return pd.Series([""] * len(issn_series))
             
+            # Search for matches in Print ISSN or E-ISSN columns
             cs_match = state.cs_data[
                 (safe_normalize_cs_issn(state.cs_data['Print ISSN']) == normalized_issn) |
                 (safe_normalize_cs_issn(state.cs_data['E-ISSN']) == normalized_issn)
             ]
             
             if not cs_match.empty:
-                # Handle duplicates - take the best quartile (lowest number)
-                best_quartile = cs_match['Quartile'].min()
-                corresponding_citescore = cs_match[cs_match['Quartile'] == best_quartile]['CiteScore'].iloc[0]
+                print(f"✅ Found CS match: {len(cs_match)} records")
                 
-                cs_metrics = {
-                    'citescore': corresponding_citescore,
-                    'quartile': best_quartile
-                }
-                print(f"✅ Found CS match: {cs_metrics}")
-                # УБИРАЕМ break - продолжаем поиск для других ISSN
+                # Improved handling of duplicates - take the best quartile (lowest number)
+                # Group by ISSN combinations to handle duplicates properly
+                cs_grouped = cs_match.groupby(['Print ISSN', 'E-ISSN']).agg({
+                    'CiteScore': 'first',  # Take first CiteScore (they should be the same)
+                    'Quartile': 'min'      # Take the best (lowest) quartile
+                }).reset_index()
+                
+                if not cs_grouped.empty:
+                    cs_metrics = {
+                        'citescore': cs_grouped.iloc[0]['CiteScore'],
+                        'quartile': cs_grouped.iloc[0]['Quartile']
+                    }
+                # NO BREAK - continue processing other ISSNs if needed
 
     print(f"🎯 Final metrics - IF: {if_metrics}, CS: {cs_metrics}")
 
@@ -2106,80 +2128,6 @@ def find_potential_reviewers(analyzed_metadata, citing_metadata, overlap_details
         'total_potential_reviewers': len(potential_reviewers)
     }
 
-def safe_create_journal_data(journal_info, citing_data, total_articles):
-    """Безопасное создание данных для журнала с обработкой None"""
-    try:
-        journal_name = journal_info[0] if journal_info and len(journal_info) > 0 else "Unknown Journal"
-        count = journal_info[1] if journal_info and len(journal_info) > 1 else 0
-        
-        # Безопасный расчет процента
-        percentage = 0
-        if total_articles and total_articles > 0:
-            try:
-                percentage = round((count / total_articles * 100), 2)
-            except:
-                percentage = 0
-        
-        # Extract ISSNs for this journal from citing data
-        journal_issns = []
-        for citing_item in citing_data:
-            if citing_item and citing_item.get('crossref'):
-                cr = citing_item['crossref']
-                container_title = ""
-                try:
-                    container_title = cr.get('container-title', [''])[0] if cr.get('container-title') else ''
-                except:
-                    container_title = ''
-                
-                if container_title == journal_name:
-                    issns = cr.get('ISSN', [])
-                    if isinstance(issns, str):
-                        issns = [issns]
-                    # ФИЛЬТРУЕМ None ЗНАЧЕНИЯ и пустые строки
-                    journal_issns.extend([str(issn) for issn in issns if issn is not None and str(issn).strip()])
-        
-        # Remove duplicates and filter None values
-        journal_issns = list(set([issn for issn in journal_issns if issn is not None and str(issn).strip()]))
-        
-        # Get ISSNs for display with safe defaults
-        issn_1 = journal_issns[0] if len(journal_issns) > 0 else ""
-        issn_2 = journal_issns[1] if len(journal_issns) > 1 else ""
-        
-        # Get metrics for this journal
-        metrics = get_journal_metrics(journal_issns)
-        
-        # Безопасное извлечение метрик
-        if_metrics = metrics.get('if_metrics', {})
-        cs_metrics = metrics.get('cs_metrics', {})
-        
-        return {
-            'Journal': str(journal_name) if journal_name else "Unknown",
-            'ISSN_1': str(issn_1) if issn_1 else "",
-            'ISSN_2': str(issn_2) if issn_2 else "",
-            'Articles_Count': int(count) if count else 0,
-            'Percentage': float(percentage) if percentage else 0.0,
-            '': '',  # Empty column
-            'IF (WoS)': str(if_metrics.get('if', '')) if if_metrics and if_metrics.get('if') else '',
-            'Q(WoS)': str(if_metrics.get('quartile', '')) if if_metrics and if_metrics.get('quartile') else '',
-            'SC(Scopus)': str(cs_metrics.get('citescore', '')) if cs_metrics and cs_metrics.get('citescore') else '',
-            'Q(Scopus)': str(cs_metrics.get('quartile', '')) if cs_metrics and cs_metrics.get('quartile') else ''
-        }
-    except Exception as e:
-        print(f"❌ Error creating journal data for {journal_info}: {e}")
-        # Возвращаем безопасные значения по умолчанию
-        return {
-            'Journal': "Error",
-            'ISSN_1': "",
-            'ISSN_2': "", 
-            'Articles_Count': 0,
-            'Percentage': 0.0,
-            '': '',
-            'IF (WoS)': '',
-            'Q(WoS)': '',
-            'SC(Scopus)': '',
-            'Q(Scopus)': ''
-        }
-        
 # === 17. Enhanced Excel Report Creation ===
 def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer, additional_data):
     """Create enhanced Excel report with error handling for large data"""
@@ -2197,6 +2145,16 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         elif isinstance(value, np.bool_):
             return bool(value)
         return value
+
+    def safe_str(value):
+        """Safely convert value to string, handling None and empty values"""
+        if value is None:
+            return ""
+        if isinstance(value, (int, float, bool)):
+            return str(value)
+        if isinstance(value, str):
+            return value
+        return str(value) if value is not None else ""
             
     try:
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
@@ -2596,27 +2554,49 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 if get_analysis_state().if_data is None or get_analysis_state().cs_data is None:
                     load_metrics_data()
                 
-                print(f"🔍 Processing {len(citing_stats['all_journals'])} journals for All_Journals_Citing")
+                for journal_info in citing_stats['all_journals']:
+                    journal_name = journal_info[0]
+                    count = journal_info[1]
+                    percentage = (count / total_articles * 100) if total_articles > 0 else 0
+                    
+                    # Extract ISSNs for this journal from citing data
+                    journal_issns = []
+                    for citing_item in citing_data:
+                        if citing_item and citing_item.get('crossref'):
+                            cr = citing_item['crossref']
+                            container_title = cr.get('container-title', [''])[0] if cr.get('container-title') else ''
+                            if container_title == journal_name:
+                                issns = cr.get('ISSN', [])
+                                if isinstance(issns, str):
+                                    issns = [issns]
+                                journal_issns.extend(issns)
+                    
+                    # Remove duplicates
+                    journal_issns = list(set(journal_issns))
+                    
+                    # Get ISSNs for display - use safe_str to handle None values
+                    issn_1 = safe_str(journal_issns[0]) if len(journal_issns) > 0 else ""
+                    issn_2 = safe_str(journal_issns[1]) if len(journal_issns) > 1 else ""
+                    
+                    # Get metrics for this journal - UPDATED WITH CS DATA
+                    metrics = get_journal_metrics(journal_issns)
+                    
+                    # Use safe_str for all metric values to prevent NoneType errors
+                    all_citing_journals_data.append({
+                        'Journal': journal_name,
+                        'ISSN_1': issn_1,
+                        'ISSN_2': issn_2,
+                        'Articles_Count': count,
+                        'Percentage': round(percentage, 2),
+                        '': '',  # Empty column
+                        'IF (WoS)': safe_str(metrics['if_metrics'].get('if', '')) if metrics['if_metrics'] else '',
+                        'Q(WoS)': safe_str(metrics['if_metrics'].get('quartile', '')) if metrics['if_metrics'] else '',
+                        'SC(Scopus)': safe_str(metrics['cs_metrics'].get('citescore', '')) if metrics['cs_metrics'] else '',
+                        'Q(Scopus)': safe_str(metrics['cs_metrics'].get('quartile', '')) if metrics['cs_metrics'] else ''
+                    })
                 
-                for i, journal_info in enumerate(citing_stats['all_journals']):
-                    try:
-                        journal_data = safe_create_journal_data(journal_info, citing_data, total_articles)
-                        all_citing_journals_data.append(journal_data)
-                        
-                        if i < 5:  # Логируем первые 5 для отладки
-                            print(f"   Journal {i+1}: {journal_data['Journal']} - ISSNs: {journal_data['ISSN_1']}, {journal_data['ISSN_2']}")
-                            
-                    except Exception as e:
-                        print(f"❌ Error processing journal {i}: {journal_info} - {e}")
-                        continue
-                
-                if all_citing_journals_data:
-                    try:
-                        all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
-                        all_citing_journals_df.to_excel(writer, sheet_name='All_Journals_Citing', index=False)
-                        print(f"✅ Successfully created All_Journals_Citing with {len(all_citing_journals_data)} records")
-                    except Exception as e:
-                        print(f"❌ Error creating All_Journals_Citing DataFrame: {e}")         
+                all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
+                all_citing_journals_df.to_excel(writer, sheet_name='All_Journals_Citing', index=False)
 
             # Sheet 19: All publishers citing (with percentages)
             if citing_stats['all_publishers']:
@@ -3893,8 +3873,3 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
-
-
-
-
-
