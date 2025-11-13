@@ -1920,17 +1920,8 @@ def load_metrics_data():
         # Removed error message to avoid showing in interface
         state.if_data = pd.DataFrame()
     
-    # Load CS data (Scopus) - UPDATED: Now loading CS.xlsx
-    try:
-        if os.path.exists('CS.xlsx'):
-            state.cs_data = pd.read_excel('CS.xlsx')
-            # Removed success message to avoid showing in interface
-        else:
-            # Removed warning message to avoid showing in interface
-            state.cs_data = pd.DataFrame()
-    except Exception as e:
-        # Removed error message to avoid showing in interface
-        state.cs_data = pd.DataFrame()
+    # Load CS data (Scopus) - REMOVED
+    state.cs_data = pd.DataFrame()
 
 def get_journal_metrics(journal_issns):
     """Get metrics for a journal based on its ISSNs"""
@@ -1939,33 +1930,28 @@ def get_journal_metrics(journal_issns):
     if_metrics = {}
     cs_metrics = {}
     
-    # Process each ISSN to find matches - INDEPENDENT SEARCH FOR IF AND CS
+    # Process each ISSN to find matches
     for issn in journal_issns:
         if not issn or pd.isna(issn):
             continue
             
         normalized_issn = normalize_issn_for_comparison(issn)
         print(f"🔍 Searching for ISSN: {issn} -> normalized: {normalized_issn}")
+        print(f"🔍 WoS search for: {normalized_issn}")
         
-        # INDEPENDENT SEARCH FOR IF DATA (Web of Science)
-        if not state.if_data.empty and not if_metrics:  # Only search if not already found
-            print(f"🔍 WoS search for: {normalized_issn}")
-            
-            # Apply normalization with error handling for IF data
-            def safe_normalize_if_issn(issn_series):
+        # Search in Web of Science data
+        if not state.if_data.empty:
+            # Apply normalization with error handling
+            def safe_normalize_issn(issn_series):
                 try:
-                    return issn_series.apply(lambda x: 
-                        normalize_issn_for_comparison(x) 
-                        if pd.notna(x) and str(x).strip() != '' 
-                        else ""
-                    )
+                    return issn_series.fillna('').astype(str).apply(normalize_issn_for_comparison)
                 except Exception as e:
                     print(f"Error normalizing IF ISSN: {e}")
                     return pd.Series([""] * len(issn_series))
     
             if_match = state.if_data[
-                (safe_normalize_if_issn(state.if_data['ISSN']) == normalized_issn) |
-                (safe_normalize_if_issn(state.if_data['eISSN']) == normalized_issn)
+                (safe_normalize_issn(state.if_data['ISSN']) == normalized_issn) |
+                (safe_normalize_issn(state.if_data['eISSN']) == normalized_issn)
             ]
             
             if not if_match.empty:
@@ -1974,47 +1960,11 @@ def get_journal_metrics(journal_issns):
                     'if': if_match.iloc[0]['IF'],
                     'quartile': if_match.iloc[0]['Quartile']
                 }
-                # NO BREAK - continue to search for CS data
+                break  # Use first match
                   
-        # INDEPENDENT SEARCH FOR CS DATA (Scopus) - UPDATED: Now searching in CS.xlsx
-        if not state.cs_data.empty and not cs_metrics:  # Only search if not already found
-            print(f"🔍 Scopus search for: {normalized_issn}")
-            
-            # Apply normalization for CS data with improved empty value handling
-            def safe_normalize_cs_issn(issn_series):
-                try:
-                    return issn_series.apply(lambda x: 
-                        normalize_issn_for_comparison(x) 
-                        if pd.notna(x) and str(x).strip() != '' 
-                        else ""
-                    )
-                except Exception as e:
-                    print(f"Error normalizing CS ISSN: {e}")
-                    return pd.Series([""] * len(issn_series))
-            
-            # Search for matches in Print ISSN or E-ISSN columns
-            cs_match = state.cs_data[
-                (safe_normalize_cs_issn(state.cs_data['Print ISSN']) == normalized_issn) |
-                (safe_normalize_cs_issn(state.cs_data['E-ISSN']) == normalized_issn)
-            ]
-            
-            if not cs_match.empty:
-                print(f"✅ Found CS match: {len(cs_match)} records")
-                
-                # Improved handling of duplicates - take the best quartile (lowest number)
-                # Group by ISSN combinations to handle duplicates properly
-                cs_grouped = cs_match.groupby(['Print ISSN', 'E-ISSN']).agg({
-                    'CiteScore': 'first',  # Take first CiteScore (they should be the same)
-                    'Quartile': 'min'      # Take the best (lowest) quartile
-                }).reset_index()
-                
-                if not cs_grouped.empty:
-                    cs_metrics = {
-                        'citescore': cs_grouped.iloc[0]['CiteScore'],
-                        'quartile': cs_grouped.iloc[0]['Quartile']
-                    }
-                # NO BREAK - continue processing other ISSNs if needed
-
+        # Search in Scopus data - REMOVED
+        # CS data collection removed as requested
+    
     print(f"🎯 Final metrics - IF: {if_metrics}, CS: {cs_metrics}")
 
     return {
@@ -2145,21 +2095,9 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         elif isinstance(value, np.bool_):
             return bool(value)
         return value
-
-    def safe_str(value):
-        """Safely convert value to string, handling None and empty values"""
-        if value is None:
-            return ""
-        if isinstance(value, (int, float, bool)):
-            return str(value)
-        if isinstance(value, str):
-            return value
-        return str(value) if value is not None else ""
             
     try:
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-            sheets_created = 0
-            
             # Sheet 1: Analyzed articles (with optimization)
             analyzed_list = []
             MAX_ROWS = 50000  # Limit for large data
@@ -2194,7 +2132,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             if analyzed_list:
                 analyzed_df = pd.DataFrame(analyzed_list)
                 analyzed_df.to_excel(writer, sheet_name='Analyzed_Articles', index=False)
-                sheets_created += 1
 
             # Sheet 2: Citing works (with optimization)
             citing_list = []
@@ -2228,7 +2165,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             if citing_list:
                 citing_df = pd.DataFrame(citing_list)
                 citing_df.to_excel(writer, sheet_name='Citing_Works', index=False)
-                sheets_created += 1
 
             # Sheet 3: Overlaps between analyzed and citing works
             overlap_list = []
@@ -2245,7 +2181,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             if overlap_list:
                 overlap_df = pd.DataFrame(overlap_list)
                 overlap_df.to_excel(writer, sheet_name='Work_Overlaps', index=False)
-                sheets_created += 1
 
             # Sheet 4: Time to first citation
             first_citation_list = []
@@ -2261,7 +2196,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             if first_citation_list:
                 first_citation_df = pd.DataFrame(first_citation_list)
                 first_citation_df.to_excel(writer, sheet_name='First_Citations', index=False)
-                sheets_created += 1
 
             # Sheet 5: Analyzed articles statistics
             analyzed_stats_data = {
@@ -2326,7 +2260,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             }
             analyzed_stats_df = pd.DataFrame(analyzed_stats_data)
             analyzed_stats_df.to_excel(writer, sheet_name='Analyzed_Statistics', index=False)
-            sheets_created += 1
 
             # Sheet 6: Citing works statistics
             citing_stats_data = {
@@ -2383,7 +2316,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             }
             citing_stats_df = pd.DataFrame(citing_stats_data)
             citing_stats_df.to_excel(writer, sheet_name='Citing_Statistics', index=False)
-            sheets_created += 1
 
             # Sheet 7: Enhanced statistics
             enhanced_stats_data = {
@@ -2405,7 +2337,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             }
             enhanced_stats_df = pd.DataFrame(enhanced_stats_data)
             enhanced_stats_df.to_excel(writer, sheet_name='Enhanced_Statistics', index=False)
-            sheets_created += 1
 
             # Sheet 8: Citation timing
             citation_timing_data = {
@@ -2428,7 +2359,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             }
             citation_timing_df = pd.DataFrame(citation_timing_data)
             citation_timing_df.to_excel(writer, sheet_name='Citation_Timing', index=False)
-            sheets_created += 1
 
             # Sheet 9: Citations by year
             yearly_citations_data = []
@@ -2441,7 +2371,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             if yearly_citations_data:
                 yearly_citations_df = pd.DataFrame(yearly_citations_data)
                 yearly_citations_df.to_excel(writer, sheet_name='Citations_by_Year', index=False)
-                sheets_created += 1
 
             # Sheet 10: Citation accumulation curves
             accumulation_data = []
@@ -2456,7 +2385,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             if accumulation_data:
                 accumulation_df = pd.DataFrame(accumulation_data)
                 accumulation_df.to_excel(writer, sheet_name='Citation_Accumulation_Curves', index=False)
-                sheets_created += 1
 
             # Sheet 11: Citation network
             citation_network_data = []
@@ -2472,7 +2400,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             if citation_network_data:
                 citation_network_df = pd.DataFrame(citation_network_data)
                 citation_network_df.to_excel(writer, sheet_name='Citation_Network', index=False)
-                sheets_created += 1
 
             # Sheet 12: All authors analyzed (with percentages)
             if analyzed_stats['all_authors']:
@@ -2487,7 +2414,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     })
                 all_authors_df = pd.DataFrame(all_authors_data)
                 all_authors_df.to_excel(writer, sheet_name='All_Authors_Analyzed', index=False)
-                sheets_created += 1
 
             # Sheet 13: All authors citing (with percentages)
             if citing_stats['all_authors']:
@@ -2502,7 +2428,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     })
                 all_citing_authors_df = pd.DataFrame(all_citing_authors_data)
                 all_citing_authors_df.to_excel(writer, sheet_name='All_Authors_Citing', index=False)
-                sheets_created += 1
 
             # Sheet 14: All affiliations analyzed (with percentages)
             if analyzed_stats['all_affiliations']:
@@ -2517,7 +2442,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     })
                 all_affiliations_df = pd.DataFrame(all_affiliations_data)
                 all_affiliations_df.to_excel(writer, sheet_name='All_Affiliations_Analyzed', index=False)
-                sheets_created += 1
 
             # Sheet 15: All affiliations citing (with percentages)
             if citing_stats['all_affiliations']:
@@ -2532,7 +2456,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     })
                 all_citing_affiliations_df = pd.DataFrame(all_citing_affiliations_data)
                 all_citing_affiliations_df.to_excel(writer, sheet_name='All_Affiliations_Citing', index=False)
-                sheets_created += 1
 
             # Sheet 16: All countries analyzed (with percentages)
             if analyzed_stats['all_countries']:
@@ -2547,7 +2470,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     })
                 all_countries_df = pd.DataFrame(all_countries_data)
                 all_countries_df.to_excel(writer, sheet_name='All_Countries_Analyzed', index=False)
-                sheets_created += 1
 
             # Sheet 17: All countries citing (with percentages)
             if citing_stats['all_countries']:
@@ -2562,9 +2484,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     })
                 all_citing_countries_df = pd.DataFrame(all_citing_countries_data)
                 all_citing_countries_df.to_excel(writer, sheet_name='All_Countries_Citing', index=False)
-                sheets_created += 1
 
-            # Sheet 18: All journals citing (with percentages) - UPDATED VERSION WITH CS DATA
+            # Sheet 18: All journals citing (with percentages) - UPDATED VERSION WITHOUT CS DATA
             if citing_stats['all_journals']:
                 all_citing_journals_data = []
                 total_articles = citing_stats['n_items']
@@ -2593,14 +2514,13 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     # Remove duplicates
                     journal_issns = list(set(journal_issns))
                     
-                    # Get ISSNs for display - use safe_str to handle None values
-                    issn_1 = safe_str(journal_issns[0]) if len(journal_issns) > 0 else ""
-                    issn_2 = safe_str(journal_issns[1]) if len(journal_issns) > 1 else ""
+                    # Get ISSNs for display
+                    issn_1 = journal_issns[0] if len(journal_issns) > 0 else ""
+                    issn_2 = journal_issns[1] if len(journal_issns) > 1 else ""
                     
-                    # Get metrics for this journal - UPDATED WITH CS DATA
+                    # Get metrics for this journal - UPDATED WITHOUT CS DATA
                     metrics = get_journal_metrics(journal_issns)
                     
-                    # Use safe_str for all metric values to prevent NoneType errors
                     all_citing_journals_data.append({
                         'Journal': journal_name,
                         'ISSN_1': issn_1,
@@ -2608,15 +2528,13 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                         'Articles_Count': count,
                         'Percentage': round(percentage, 2),
                         '': '',  # Empty column
-                        'IF (WoS)': safe_str(metrics['if_metrics'].get('if', '')) if metrics['if_metrics'] else '',
-                        'Q(WoS)': safe_str(metrics['if_metrics'].get('quartile', '')) if metrics['if_metrics'] else '',
-                        'SC(Scopus)': safe_str(metrics['cs_metrics'].get('citescore', '')) if metrics['cs_metrics'] else '',
-                        'Q(Scopus)': safe_str(metrics['cs_metrics'].get('quartile', '')) if metrics['cs_metrics'] else ''
+                        'IF (WoS)': metrics['if_metrics'].get('if', '') if metrics['if_metrics'] else '',
+                        'Q(WoS)': metrics['if_metrics'].get('quartile', '') if metrics['if_metrics'] else ''
+                        # CS (Scopus) columns removed as requested
                     })
                 
                 all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
                 all_citing_journals_df.to_excel(writer, sheet_name='All_Journals_Citing', index=False)
-                sheets_created += 1
 
             # Sheet 19: All publishers citing (with percentages)
             if citing_stats['all_publishers']:
@@ -2631,7 +2549,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     })
                 all_citing_publishers_df = pd.DataFrame(all_citing_publishers_data)
                 all_citing_publishers_df.to_excel(writer, sheet_name='All_Publishers_Citing', index=False)
-                sheets_created += 1
 
             # Sheet 20: Fast metrics (NEW)
             fast_metrics_data = {
@@ -2688,7 +2605,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             }
             fast_metrics_df = pd.DataFrame(fast_metrics_data)
             fast_metrics_df.to_excel(writer, sheet_name='Fast_Metrics', index=False)
-            sheets_created += 1
 
             # Sheet 21: Top concepts (NEW)
             if fast_metrics.get('top_concepts'):
@@ -2698,7 +2614,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 }
                 top_concepts_df = pd.DataFrame(top_concepts_data)
                 top_concepts_df.to_excel(writer, sheet_name='Top_Concepts', index=False)
-                sheets_created += 1
+
+            # === REMOVED SHEETS: Reference_Year_Analysis, Reference_Age_Distribution, Reference_Age_Heatmap_Data, Reference_Publication ===
 
             # Sheet 22: Citation seasonality
             if 'citation_seasonality' in additional_data:
@@ -2721,7 +2638,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 if seasonality_data:
                     seasonality_df = pd.DataFrame(seasonality_data)
                     seasonality_df.to_excel(writer, sheet_name='Citation_Seasonality', index=False)
-                    sheets_created += 1
 
                 # Optimal publication months
                 if citation_seasonality['optimal_publication_months']:
@@ -2736,7 +2652,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     
                     optimal_months_df = pd.DataFrame(optimal_months_data)
                     optimal_months_df.to_excel(writer, sheet_name='Optimal_Publication_Months', index=False)
-                    sheets_created += 1
 
             # Sheet 23: Potential reviewers
             if 'potential_reviewers' in additional_data:
@@ -2755,7 +2670,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 if reviewers_data:
                     reviewers_df = pd.DataFrame(reviewers_data)
                     reviewers_df.to_excel(writer, sheet_name='Potential_Reviewers', index=False)
-                    sheets_created += 1
 
                 # Summary statistics
                 summary_data = {
@@ -2772,20 +2686,11 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 }
                 summary_df = pd.DataFrame(summary_data)
                 summary_df.to_excel(writer, sheet_name='Reviewer_Discovery_Summary', index=False)
-                sheets_created += 1
 
             # Ensure at least one sheet exists
-            if sheets_created == 0:
-                # Create a basic information sheet if no other sheets were created
-                error_df = pd.DataFrame({
-                    'Information': ['No data available for Excel report'],
-                    'Recommendation': ['Try adjusting your search parameters or check if the journal has publications in the selected period']
-                })
+            if len(writer.sheets) == 0:
+                error_df = pd.DataFrame({'Message': [translation_manager.get_text('no_data_for_report')]})
                 error_df.to_excel(writer, sheet_name='Information', index=False)
-                sheets_created += 1
-
-            # Force save to ensure the file is properly created
-            writer.close()
 
         excel_buffer.seek(0)
         return True
@@ -2803,8 +2708,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     'Recommendation': [translation_manager.get_text('try_reduce_data_or_period')]
                 })
                 error_df.to_excel(writer, sheet_name='Information', index=False)
-                # Force save
-                writer.close()
             
             excel_buffer.seek(0)
             st.warning(translation_manager.get_text('simplified_report_created'))
@@ -3908,4 +3811,3 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
-
