@@ -471,15 +471,28 @@ def get_citing_dois_and_metadata(args):
                     for w in data.get('results', []):
                         c_doi = w.get('doi')
                         if c_doi:
-                            if c_doi not in state.crossref_cache:
-                                get_crossref_metadata(c_doi, state)
-                            if c_doi not in state.openalex_cache:
-                                get_openalex_metadata(c_doi, state)
+                            # Get ISSN for citing works
+                            cr_data = get_crossref_metadata(c_doi, state)
+                            oa_data_citing = get_openalex_metadata(c_doi, state)
+                            
+                            # Extract ISSN from both sources
+                            issn_list = []
+                            if cr_data:
+                                issn_list.extend(cr_data.get('ISSN', []))
+                            if oa_data_citing and oa_data_citing.get('host_venue'):
+                                host_venue = oa_data_citing.get('host_venue', {})
+                                if host_venue.get('issn'):
+                                    if isinstance(host_venue['issn'], list):
+                                        issn_list.extend(host_venue['issn'])
+                                    else:
+                                        issn_list.append(host_venue['issn'])
+                            
                             citing_list.append({
                                 'doi': c_doi,
                                 'pub_date': w.get('publication_date'),
-                                'crossref': state.crossref_cache.get(c_doi),
-                                'openalex': state.openalex_cache.get(c_doi)
+                                'crossref': cr_data,
+                                'openalex': oa_data_citing,
+                                'issn': list(set(issn_list))  # Unique ISSNs
                             })
                     cursor = data['meta'].get('next_cursor')
                     delayer.wait(success=True)
@@ -778,6 +791,7 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
     
     journal_freq = Counter()
     publisher_freq = Counter()
+    journal_issn_freq = Counter()  # NEW: Track journals with ISSN
 
     for meta in metadata_list:
         if not meta:
@@ -821,8 +835,14 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
             
             journal_name = cr.get('container-title', [''])[0] if cr.get('container-title') else ''
             publisher = cr.get('publisher', '')
+            issn_list = cr.get('ISSN', [])
+            
             if journal_name:
-                journal_freq[journal_name] += 1
+                # NEW: Include ISSN in journal tracking
+                journal_key = f"{journal_name}"
+                if issn_list:
+                    journal_key += f" (ISSN: {', '.join(issn_list)})"
+                journal_freq[journal_key] += 1
             if publisher:
                 publisher_freq[publisher] += 1
 
@@ -852,8 +872,16 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
                 if host_venue:
                     journal_name = host_venue.get('display_name', '')
                     publisher = host_venue.get('publisher', '')
-                    if journal_name and journal_name not in journal_freq:
-                        journal_freq[journal_name] += 1
+                    issn_list = host_venue.get('issn', [])
+                    if isinstance(issn_list, str):
+                        issn_list = [issn_list]
+                    
+                    if journal_name:
+                        # NEW: Include ISSN in journal tracking
+                        journal_key = f"{journal_name}"
+                        if issn_list:
+                            journal_key += f" (ISSN: {', '.join(issn_list)})"
+                        journal_freq[journal_key] += 1
                     if publisher and publisher not in publisher_freq:
                         publisher_freq[publisher] += 1
                 
@@ -1896,113 +1924,6 @@ def get_reference_publication_year(ref, state):
     
     return ref_year
 
-def calculate_reference_year_analysis(analyzed_metadata, state):
-    """Calculate reference publication years in 5-year intervals starting from 1900"""
-    reference_years = []
-    reference_details = []
-    
-    for meta in analyzed_metadata:
-        cr = meta.get('crossref')
-        if not cr:
-            continue
-        
-        article_doi = cr.get('DOI', 'Unknown')
-        article_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
-            
-        for ref in cr.get('reference', []):
-            ref_year = get_reference_publication_year(ref, state)
-            
-            if ref_year and 1900 <= ref_year <= 2030:
-                reference_years.append(ref_year)
-                reference_details.append({
-                    'article_doi': article_doi,
-                    'article_year': article_year,
-                    'reference_doi': ref.get('DOI', ''),
-                    'reference_year': ref_year,
-                    'reference_title': ref.get('article-title', '') or ref.get('journal-title', '') or 'Unknown'
-                })
-    
-    # Create 5-year intervals
-    year_intervals = []
-    current_year = datetime.now().year
-    for start_year in range(1900, current_year + 10, 5):
-        end_year = start_year + 4
-        if end_year > current_year:
-            end_year = current_year
-        interval_count = len([y for y in reference_years if start_year <= y <= end_year])
-        year_intervals.append({
-            'interval': f"{start_year}-{end_year}",
-            'count': interval_count,
-            'percentage': round((interval_count / len(reference_years) * 100), 2) if reference_years else 0
-        })
-    
-    return year_intervals, reference_details
-
-def calculate_reference_age_distribution(analyzed_metadata, state):
-    """Calculate reference age distribution by categories: 1-3, 4-5, 6-10, >10 years"""
-    age_categories = {
-        '1-3_years': 0,
-        '4-5_years': 0, 
-        '6-10_years': 0,
-        'over_10_years': 0
-    }
-    
-    current_year = datetime.now().year
-    article_age_data = []
-    
-    for meta in analyzed_metadata:
-        cr = meta.get('crossref')
-        if not cr:
-            continue
-            
-        pub_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
-        if not pub_year:
-            continue
-            
-        article_ages = []
-        
-        for ref in cr.get('reference', []):
-            ref_year = get_reference_publication_year(ref, state)
-            
-            if ref_year and 1900 <= ref_year <= current_year:
-                age = current_year - ref_year
-                article_ages.append(age)
-                
-                # Categorize age
-                if age <= 3:
-                    age_categories['1-3_years'] = int(age_categories['1-3_years']) + 1
-                elif age <= 5:
-                    age_categories['4-5_years'] += 1
-                elif age <= 10:
-                    age_categories['6-10_years'] += 1
-                else:
-                    age_categories['over_10_years'] += 1
-        
-        # Store article-level data for heatmap
-        if article_ages:
-            article_age_data.append({
-                'doi': cr.get('DOI', ''),
-                'publication_year': pub_year,
-                'reference_count': len(article_ages),
-                'ages_1_3': len([a for a in article_ages if a <= 3]),
-                'ages_4_5': len([a for a in article_ages if 4 <= a <= 5]),
-                'ages_6_10': len([a for a in article_ages if 6 <= a <= 10]),
-                'ages_over_10': len([a for a in article_ages if a > 10])
-            })
-    
-    # Calculate percentages
-    total_refs = sum(age_categories.values())
-    age_categories_with_pct = {}
-    
-    for category, count in age_categories.items():
-        percentage = (count / total_refs * 100) if total_refs > 0 else 0
-        age_categories_with_pct[category] = {
-            'count': count,
-            'percentage': round(percentage, 2)
-        }
-    
-    return age_categories_with_pct, article_age_data
-
 def analyze_citation_seasonality(analyzed_metadata, state, median_days_to_first_citation):
     """Analyze citation seasonality and predict optimal publication months"""
     citation_months = Counter()
@@ -2516,14 +2437,14 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 all_citing_countries_df = pd.DataFrame(all_citing_countries_data)
                 all_citing_countries_df.to_excel(writer, sheet_name='All_Countries_Citing', index=False)
 
-            # Sheet 18: All journals citing (with percentages)
+            # Sheet 18: All journals citing (with percentages) - UPDATED WITH ISSN
             if citing_stats['all_journals']:
                 all_citing_journals_data = []
                 total_articles = citing_stats['n_items']
-                for journal, count in citing_stats['all_journals']:
+                for journal_with_issn, count in citing_stats['all_journals']:
                     percentage = (count / total_articles * 100) if total_articles > 0 else 0
                     all_citing_journals_data.append({
-                        'Journal': journal,
+                        'Journal': journal_with_issn,
                         'Articles_Count': count,
                         'Percentage': round(percentage, 2)
                     })
@@ -2611,70 +2532,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
 
             # === NEW SHEETS FOR ADDITIONAL FEATURES ===
 
-            # Sheet 22: Reference year analysis (NEW)
-            if 'reference_year_analysis' in additional_data:
-                ref_year_data = []
-                for interval_data in additional_data['reference_year_analysis']:
-                    ref_year_data.append({
-                        'Year_Interval': interval_data['interval'],
-                        'Reference_Count': interval_data['count'],
-                        'Percentage': interval_data['percentage']
-                    })
-                
-                if ref_year_data:
-                    ref_year_df = pd.DataFrame(ref_year_data)
-                    ref_year_df.to_excel(writer, sheet_name='Reference_Year_Analysis', index=False)
-
-            # Sheet 23: Reference age distribution
-            if 'reference_age_distribution' in additional_data:
-                ref_age_data = []
-                age_categories = additional_data['reference_age_distribution']
-                
-                for category, info in age_categories.items():
-                    ref_age_data.append({
-                        'Age_Category': category.replace('_', ' ').title(),
-                        'Count': info['count'],
-                        'Percentage': info['percentage']
-                    })
-                
-                if ref_age_data:
-                    ref_age_df = pd.DataFrame(ref_age_data)
-                    ref_age_df.to_excel(writer, sheet_name='Reference_Age_Distribution', index=False)
-
-            # Sheet 24: Reference age heatmap data
-            if 'article_age_data' in additional_data and additional_data['article_age_data']:
-                heatmap_data = []
-                for article in additional_data['article_age_data']:
-                    heatmap_data.append({
-                        'DOI': article['doi'],
-                        'Publication_Year': article['publication_year'],
-                        'Total_References': article['reference_count'],
-                        'References_1_3_Years': article['ages_1_3'],
-                        'References_4_5_Years': article['ages_4_5'],
-                        'References_6_10_Years': article['ages_6_10'],
-                        'References_Over_10_Years': article['ages_over_10']
-                    })
-                
-                heatmap_df = pd.DataFrame(heatmap_data)
-                heatmap_df.to_excel(writer, sheet_name='Reference_Age_Heatmap_Data', index=False)
-
-            # Sheet 25: Reference publication details (NEW)
-            if 'reference_details' in additional_data and additional_data['reference_details']:
-                ref_details_data = []
-                for ref in additional_data['reference_details']:
-                    ref_details_data.append({
-                        'Article_DOI': ref['article_doi'],
-                        'Article_Year': ref['article_year'],
-                        'Reference_DOI': ref['reference_doi'],
-                        'Reference_Year': ref['reference_year'],
-                        'Reference_Title': ref['reference_title']
-                    })
-                
-                if ref_details_data:
-                    ref_details_df = pd.DataFrame(ref_details_data)
-                    ref_details_df.to_excel(writer, sheet_name='Reference_Publication', index=False)
-
-            # Sheet 26: Citation seasonality
+            # Sheet 22: Citation seasonality
             if 'citation_seasonality' in additional_data:
                 seasonality_data = []
                 citation_seasonality = additional_data['citation_seasonality']
@@ -2710,7 +2568,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     optimal_months_df = pd.DataFrame(optimal_months_data)
                     optimal_months_df.to_excel(writer, sheet_name='Optimal_Publication_Months', index=False)
 
-            # Sheet 27: Potential reviewers
+            # Sheet 23: Potential reviewers
             if 'potential_reviewers' in additional_data:
                 reviewers_data = []
                 potential_reviewers_info = additional_data['potential_reviewers']
@@ -2779,7 +2637,7 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
     """Create visualizations for dashboard"""
     
     # Create tabs for different visualization types
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         translation_manager.get_text('tab_main_metrics'), 
         translation_manager.get_text('tab_authors_organizations'), 
         translation_manager.get_text('tab_geography'), 
@@ -2787,7 +2645,6 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
         translation_manager.get_text('tab_overlaps'),
         translation_manager.get_text('tab_citation_timing'),
         translation_manager.get_text('tab_fast_metrics'),
-        translation_manager.get_text('tab_reference_analysis'),
         translation_manager.get_text('tab_predictive_insights')
     ])
     
@@ -3246,57 +3103,6 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
                         st.progress(fast_metrics['DBI'])
 
     with tab8:
-        st.subheader("📚 Reference Age Analysis")
-        
-        if 'reference_age_distribution' in additional_data:
-            ref_age_data = additional_data['reference_age_distribution']
-            
-            # Display reference age distribution
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("1-3 Years", f"{ref_age_data['1-3_years']['count']} ({ref_age_data['1-3_years']['percentage']}%)")
-            with col2:
-                st.metric("4-5 Years", f"{ref_age_data['4-5_years']['count']} ({ref_age_data['4-5_years']['percentage']}%)")
-            with col3:
-                st.metric("6-10 Years", f"{ref_age_data['6-10_years']['count']} ({ref_age_data['6-10_years']['percentage']}%)")
-            with col4:
-                st.metric("Over 10 Years", f"{ref_age_data['over_10_years']['count']} ({ref_age_data['over_10_years']['percentage']}%)")
-            
-            # Reference age distribution chart
-            categories = ['1-3 Years', '4-5 Years', '6-10 Years', 'Over 10 Years']
-            counts = [ref_age_data['1-3_years']['count'], ref_age_data['4-5_years']['count'], 
-                     ref_age_data['6-10_years']['count'], ref_age_data['over_10_years']['count']]
-            percentages = [ref_age_data['1-3_years']['percentage'], ref_age_data['4-5_years']['percentage'],
-                          ref_age_data['6-10_years']['percentage'], ref_age_data['over_10_years']['percentage']]
-            
-            fig = px.pie(
-                values=counts,
-                names=categories,
-                title="Reference Age Distribution",
-                hover_data=[percentages],
-                labels={'value': 'Count', 'hover_data_0': 'Percentage'}
-            )
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Reference year analysis
-            if 'reference_year_analysis' in additional_data:
-                st.subheader("Reference Publication Year Analysis")
-                
-                ref_year_data = additional_data['reference_year_analysis']
-                intervals = [item['interval'] for item in ref_year_data]
-                counts = [item['count'] for item in ref_year_data]
-                
-                fig = px.bar(
-                    x=intervals,
-                    y=counts,
-                    title="References by Publication Year Intervals",
-                    labels={'x': 'Year Interval', 'y': 'Number of References'}
-                )
-                fig.update_layout(xaxis_tickangle=-45)
-                st.plotly_chart(fig, use_container_width=True)
-
-    with tab9:
         st.subheader("🔮 Predictive Insights & Recommendations")
         
         # Citation seasonality analysis
@@ -3506,20 +3312,14 @@ def analyze_journal(issn, period_str):
     # === NEW ADDITIONAL ANALYSES ===
     overall_status.text("Calculating additional insights...")
     
-    # 1. Reference year analysis (NEW)
-    reference_year_analysis, reference_details = calculate_reference_year_analysis(analyzed_metadata, state)
-    
-    # 2. Reference age distribution and heatmap data
-    reference_age_distribution, article_age_data = calculate_reference_age_distribution(analyzed_metadata, state)
-    
-    # 3. Citation seasonality analysis
+    # Citation seasonality analysis
     citation_seasonality = analyze_citation_seasonality(
         analyzed_metadata, 
         state, 
         citation_timing['days_median']
     )
     
-    # 4. Potential reviewer discovery
+    # Potential reviewer discovery
     potential_reviewers = find_potential_reviewers(
         analyzed_metadata, 
         all_citing_metadata, 
@@ -3529,10 +3329,6 @@ def analyze_journal(issn, period_str):
     
     # Combine all additional data
     additional_data = {
-        'reference_year_analysis': reference_year_analysis,
-        'reference_details': reference_details,
-        'reference_age_distribution': reference_age_distribution,
-        'article_age_data': article_age_data,
         'citation_seasonality': citation_seasonality,
         'potential_reviewers': potential_reviewers
     }
@@ -3684,8 +3480,6 @@ def main():
                 "- " + translation_manager.get_text('capability_6') + "\n" +
                 "- " + translation_manager.get_text('capability_7') + "\n" +
                 "- " + translation_manager.get_text('capability_8') + "\n" +
-                "- **NEW:** Reference publication year analysis\n" +
-                "- **NEW:** Reference age distribution and heatmaps\n" +
                 "- **NEW:** Citation seasonality and optimal publication timing\n" +
                 "- **NEW:** Potential reviewer discovery")
         
@@ -3881,33 +3675,6 @@ def main():
             additional_data = results.get('additional_data', {})
             
             if additional_data:
-                # Reference year analysis
-                if 'reference_year_analysis' in additional_data:
-                    st.subheader("📚 Reference Publication Year Analysis")
-                    
-                    ref_year = additional_data['reference_year_analysis']
-                    
-                    # Display top intervals
-                    top_intervals = ref_year[:10]
-                    for interval in top_intervals:
-                        st.write(f"**{interval['interval']}**: {interval['count']} references ({interval['percentage']}%)")
-                
-                # Reference age analysis
-                if 'reference_age_distribution' in additional_data:
-                    st.subheader("📊 Reference Age Distribution")
-                    
-                    ref_age = additional_data['reference_age_distribution']
-                    
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("1-3 Years", f"{ref_age['1-3_years']['count']}", f"{ref_age['1-3_years']['percentage']}%")
-                    with col2:
-                        st.metric("4-5 Years", f"{ref_age['4-5_years']['count']}", f"{ref_age['4-5_years']['percentage']}%")
-                    with col3:
-                        st.metric("6-10 Years", f"{ref_age['6-10_years']['count']}", f"{ref_age['6-10_years']['percentage']}%")
-                    with col4:
-                        st.metric("Over 10 Years", f"{ref_age['over_10_years']['count']}", f"{ref_age['over_10_years']['percentage']}%")
-                
                 # Citation seasonality
                 if 'citation_seasonality' in additional_data:
                     st.subheader("📅 Citation Seasonality")
