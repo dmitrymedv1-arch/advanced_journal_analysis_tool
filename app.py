@@ -3675,7 +3675,7 @@ def main():
             options=list(translation_manager.languages.keys()),
             format_func=lambda x: translation_manager.languages[x],
             index=0,  # English by default
-            key="language_selector"
+            key="sidebar_language_selector"
         )
         translation_manager.set_language(selected_language)
     
@@ -3690,13 +3690,15 @@ def main():
         issn = st.text_input(
             translation_manager.get_text('journal_issn'),
             value="2411-1414",
-            help=glossary.get_tooltip('ISSN')
+            help=glossary.get_tooltip('ISSN'),
+            key="sidebar_issn_input"
         )
         
         period = st.text_input(
             translation_manager.get_text('analysis_period'),
             value="2022-2024",
-            help=translation_manager.get_text('period_examples')
+            help=translation_manager.get_text('period_examples'),
+            key="sidebar_period_input"
         )
         
         st.markdown("---")
@@ -3708,7 +3710,7 @@ def main():
             options=[""] + list(glossary.terms.keys()),
             format_func=lambda x: translation_manager.get_text('choose_term') if x == "" else f"{x} ({glossary.terms[x]['category']})",
             help=translation_manager.get_text('study_metric_meanings'),
-            key="term_search_selector"
+            key="sidebar_term_search_selector
         )
         
         if search_term:
@@ -3726,7 +3728,7 @@ def main():
                     st.toast(translation_manager.get_text('learned_term_toast').format(term=search_term), icon="🎯")
                 
                 # "I understood" button
-                if st.button(translation_manager.get_text('term_understood'), key=f"understand_{search_term}"):
+                if st.button(translation_manager.get_text('term_understood'), key=f"sidebar_understand_{search_term}"):
                     if search_term not in st.session_state.learned_terms:
                         st.session_state.learned_terms.add(search_term)
                         st.success(translation_manager.get_text('term_added_success').format(term=search_term))
@@ -3778,7 +3780,7 @@ def main():
     with col1:
         st.subheader("🚀 " + translation_manager.get_text('start_analysis'))
         
-        if st.button(translation_manager.get_text('start_analysis'), type="primary", use_container_width=True, key="start_analysis_button"):
+        if st.button(translation_manager.get_text('start_analysis'), type="primary", use_container_width=True, key="main_start_analysis_button"):
             if not issn:
                 st.error(translation_manager.get_text('issn_required'))
                 return
@@ -3801,7 +3803,8 @@ def main():
                 data=state.excel_buffer,
                 file_name=f"journal_analysis_{results['issn']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
+                use_container_width=True,
+                key="main_download_button"
             )
     
     # Results display
@@ -4015,6 +4018,7 @@ def main():
 if __name__ == "__main__":
     main()
     main()
+
 
 
 
