@@ -2106,6 +2106,80 @@ def find_potential_reviewers(analyzed_metadata, citing_metadata, overlap_details
         'total_potential_reviewers': len(potential_reviewers)
     }
 
+def safe_create_journal_data(journal_info, citing_data, total_articles):
+    """Безопасное создание данных для журнала с обработкой None"""
+    try:
+        journal_name = journal_info[0] if journal_info and len(journal_info) > 0 else "Unknown Journal"
+        count = journal_info[1] if journal_info and len(journal_info) > 1 else 0
+        
+        # Безопасный расчет процента
+        percentage = 0
+        if total_articles and total_articles > 0:
+            try:
+                percentage = round((count / total_articles * 100), 2)
+            except:
+                percentage = 0
+        
+        # Extract ISSNs for this journal from citing data
+        journal_issns = []
+        for citing_item in citing_data:
+            if citing_item and citing_item.get('crossref'):
+                cr = citing_item['crossref']
+                container_title = ""
+                try:
+                    container_title = cr.get('container-title', [''])[0] if cr.get('container-title') else ''
+                except:
+                    container_title = ''
+                
+                if container_title == journal_name:
+                    issns = cr.get('ISSN', [])
+                    if isinstance(issns, str):
+                        issns = [issns]
+                    # ФИЛЬТРУЕМ None ЗНАЧЕНИЯ и пустые строки
+                    journal_issns.extend([str(issn) for issn in issns if issn is not None and str(issn).strip()])
+        
+        # Remove duplicates and filter None values
+        journal_issns = list(set([issn for issn in journal_issns if issn is not None and str(issn).strip()]))
+        
+        # Get ISSNs for display with safe defaults
+        issn_1 = journal_issns[0] if len(journal_issns) > 0 else ""
+        issn_2 = journal_issns[1] if len(journal_issns) > 1 else ""
+        
+        # Get metrics for this journal
+        metrics = get_journal_metrics(journal_issns)
+        
+        # Безопасное извлечение метрик
+        if_metrics = metrics.get('if_metrics', {})
+        cs_metrics = metrics.get('cs_metrics', {})
+        
+        return {
+            'Journal': str(journal_name) if journal_name else "Unknown",
+            'ISSN_1': str(issn_1) if issn_1 else "",
+            'ISSN_2': str(issn_2) if issn_2 else "",
+            'Articles_Count': int(count) if count else 0,
+            'Percentage': float(percentage) if percentage else 0.0,
+            '': '',  # Empty column
+            'IF (WoS)': str(if_metrics.get('if', '')) if if_metrics and if_metrics.get('if') else '',
+            'Q(WoS)': str(if_metrics.get('quartile', '')) if if_metrics and if_metrics.get('quartile') else '',
+            'SC(Scopus)': str(cs_metrics.get('citescore', '')) if cs_metrics and cs_metrics.get('citescore') else '',
+            'Q(Scopus)': str(cs_metrics.get('quartile', '')) if cs_metrics and cs_metrics.get('quartile') else ''
+        }
+    except Exception as e:
+        print(f"❌ Error creating journal data for {journal_info}: {e}")
+        # Возвращаем безопасные значения по умолчанию
+        return {
+            'Journal': "Error",
+            'ISSN_1': "",
+            'ISSN_2': "", 
+            'Articles_Count': 0,
+            'Percentage': 0.0,
+            '': '',
+            'IF (WoS)': '',
+            'Q(WoS)': '',
+            'SC(Scopus)': '',
+            'Q(Scopus)': ''
+        }
+        
 # === 17. Enhanced Excel Report Creation ===
 def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer, additional_data):
     """Create enhanced Excel report with error handling for large data"""
@@ -2522,49 +2596,27 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 if get_analysis_state().if_data is None or get_analysis_state().cs_data is None:
                     load_metrics_data()
                 
-                for journal_info in citing_stats['all_journals']:
-                    journal_name = journal_info[0]
-                    count = journal_info[1]
-                    percentage = (count / total_articles * 100) if total_articles > 0 else 0
-                    
-                    # Extract ISSNs for this journal from citing data
-                    journal_issns = []
-                    for citing_item in citing_data:
-                        if citing_item and citing_item.get('crossref'):
-                            cr = citing_item['crossref']
-                            container_title = cr.get('container-title', [''])[0] if cr.get('container-title') else ''
-                            if container_title == journal_name:
-                                issns = cr.get('ISSN', [])
-                                if isinstance(issns, str):
-                                    issns = [issns]
-                                # ФИЛЬТРУЕМ None ЗНАЧЕНИЯ
-                                journal_issns.extend([issn for issn in issns if issn is not None])
-                    
-                    # Remove duplicates and filter None values
-                    journal_issns = list(set([issn for issn in journal_issns if issn is not None]))
-                    
-                    # Get ISSNs for display with safe defaults
-                    issn_1 = journal_issns[0] if len(journal_issns) > 0 else ""
-                    issn_2 = journal_issns[1] if len(journal_issns) > 1 else ""
-                    
-                    # Get metrics for this journal
-                    metrics = get_journal_metrics(journal_issns)
-                    
-                    all_citing_journals_data.append({
-                        'Journal': journal_name,
-                        'ISSN_1': issn_1,
-                        'ISSN_2': issn_2,
-                        'Articles_Count': count,
-                        'Percentage': round(percentage, 2),
-                        '': '',  # Empty column
-                        'IF (WoS)': metrics['if_metrics'].get('if', '') if metrics['if_metrics'] else '',
-                        'Q(WoS)': metrics['if_metrics'].get('quartile', '') if metrics['if_metrics'] else '',
-                        'SC(Scopus)': metrics['cs_metrics'].get('citescore', '') if metrics['cs_metrics'] else '',
-                        'Q(Scopus)': metrics['cs_metrics'].get('quartile', '') if metrics['cs_metrics'] else ''
-                    })
+                print(f"🔍 Processing {len(citing_stats['all_journals'])} journals for All_Journals_Citing")
                 
-                all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
-                all_citing_journals_df.to_excel(writer, sheet_name='All_Journals_Citing', index=False)          
+                for i, journal_info in enumerate(citing_stats['all_journals']):
+                    try:
+                        journal_data = safe_create_journal_data(journal_info, citing_data, total_articles)
+                        all_citing_journals_data.append(journal_data)
+                        
+                        if i < 5:  # Логируем первые 5 для отладки
+                            print(f"   Journal {i+1}: {journal_data['Journal']} - ISSNs: {journal_data['ISSN_1']}, {journal_data['ISSN_2']}")
+                            
+                    except Exception as e:
+                        print(f"❌ Error processing journal {i}: {journal_info} - {e}")
+                        continue
+                
+                if all_citing_journals_data:
+                    try:
+                        all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
+                        all_citing_journals_df.to_excel(writer, sheet_name='All_Journals_Citing', index=False)
+                        print(f"✅ Successfully created All_Journals_Citing with {len(all_citing_journals_data)} records")
+                    except Exception as e:
+                        print(f"❌ Error creating All_Journals_Citing DataFrame: {e}")         
 
             # Sheet 19: All publishers citing (with percentages)
             if citing_stats['all_publishers']:
@@ -3841,6 +3893,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
