@@ -2537,16 +2537,17 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                                 issns = cr.get('ISSN', [])
                                 if isinstance(issns, str):
                                     issns = [issns]
-                                journal_issns.extend(issns)
+                                # ФИЛЬТРУЕМ None ЗНАЧЕНИЯ
+                                journal_issns.extend([issn for issn in issns if issn is not None])
                     
-                    # Remove duplicates
-                    journal_issns = list(set(journal_issns))
+                    # Remove duplicates and filter None values
+                    journal_issns = list(set([issn for issn in journal_issns if issn is not None]))
                     
-                    # Get ISSNs for display
+                    # Get ISSNs for display with safe defaults
                     issn_1 = journal_issns[0] if len(journal_issns) > 0 else ""
                     issn_2 = journal_issns[1] if len(journal_issns) > 1 else ""
                     
-                    # Get metrics for this journal - UPDATED WITH CS DATA
+                    # Get metrics for this journal
                     metrics = get_journal_metrics(journal_issns)
                     
                     all_citing_journals_data.append({
@@ -2563,7 +2564,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     })
                 
                 all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
-                all_citing_journals_df.to_excel(writer, sheet_name='All_Journals_Citing', index=False)
+                all_citing_journals_df.to_excel(writer, sheet_name='All_Journals_Citing', index=False)          
 
             # Sheet 19: All publishers citing (with percentages)
             if citing_stats['all_publishers']:
@@ -3840,6 +3841,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
