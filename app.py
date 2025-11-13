@@ -471,7 +471,6 @@ def get_citing_dois_and_metadata(args):
                     for w in data.get('results', []):
                         c_doi = w.get('doi')
                         if c_doi:
-                            # Get full metadata for citing work to extract ISSN
                             if c_doi not in state.crossref_cache:
                                 get_crossref_metadata(c_doi, state)
                             if c_doi not in state.openalex_cache:
@@ -779,7 +778,6 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
     
     journal_freq = Counter()
     publisher_freq = Counter()
-    journal_issn_freq = Counter()  # NEW: For storing journal ISSNs
 
     for meta in metadata_list:
         if not meta:
@@ -823,15 +821,8 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
             
             journal_name = cr.get('container-title', [''])[0] if cr.get('container-title') else ''
             publisher = cr.get('publisher', '')
-            journal_issns = cr.get('ISSN', [])
-            
             if journal_name:
                 journal_freq[journal_name] += 1
-                # NEW: Store ISSN for each journal
-                if journal_issns:
-                    # Create a unique key combining journal name and ISSNs
-                    issn_key = f"{journal_name} [ISSN: {', '.join(journal_issns)}]"
-                    journal_issn_freq[issn_key] += 1
             if publisher:
                 publisher_freq[publisher] += 1
 
@@ -861,14 +852,8 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
                 if host_venue:
                     journal_name = host_venue.get('display_name', '')
                     publisher = host_venue.get('publisher', '')
-                    journal_issns = host_venue.get('issn', [])
-                    
                     if journal_name and journal_name not in journal_freq:
                         journal_freq[journal_name] += 1
-                        # NEW: Store ISSN for each journal from OpenAlex
-                        if journal_issns:
-                            issn_key = f"{journal_name} [ISSN: {', '.join(journal_issns)}]"
-                            journal_issn_freq[issn_key] += 1
                     if publisher and publisher not in publisher_freq:
                         publisher_freq[publisher] += 1
                 
@@ -914,7 +899,6 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
 
     all_journals_sorted = journal_freq.most_common()
     all_publishers_sorted = publisher_freq.most_common()
-    all_journals_with_issn_sorted = journal_issn_freq.most_common()  # NEW: Journals with ISSN
 
     return {
         'n_items': n_items,
@@ -948,7 +932,6 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
         'unique_countries_count': len(set(all_countries)),
         'all_journals': all_journals_sorted,
         'all_publishers': all_publishers_sorted,
-        'all_journals_with_issn': all_journals_with_issn_sorted,  # NEW: Return journals with ISSN
         'unique_journals_count': len(journal_freq),
         'unique_publishers_count': len(publisher_freq)
     }
@@ -1077,207 +1060,6 @@ def calculate_citation_timing(analyzed_metadata, state):
         'total_years_covered': accumulation_stats['total_years_covered']
     }
 
-# === NEW FUNCTIONS: REFERENCE YEAR ANALYSIS WITH COMPLETE DOI PROCESSING ===
-
-def get_reference_publication_year_complete(ref, state):
-    """Get publication year for a reference using multiple methods with Crossref API calls"""
-    ref_year = None
-    
-    # Method 1: Try to get year from reference directly
-    if 'year' in ref:
-        try:
-            ref_year = int(ref['year'])
-            if 1900 <= ref_year <= 2030:
-                return ref_year
-        except:
-            pass
-    
-    # Method 2: Try to get year from Crossref using DOI (with API call if not in cache)
-    doi = ref.get('DOI')
-    if doi:
-        # Check if we already have this DOI in cache
-        if doi not in state.crossref_cache:
-            # Fetch metadata from Crossref API
-            cr_data = get_crossref_metadata(doi, state)
-            if cr_data:
-                date_parts = cr_data.get('published', {}).get('date-parts', [[0]])[0]
-                if date_parts and date_parts[0] and 1900 <= date_parts[0] <= 2030:
-                    return date_parts[0]
-        else:
-            # Use cached data
-            cached = state.crossref_cache[doi]
-            date_parts = cached.get('published', {}).get('date-parts', [[0]])[0]
-            if date_parts and date_parts[0] and 1900 <= date_parts[0] <= 2030:
-                return date_parts[0]
-    
-    # Method 3: Try to extract year from unstructured fields
-    for field in ['article-title', 'journal-title', 'unstructured']:
-        if field in ref and ref[field]:
-            # Look for 4-digit years in the text
-            year_match = re.search(r'\b(19|20)\d{2}\b', str(ref[field]))
-            if year_match:
-                try:
-                    ref_year = int(year_match.group())
-                    if 1900 <= ref_year <= 2030:
-                        return ref_year
-                except:
-                    pass
-    
-    return ref_year
-
-def calculate_reference_year_analysis(analyzed_metadata, state):
-    """Calculate reference publication years in 5-year intervals starting from 1900 with complete DOI processing"""
-    reference_years = []
-    reference_details = []
-    processed_dois = set()
-    
-    # First pass: Process all references with DOI to ensure we have their metadata
-    dois_to_fetch = set()
-    
-    for meta in analyzed_metadata:
-        cr = meta.get('crossref')
-        if not cr:
-            continue
-        
-        for ref in cr.get('reference', []):
-            ref_doi = ref.get('DOI')
-            if ref_doi and ref_doi not in state.crossref_cache and ref_doi not in processed_dois:
-                dois_to_fetch.add(ref_doi)
-                processed_dois.add(ref_doi)
-    
-    # Fetch metadata for all references with DOI in parallel
-    if dois_to_fetch:
-        st.info(f"📚 Fetching metadata for {len(dois_to_fetch)} references with DOI...")
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        dois_list = list(dois_to_fetch)
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            futures = {executor.submit(get_crossref_metadata, doi, state): doi for doi in dois_list}
-            
-            for i, future in enumerate(as_completed(futures)):
-                try:
-                    future.result()  # We just need to trigger the API call, result is cached
-                except:
-                    pass  # Continue even if some fail
-                
-                progress = (i + 1) / len(dois_list)
-                progress_bar.progress(progress)
-                status_text.text(f"Fetching reference metadata: {i + 1}/{len(dois_list)}")
-        
-        progress_bar.empty()
-        status_text.empty()
-    
-    # Second pass: Analyze all references with complete metadata
-    for meta in analyzed_metadata:
-        cr = meta.get('crossref')
-        if not cr:
-            continue
-        
-        article_doi = cr.get('DOI', 'Unknown')
-        article_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
-            
-        for ref in cr.get('reference', []):
-            ref_year = get_reference_publication_year_complete(ref, state)
-            
-            if ref_year and 1900 <= ref_year <= 2030:
-                reference_years.append(ref_year)
-                reference_details.append({
-                    'article_doi': article_doi,
-                    'article_year': article_year,
-                    'reference_doi': ref.get('DOI', ''),
-                    'reference_year': ref_year,
-                    'reference_title': ref.get('article-title', '') or ref.get('journal-title', '') or ref.get('unstructured', '') or 'Unknown',
-                    'has_doi': bool(ref.get('DOI'))
-                })
-    
-    # Create 5-year intervals
-    year_intervals = []
-    current_year = datetime.now().year
-    for start_year in range(1900, current_year + 10, 5):
-        end_year = start_year + 4
-        if end_year > current_year:
-            end_year = current_year
-        interval_count = len([y for y in reference_years if start_year <= y <= end_year])
-        year_intervals.append({
-            'interval': f"{start_year}-{end_year}",
-            'count': interval_count,
-            'percentage': round((interval_count / len(reference_years) * 100), 2) if reference_years else 0
-        })
-    
-    # Statistics about reference processing
-    refs_with_doi = len([ref for ref in reference_details if ref['has_doi']])
-    refs_with_year = len(reference_details)
-    
-    st.success(f"✅ Processed {len(reference_details)} references with publication years ({refs_with_doi} with DOI)")
-    
-    return year_intervals, reference_details
-
-def calculate_reference_age_distribution(analyzed_metadata, state):
-    """Calculate reference age distribution by categories: 1-3, 4-5, 6-10, >10 years"""
-    age_categories = {
-        '1-3_years': 0,
-        '4-5_years': 0, 
-        '6-10_years': 0,
-        'over_10_years': 0
-    }
-    
-    current_year = datetime.now().year
-    article_age_data = []
-    
-    for meta in analyzed_metadata:
-        cr = meta.get('crossref')
-        if not cr:
-            continue
-            
-        pub_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
-        if not pub_year:
-            continue
-            
-        article_ages = []
-        
-        for ref in cr.get('reference', []):
-            ref_year = get_reference_publication_year_complete(ref, state)
-            
-            if ref_year and 1900 <= ref_year <= current_year:
-                age = current_year - ref_year
-                article_ages.append(age)
-                
-                # Categorize age
-                if age <= 3:
-                    age_categories['1-3_years'] = int(age_categories['1-3_years']) + 1
-                elif age <= 5:
-                    age_categories['4-5_years'] += 1
-                elif age <= 10:
-                    age_categories['6-10_years'] += 1
-                else:
-                    age_categories['over_10_years'] += 1
-        
-        # Store article-level data for heatmap
-        if article_ages:
-            article_age_data.append({
-                'doi': cr.get('DOI', ''),
-                'publication_year': pub_year,
-                'reference_count': len(article_ages),
-                'ages_1_3': len([a for a in article_ages if a <= 3]),
-                'ages_4_5': len([a for a in article_ages if 4 <= a <= 5]),
-                'ages_6_10': len([a for a in article_ages if 6 <= a <= 10]),
-                'ages_over_10': len([a for a in article_ages if a > 10])
-            })
-    
-    # Calculate percentages
-    total_refs = sum(age_categories.values())
-    age_categories_with_pct = {}
-    
-    for category, count in age_categories.items():
-        percentage = (count / total_refs * 100) if total_refs > 0 else 0
-        age_categories_with_pct[category] = {
-            'count': count,
-            'percentage': round(percentage, 2)
-        }
-    
-    return age_categories_with_pct, article_age_data
-
 # === NEW FUNCTIONS: FAST METRICS WITHOUT API REQUESTS ===
 
 def calculate_reference_age_fast(analyzed_metadata, state):
@@ -1295,9 +1077,24 @@ def calculate_reference_age_fast(analyzed_metadata, state):
             continue
         
         for ref in cr.get('reference', []):
-            ref_year = get_reference_publication_year_complete(ref, state)
-            if ref_year and 1900 <= ref_year <= current_year:
-                ref_ages.append(current_year - ref_year)
+            # 1. Try year from unstructured
+            if 'year' in ref:
+                try:
+                    ref_year = int(ref['year'])
+                    if 1900 <= ref_year <= current_year + 1:
+                        ref_ages.append(current_year - ref_year)
+                        continue
+                except: 
+                    pass
+            
+            # 2. Try DOI from cache (already loaded!)
+            doi = ref.get('DOI')
+            if doi and doi in state.crossref_cache:
+                cached = state.crossref_cache[doi]
+                date_parts = cached.get('published', {}).get('date-parts', [[0]])[0]
+                if date_parts and date_parts[0]:
+                    ref_year = date_parts[0]
+                    ref_ages.append(current_year - ref_year)
     
     if not ref_ages: 
         return {
@@ -2076,6 +1873,136 @@ def is_valid_value(value):
 
 # === NEW FUNCTIONS FOR ADDITIONAL FEATURES ===
 
+def get_reference_publication_year(ref, state):
+    """Get publication year for a reference using DOI from Crossref"""
+    ref_year = None
+    
+    # Try to get year from reference directly
+    if 'year' in ref:
+        try:
+            ref_year = int(ref['year'])
+            if 1900 <= ref_year <= 2030:
+                return ref_year
+        except:
+            pass
+    
+    # Try to get year from Crossref using DOI
+    doi = ref.get('DOI')
+    if doi and doi in state.crossref_cache:
+        cached = state.crossref_cache[doi]
+        date_parts = cached.get('published', {}).get('date-parts', [[0]])[0]
+        if date_parts and date_parts[0] and 1900 <= date_parts[0] <= 2030:
+            return date_parts[0]
+    
+    return ref_year
+
+def calculate_reference_year_analysis(analyzed_metadata, state):
+    """Calculate reference publication years in 5-year intervals starting from 1900"""
+    reference_years = []
+    reference_details = []
+    
+    for meta in analyzed_metadata:
+        cr = meta.get('crossref')
+        if not cr:
+            continue
+        
+        article_doi = cr.get('DOI', 'Unknown')
+        article_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
+            
+        for ref in cr.get('reference', []):
+            ref_year = get_reference_publication_year(ref, state)
+            
+            if ref_year and 1900 <= ref_year <= 2030:
+                reference_years.append(ref_year)
+                reference_details.append({
+                    'article_doi': article_doi,
+                    'article_year': article_year,
+                    'reference_doi': ref.get('DOI', ''),
+                    'reference_year': ref_year,
+                    'reference_title': ref.get('article-title', '') or ref.get('journal-title', '') or 'Unknown'
+                })
+    
+    # Create 5-year intervals
+    year_intervals = []
+    current_year = datetime.now().year
+    for start_year in range(1900, current_year + 10, 5):
+        end_year = start_year + 4
+        if end_year > current_year:
+            end_year = current_year
+        interval_count = len([y for y in reference_years if start_year <= y <= end_year])
+        year_intervals.append({
+            'interval': f"{start_year}-{end_year}",
+            'count': interval_count,
+            'percentage': round((interval_count / len(reference_years) * 100), 2) if reference_years else 0
+        })
+    
+    return year_intervals, reference_details
+
+def calculate_reference_age_distribution(analyzed_metadata, state):
+    """Calculate reference age distribution by categories: 1-3, 4-5, 6-10, >10 years"""
+    age_categories = {
+        '1-3_years': 0,
+        '4-5_years': 0, 
+        '6-10_years': 0,
+        'over_10_years': 0
+    }
+    
+    current_year = datetime.now().year
+    article_age_data = []
+    
+    for meta in analyzed_metadata:
+        cr = meta.get('crossref')
+        if not cr:
+            continue
+            
+        pub_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
+        if not pub_year:
+            continue
+            
+        article_ages = []
+        
+        for ref in cr.get('reference', []):
+            ref_year = get_reference_publication_year(ref, state)
+            
+            if ref_year and 1900 <= ref_year <= current_year:
+                age = current_year - ref_year
+                article_ages.append(age)
+                
+                # Categorize age
+                if age <= 3:
+                    age_categories['1-3_years'] = int(age_categories['1-3_years']) + 1
+                elif age <= 5:
+                    age_categories['4-5_years'] += 1
+                elif age <= 10:
+                    age_categories['6-10_years'] += 1
+                else:
+                    age_categories['over_10_years'] += 1
+        
+        # Store article-level data for heatmap
+        if article_ages:
+            article_age_data.append({
+                'doi': cr.get('DOI', ''),
+                'publication_year': pub_year,
+                'reference_count': len(article_ages),
+                'ages_1_3': len([a for a in article_ages if a <= 3]),
+                'ages_4_5': len([a for a in article_ages if 4 <= a <= 5]),
+                'ages_6_10': len([a for a in article_ages if 6 <= a <= 10]),
+                'ages_over_10': len([a for a in article_ages if a > 10])
+            })
+    
+    # Calculate percentages
+    total_refs = sum(age_categories.values())
+    age_categories_with_pct = {}
+    
+    for category, count in age_categories.items():
+        percentage = (count / total_refs * 100) if total_refs > 0 else 0
+        age_categories_with_pct[category] = {
+            'count': count,
+            'percentage': round(percentage, 2)
+        }
+    
+    return age_categories_with_pct, article_age_data
+
 def analyze_citation_seasonality(analyzed_metadata, state, median_days_to_first_citation):
     """Analyze citation seasonality and predict optimal publication months"""
     citation_months = Counter()
@@ -2589,14 +2516,14 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 all_citing_countries_df = pd.DataFrame(all_citing_countries_data)
                 all_citing_countries_df.to_excel(writer, sheet_name='All_Countries_Citing', index=False)
 
-            # Sheet 18: All journals citing (with percentages and ISSN) - UPDATED
-            if citing_stats['all_journals_with_issn']:
+            # Sheet 18: All journals citing (with percentages)
+            if citing_stats['all_journals']:
                 all_citing_journals_data = []
                 total_articles = citing_stats['n_items']
-                for journal_with_issn, count in citing_stats['all_journals_with_issn']:
+                for journal, count in citing_stats['all_journals']:
                     percentage = (count / total_articles * 100) if total_articles > 0 else 0
                     all_citing_journals_data.append({
-                        'Journal': journal_with_issn,
+                        'Journal': journal,
                         'Articles_Count': count,
                         'Percentage': round(percentage, 2)
                     })
@@ -2684,7 +2611,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
 
             # === NEW SHEETS FOR ADDITIONAL FEATURES ===
 
-            # Sheet 22: Reference year analysis (NEW) - UPDATED
+            # Sheet 22: Reference year analysis (NEW)
             if 'reference_year_analysis' in additional_data:
                 ref_year_data = []
                 for interval_data in additional_data['reference_year_analysis']:
@@ -2731,7 +2658,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 heatmap_df = pd.DataFrame(heatmap_data)
                 heatmap_df.to_excel(writer, sheet_name='Reference_Age_Heatmap_Data', index=False)
 
-            # Sheet 25: Reference publication details (NEW) - UPDATED
+            # Sheet 25: Reference publication details (NEW)
             if 'reference_details' in additional_data and additional_data['reference_details']:
                 ref_details_data = []
                 for ref in additional_data['reference_details']:
@@ -2740,8 +2667,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                         'Article_Year': ref['article_year'],
                         'Reference_DOI': ref['reference_doi'],
                         'Reference_Year': ref['reference_year'],
-                        'Reference_Title': ref['reference_title'],
-                        'Has_DOI': 'Yes' if ref['has_doi'] else 'No'
+                        'Reference_Title': ref['reference_title']
                     })
                 
                 if ref_details_data:
@@ -3580,7 +3506,7 @@ def analyze_journal(issn, period_str):
     # === NEW ADDITIONAL ANALYSES ===
     overall_status.text("Calculating additional insights...")
     
-    # 1. Reference year analysis (NEW) - UPDATED with complete DOI processing
+    # 1. Reference year analysis (NEW)
     reference_year_analysis, reference_details = calculate_reference_year_analysis(analyzed_metadata, state)
     
     # 2. Reference age distribution and heatmap data
@@ -3674,8 +3600,7 @@ def main():
             "Select language:",
             options=list(translation_manager.languages.keys()),
             format_func=lambda x: translation_manager.languages[x],
-            index=0,  # English by default
-            key="sidebar_language_selector"
+            index=0  # English by default
         )
         translation_manager.set_language(selected_language)
     
@@ -3690,15 +3615,13 @@ def main():
         issn = st.text_input(
             translation_manager.get_text('journal_issn'),
             value="2411-1414",
-            help=glossary.get_tooltip('ISSN'),
-            key="sidebar_issn_input"
+            help=glossary.get_tooltip('ISSN')
         )
         
         period = st.text_input(
             translation_manager.get_text('analysis_period'),
             value="2022-2024",
-            help=translation_manager.get_text('period_examples'),
-            key="sidebar_period_input"
+            help=translation_manager.get_text('period_examples')
         )
         
         st.markdown("---")
@@ -3709,8 +3632,7 @@ def main():
             translation_manager.get_text('select_term_to_learn'),
             options=[""] + list(glossary.terms.keys()),
             format_func=lambda x: translation_manager.get_text('choose_term') if x == "" else f"{x} ({glossary.terms[x]['category']})",
-            help=translation_manager.get_text('study_metric_meanings'),
-            key="sidebar_term_search_selector"
+            help=translation_manager.get_text('study_metric_meanings')
         )
         
         if search_term:
@@ -3728,7 +3650,7 @@ def main():
                     st.toast(translation_manager.get_text('learned_term_toast').format(term=search_term), icon="🎯")
                 
                 # "I understood" button
-                if st.button(translation_manager.get_text('term_understood'), key=f"sidebar_understand_{search_term}"):
+                if st.button(translation_manager.get_text('term_understood'), key=f"understand_{search_term}"):
                     if search_term not in st.session_state.learned_terms:
                         st.session_state.learned_terms.add(search_term)
                         st.success(translation_manager.get_text('term_added_success').format(term=search_term))
@@ -3780,7 +3702,7 @@ def main():
     with col1:
         st.subheader("🚀 " + translation_manager.get_text('start_analysis'))
         
-        if st.button(translation_manager.get_text('start_analysis'), type="primary", use_container_width=True, key="main_start_analysis_button"):
+        if st.button(translation_manager.get_text('start_analysis'), type="primary", use_container_width=True):
             if not issn:
                 st.error(translation_manager.get_text('issn_required'))
                 return
@@ -3803,8 +3725,7 @@ def main():
                 data=state.excel_buffer,
                 file_name=f"journal_analysis_{results['issn']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-                key="main_download_button"
+                use_container_width=True
             )
     
     # Results display
@@ -4017,10 +3938,3 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
-    main()
-
-
-
-
-
-
