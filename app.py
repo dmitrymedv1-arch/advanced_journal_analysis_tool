@@ -3574,7 +3574,7 @@ def main():
         
         period = st.text_input(
             translation_manager.get_text('analysis_period'),
-            value="2022-2024",
+            value="2412-0731",
             help=translation_manager.get_text('period_examples')
         )
         
@@ -3863,6 +3863,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
