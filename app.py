@@ -1939,21 +1939,20 @@ def get_journal_metrics(journal_issns):
     if_metrics = {}
     cs_metrics = {}
     
-    # Process each ISSN to find matches
+    # Process each ISSN to find matches - УБИРАЕМ break ДЛЯ РАЗДЕЛЬНОГО ПОИСКА
     for issn in journal_issns:
         if not issn or pd.isna(issn):
             continue
             
         normalized_issn = normalize_issn_for_comparison(issn)
+        print(f"🔍 Searching for ISSN: {issn} -> normalized: {normalized_issn}")
         
-        # Search in Web of Science data - НЕ МЕНЯЕМ ЭТУ ЧАСТЬ (она работала)
-        if not state.if_data.empty:
-            # Apply normalization with error handling
+        # Search in Web of Science data - НЕ ПРЕРЫВАЕМ ПОСЛЕ IF
+        if not state.if_data.empty and not if_metrics:  # Ищем только если еще не нашли
             def safe_normalize_issn(issn_series):
                 try:
                     return issn_series.fillna('').astype(str).apply(normalize_issn_for_comparison)
                 except Exception as e:
-                    print(f"Error normalizing IF ISSN: {e}")
                     return pd.Series([""] * len(issn_series))
     
             if_match = state.if_data[
@@ -1966,18 +1965,17 @@ def get_journal_metrics(journal_issns):
                     'if': if_match.iloc[0]['IF'],
                     'quartile': if_match.iloc[0]['Quartile']
                 }
-                break  # Use first match
+                print(f"✅ Found IF match: {if_metrics}")
+                # УБИРАЕМ break - продолжаем поиск CS данных
                   
-        # Search in Scopus data - МИНИМАЛЬНОЕ ИСПРАВЛЕНИЕ ДЛЯ CS
-        if not state.cs_data.empty:
-            # Простая нормализация для CS данных
+        # Search in Scopus data - ИЩЕМ ДЛЯ ВСЕХ ISSN
+        if not state.cs_data.empty and not cs_metrics:  # Ищем только если еще не нашли
             def safe_normalize_cs_issn(issn_series):
                 try:
                     return issn_series.fillna('').astype(str).apply(normalize_issn_for_comparison)
                 except Exception as e:
                     return pd.Series([""] * len(issn_series))
             
-            # Ищем совпадения в Print ISSN или E-ISSN
             cs_match = state.cs_data[
                 (safe_normalize_cs_issn(state.cs_data['Print ISSN']) == normalized_issn) |
                 (safe_normalize_cs_issn(state.cs_data['E-ISSN']) == normalized_issn)
@@ -1992,7 +1990,10 @@ def get_journal_metrics(journal_issns):
                     'citescore': corresponding_citescore,
                     'quartile': best_quartile
                 }
-                break  # Use first match
+                print(f"✅ Found CS match: {cs_metrics}")
+                # УБИРАЕМ break - продолжаем поиск для других ISSN
+
+    print(f"🎯 Final metrics - IF: {if_metrics}, CS: {cs_metrics}")
 
     return {
         'if_metrics': if_metrics,
@@ -3839,5 +3840,6 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
