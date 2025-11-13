@@ -2117,9 +2117,21 @@ def normalize_issn_for_comparison(issn):
     """Normalize ISSN for comparison between different formats"""
     if not issn:
         return ""
+
+    # Convert to string if it's a float or other numeric type
+    if isinstance(issn, (float, int)):
+        # Handle NaN values and convert to string without decimal for integers
+        if pd.isna(issn):
+            return ""
+        issn_str = str(int(issn)) if isinstance(issn, float) and issn.is_integer() else str(issn)
+    else:
+        issn_str = str(issn)
     
     # Remove any hyphens and spaces
     clean_issn = issn.replace('-', '').replace(' ', '')
+
+    # Remove any decimal points if present (for float conversion)
+    clean_issn = clean_issn.replace('.', '')
     
     # Pad with leading zeros to make 8 digits
     normalized = clean_issn.zfill(8)
@@ -2170,9 +2182,16 @@ def get_journal_metrics(journal_issns):
         
         # Search in Web of Science data
         if not state.if_data.empty:
+            # Apply normalization with error handling
+            def safe_normalize_issn(issn_series):
+                try:
+                    return issn_series.apply(normalize_issn_for_comparison)
+                except:
+                    return pd.Series([""] * len(issn_series))
+    
             if_match = state.if_data[
-                (state.if_data['ISSN'].apply(normalize_issn_for_comparison) == normalized_issn) |
-                (state.if_data['eISSN'].apply(normalize_issn_for_comparison) == normalized_issn)
+                (safe_normalize_issn(state.if_data['ISSN']) == normalized_issn) |
+                (safe_normalize_issn(state.if_data['eISSN']) == normalized_issn)
             ]
             
             if not if_match.empty:
@@ -2185,8 +2204,8 @@ def get_journal_metrics(journal_issns):
         # Search in Scopus data
         if not state.cs_data.empty:
             cs_match = state.cs_data[
-                (state.cs_data['Print ISSN'].apply(normalize_issn_for_comparison) == normalized_issn) |
-                (state.cs_data['E-ISSN'].apply(normalize_issn_for_comparison) == normalized_issn)
+                (safe_normalize_issn(state.cs_data['Print ISSN']) == normalized_issn) |
+                (safe_normalize_issn(state.cs_data['E-ISSN']) == normalized_issn)
             ]
             
             if not cs_match.empty:
@@ -4076,3 +4095,4 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
