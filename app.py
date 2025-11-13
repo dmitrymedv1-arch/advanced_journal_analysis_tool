@@ -1876,7 +1876,7 @@ def is_valid_value(value):
 # === NEW FUNCTIONS FOR ADDITIONAL FEATURES ===
 
 def normalize_issn_for_comparison(issn):
-    """Normalize ISSN for comparison between different formats"""
+    """Normalize ISSN for comparison"""
     if not issn:
         return ""
 
@@ -3867,3 +3867,4 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
