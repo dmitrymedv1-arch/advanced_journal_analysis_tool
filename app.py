@@ -3674,7 +3674,7 @@ def main():
             "Select language:",
             options=list(translation_manager.languages.keys()),
             format_func=lambda x: translation_manager.languages[x],
-            index=0  # English by default,
+            index=0,  # English by default
             key="language_selector"
         )
         translation_manager.set_language(selected_language)
@@ -4015,6 +4015,7 @@ def main():
 if __name__ == "__main__":
     main()
     main()
+
 
 
 
