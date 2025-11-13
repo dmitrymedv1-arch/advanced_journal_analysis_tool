@@ -1920,7 +1920,7 @@ def load_metrics_data():
         # Removed error message to avoid showing in interface
         state.if_data = pd.DataFrame()
     
-    # Load CS data (Scopus)
+    # Load CS data (Scopus) - UPDATED: Now loading CS.xlsx
     try:
         if os.path.exists('CS.xlsx'):
             state.cs_data = pd.read_excel('CS.xlsx')
@@ -1971,84 +1971,34 @@ def get_journal_metrics(journal_issns):
                 }
                 break  # Use first match
                   
-        # Search in Scopus data - FIXED VERSION
+        # Search in Scopus data - UPDATED: Now searching in CS.xlsx
         if not state.cs_data.empty:
-            # Use exact column names from your file
-            print_issn_col = 'Print ISSN'
-            eissn_col = 'E-ISSN'
-            citescore_col = 'CiteScore' 
-            quartile_col = 'Quartile'
+            # Apply normalization for CS data
+            def safe_normalize_cs_issn(issn_series):
+                try:
+                    return issn_series.fillna('').astype(str).apply(normalize_issn_for_comparison)
+                except Exception as e:
+                    print(f"Error normalizing CS ISSN: {e}")
+                    return pd.Series([""] * len(issn_series))
             
-            # Check for required columns
-            required_cols = [print_issn_col, eissn_col, citescore_col, quartile_col]
-            missing_cols = [col for col in required_cols if col not in state.cs_data.columns]
+            # Search for matches in Print ISSN or E-ISSN columns
+            cs_match = state.cs_data[
+                (safe_normalize_cs_issn(state.cs_data['Print ISSN']) == normalized_issn) |
+                (safe_normalize_cs_issn(state.cs_data['E-ISSN']) == normalized_issn)
+            ]
             
-            if missing_cols:
-                print(f"❌ CS.xlsx missing columns: {missing_cols}")
-                print(f"   Available columns: {state.cs_data.columns.tolist()}")
-            else:
-                # Function for safe ISSN normalization with debug
-                def safe_normalize_issn_cs(issn_series):
-                    try:
-                        # Handle NaN values and convert to string
-                        return issn_series.fillna('').astype(str).apply(normalize_issn_for_comparison)
-                    except Exception as e:
-                        print(f"Error normalizing CS ISSN: {e}")
-                        return pd.Series([""] * len(issn_series))
+            if not cs_match.empty:
+                print(f"✅ Found CS match: {len(cs_match)} records")
+                # Handle duplicates - take the best quartile (lowest number)
+                best_quartile = cs_match['Quartile'].min()
+                corresponding_citescore = cs_match[cs_match['Quartile'] == best_quartile]['CiteScore'].iloc[0]
                 
-                # Normalize ISSN columns
-                normalized_print_issn = safe_normalize_issn_cs(state.cs_data[print_issn_col])
-                normalized_eissn = safe_normalize_issn_cs(state.cs_data[eissn_col])
-                
-                # Debug: show sample of normalized ISSNs
-                print(f"Sample normalized Print ISSN: {normalized_print_issn.head(3).tolist()}")
-                print(f"Sample normalized E-ISSN: {normalized_eissn.head(3).tolist()}")
-                
-                # Search by Print ISSN and E-ISSN
-                cs_match = state.cs_data[
-                    (normalized_print_issn == normalized_issn) |
-                    (normalized_eissn == normalized_issn)
-                ]
-                
-                print(f"🔍 CS search result: {len(cs_match)} matches for {normalized_issn}")
-                
-                if not cs_match.empty:
-                    # Remove duplicates and find best quartile
-                    unique_matches = cs_match.drop_duplicates(subset=[citescore_col, quartile_col])
-                    
-                    if len(unique_matches) > 0:
-                        # Convert quartiles to numeric format for correct comparison
-                        def quartile_to_number(q):
-                            if isinstance(q, (int, float)):
-                                return int(q)
-                            elif isinstance(q, str) and q.startswith('Q'):
-                                return int(q[1:])
-                            else:
-                                try:
-                                    return int(q)
-                                except:
-                                    return 5  # Worst case if not recognized
-                        
-                        # Find minimum (best) quartile
-                        unique_matches = unique_matches.copy()
-                        unique_matches['quartile_num'] = unique_matches[quartile_col].apply(quartile_to_number)
-                        best_quartile_row = unique_matches.loc[unique_matches['quartile_num'].idxmin()]
-                        
-                        # Take CiteScore from row with best quartile
-                        best_citescore = best_quartile_row[citescore_col]
-                        best_quartile = best_quartile_row[quartile_col]
-                        
-                        # If quartile is in numeric format, convert to Q-format
-                        if isinstance(best_quartile, (int, float)):
-                            best_quartile = f"Q{int(best_quartile)}"
-                        
-                        cs_metrics = {
-                            'citescore': best_citescore,
-                            'quartile': best_quartile
-                        }
-                        print(f"📊 CS metrics: CiteScore={best_citescore}, Quartile={best_quartile}")
-                        break  # Use first successful match
-    
+                cs_metrics = {
+                    'citescore': corresponding_citescore,
+                    'quartile': best_quartile
+                }
+                break  # Use first match
+
     print(f"🎯 Final metrics - IF: {if_metrics}, CS: {cs_metrics}")
 
     return {
@@ -2569,7 +2519,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 all_citing_countries_df = pd.DataFrame(all_citing_countries_data)
                 all_citing_countries_df.to_excel(writer, sheet_name='All_Countries_Citing', index=False)
 
-            # Sheet 18: All journals citing (with percentages) - CORRECTED VERSION
+            # Sheet 18: All journals citing (with percentages) - UPDATED VERSION WITH CS DATA
             if citing_stats['all_journals']:
                 all_citing_journals_data = []
                 total_articles = citing_stats['n_items']
@@ -2602,16 +2552,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     issn_1 = journal_issns[0] if len(journal_issns) > 0 else ""
                     issn_2 = journal_issns[1] if len(journal_issns) > 1 else ""
                     
-                    # Get metrics for this journal - CORRECTED CALL
+                    # Get metrics for this journal - UPDATED WITH CS DATA
                     metrics = get_journal_metrics(journal_issns)
-                    
-                    # Format values for display
-                    cs_value = metrics['cs_metrics'].get('citescore', '') if metrics['cs_metrics'] else ''
-                    q_value = metrics['cs_metrics'].get('quartile', '') if metrics['cs_metrics'] else ''
-                    
-                    # Convert numeric values to strings for nice display
-                    if cs_value != '':
-                        cs_value = f"{float(cs_value):.1f}" if isinstance(cs_value, (int, float)) else str(cs_value)
                     
                     all_citing_journals_data.append({
                         'Journal': journal_name,
@@ -2622,9 +2564,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                         '': '',  # Empty column
                         'IF (WoS)': metrics['if_metrics'].get('if', '') if metrics['if_metrics'] else '',
                         'Q(WoS)': metrics['if_metrics'].get('quartile', '') if metrics['if_metrics'] else '',
-                        ' ': '',  # Empty column
-                        'CS (Scopus)': cs_value,
-                        'Q(Scopus)': q_value
+                        'SC(Scopus)': metrics['cs_metrics'].get('citescore', '') if metrics['cs_metrics'] else '',
+                        'Q(Scopus)': metrics['cs_metrics'].get('quartile', '') if metrics['cs_metrics'] else ''
                     })
                 
                 all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
