@@ -1875,135 +1875,166 @@ def is_valid_value(value):
 
 # === NEW FUNCTIONS FOR ADDITIONAL FEATURES ===
 
-def get_reference_publication_year(ref, state):
-    """Get publication year for a reference using DOI from Crossref"""
-    ref_year = None
-    
-    # Try to get year from reference directly
-    if 'year' in ref:
-        try:
-            ref_year = int(ref['year'])
-            if 1900 <= ref_year <= 2030:
-                return ref_year
-        except:
-            pass
-    
-    # Try to get year from Crossref using DOI
-    doi = ref.get('DOI')
-    if doi and doi in state.crossref_cache:
-        cached = state.crossref_cache[doi]
-        date_parts = cached.get('published', {}).get('date-parts', [[0]])[0]
-        if date_parts and date_parts[0] and 1900 <= date_parts[0] <= 2030:
-            return date_parts[0]
-    
-    return ref_year
+def normalize_issn_for_comparison(issn):
+    """Normalize ISSN for comparison between different formats"""
+    if not issn:
+        return ""
 
-def calculate_reference_year_analysis(analyzed_metadata, state):
-    """Calculate reference publication years in 5-year intervals starting from 1900"""
-    reference_years = []
-    reference_details = []
+    # Convert to string if it's a float or other numeric type
+    if isinstance(issn, (float, int)):
+        # Handle NaN values and convert to string without decimal for integers
+        if pd.isna(issn):
+            return ""
+        issn_str = str(int(issn)) if isinstance(issn, float) and issn.is_integer() else str(issn)
+    else:
+        issn_str = str(issn)
     
-    for meta in analyzed_metadata:
-        cr = meta.get('crossref')
-        if not cr:
-            continue
-        
-        article_doi = cr.get('DOI', 'Unknown')
-        article_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
-            
-        for ref in cr.get('reference', []):
-            ref_year = get_reference_publication_year(ref, state)
-            
-            if ref_year and 1900 <= ref_year <= 2030:
-                reference_years.append(ref_year)
-                reference_details.append({
-                    'article_doi': article_doi,
-                    'article_year': article_year,
-                    'reference_doi': ref.get('DOI', ''),
-                    'reference_year': ref_year,
-                    'reference_title': ref.get('article-title', '') or ref.get('journal-title', '') or 'Unknown'
-                })
-    
-    # Create 5-year intervals
-    year_intervals = []
-    current_year = datetime.now().year
-    for start_year in range(1900, current_year + 10, 5):
-        end_year = start_year + 4
-        if end_year > current_year:
-            end_year = current_year
-        interval_count = len([y for y in reference_years if start_year <= y <= end_year])
-        year_intervals.append({
-            'interval': f"{start_year}-{end_year}",
-            'count': interval_count,
-            'percentage': round((interval_count / len(reference_years) * 100), 2) if reference_years else 0
-        })
-    
-    return year_intervals, reference_details
+    # Remove any hyphens and spaces
+    clean_issn = issn_str.replace('-', '').replace(' ', '')
 
-def calculate_reference_age_distribution(analyzed_metadata, state):
-    """Calculate reference age distribution by categories: 1-3, 4-5, 6-10, >10 years"""
-    age_categories = {
-        '1-3_years': 0,
-        '4-5_years': 0, 
-        '6-10_years': 0,
-        'over_10_years': 0
-    }
+    # Remove any decimal points if present (for float conversion)
+    clean_issn = clean_issn.replace('.', '')
     
-    current_year = datetime.now().year
-    article_age_data = []
+    # === FIX: Add leading zeros for 7-digit ISSNs ===
+    if len(clean_issn) == 7:
+        clean_issn = '0' + clean_issn  # Add leading zero
     
-    for meta in analyzed_metadata:
-        cr = meta.get('crossref')
-        if not cr:
+    # Pad with leading zeros to make 8 digits
+    normalized = clean_issn.zfill(8)
+    
+    return normalized
+
+def load_metrics_data():
+    """Load IF and CS data from Excel files"""
+    state = get_analysis_state()
+    
+    # Load IF data (Web of Science)
+    try:
+        if os.path.exists('IF.xlsx'):
+            state.if_data = pd.read_excel('IF.xlsx')
+            # Removed success message to avoid showing in interface
+        else:
+            # Removed warning message to avoid showing in interface
+            state.if_data = pd.DataFrame()
+    except Exception as e:
+        # Removed error message to avoid showing in interface
+        state.if_data = pd.DataFrame()
+    
+    # Load CS data (Scopus)
+    try:
+        if os.path.exists('CS.xlsx'):
+            state.cs_data = pd.read_excel('CS.xlsx')
+            # Removed success message to avoid showing in interface
+        else:
+            # Removed warning message to avoid showing in interface
+            state.cs_data = pd.DataFrame()
+    except Exception as e:
+        # Removed error message to avoid showing in interface
+        state.cs_data = pd.DataFrame()
+
+def get_journal_metrics(journal_issns):
+    """Get metrics for a journal based on its ISSNs"""
+    state = get_analysis_state()
+    
+    if_metrics = {}
+    cs_metrics = {}
+    
+    # Process each ISSN to find matches
+    for issn in journal_issns:
+        if not issn:
             continue
             
-        pub_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
-        if not pub_year:
-            continue
-            
-        article_ages = []
+        normalized_issn = normalize_issn_for_comparison(issn)
         
-        for ref in cr.get('reference', []):
-            ref_year = get_reference_publication_year(ref, state)
+        # Search in Web of Science data
+        if not state.if_data.empty:
+            # Apply normalization with error handling
+            def safe_normalize_issn(issn_series):
+                try:
+                    return issn_series.astype(str).apply(normalize_issn_for_comparison)
+                except:
+                    return pd.Series([""] * len(issn_series))
+    
+            if_match = state.if_data[
+                (safe_normalize_issn(state.if_data['ISSN']) == normalized_issn) |
+                (safe_normalize_issn(state.if_data['eISSN']) == normalized_issn)
+            ]
             
-            if ref_year and 1900 <= ref_year <= current_year:
-                age = current_year - ref_year
-                article_ages.append(age)
+            if not if_match.empty:
+                if_metrics = {
+                    'if': if_match.iloc[0]['IF'],
+                    'quartile': if_match.iloc[0]['Quartile']
+                }
+                break  # Use first match
+        
+        # Search in Scopus data - CORRECTED VERSION
+        if not state.cs_data.empty:
+            # Use exact column names from your file
+            print_issn_col = 'Print ISSN'
+            eissn_col = 'E-ISSN'
+            citescore_col = 'CiteScore' 
+            quartile_col = 'Quartile'
+            
+            # Check for required columns
+            required_cols = [print_issn_col, eissn_col, citescore_col, quartile_col]
+            missing_cols = [col for col in required_cols if col not in state.cs_data.columns]
+            
+            if missing_cols:
+                print(f"❌ CS.xlsx missing columns: {missing_cols}")
+                print(f"   Available columns: {state.cs_data.columns.tolist()}")
+            else:
+                # Function for safe ISSN normalization
+                def safe_normalize_issn(issn_series):
+                    try:
+                        return issn_series.astype(str).apply(normalize_issn_for_comparison)
+                    except:
+                        return pd.Series([""] * len(issn_series))
                 
-                # Categorize age
-                if age <= 3:
-                    age_categories['1-3_years'] = int(age_categories['1-3_years']) + 1
-                elif age <= 5:
-                    age_categories['4-5_years'] += 1
-                elif age <= 10:
-                    age_categories['6-10_years'] += 1
-                else:
-                    age_categories['over_10_years'] += 1
-        
-        # Store article-level data for heatmap
-        if article_ages:
-            article_age_data.append({
-                'doi': cr.get('DOI', ''),
-                'publication_year': pub_year,
-                'reference_count': len(article_ages),
-                'ages_1_3': len([a for a in article_ages if a <= 3]),
-                'ages_4_5': len([a for a in article_ages if 4 <= a <= 5]),
-                'ages_6_10': len([a for a in article_ages if 6 <= a <= 10]),
-                'ages_over_10': len([a for a in article_ages if a > 10])
-            })
+                # Search by Print ISSN and E-ISSN
+                cs_match = state.cs_data[
+                    (safe_normalize_issn(state.cs_data[print_issn_col]) == normalized_issn) |
+                    (safe_normalize_issn(state.cs_data[eissn_col]) == normalized_issn)
+                ]
+                
+                if not cs_match.empty:
+                    # Remove duplicates and find best quartile
+                    unique_matches = cs_match.drop_duplicates(subset=[citescore_col, quartile_col])
+                    
+                    if len(unique_matches) > 0:
+                        # Convert quartiles to numeric format for correct comparison
+                        def quartile_to_number(q):
+                            if isinstance(q, (int, float)):
+                                return int(q)
+                            elif isinstance(q, str) and q.startswith('Q'):
+                                return int(q[1:])
+                            else:
+                                try:
+                                    return int(q)
+                                except:
+                                    return 5  # Worst case if not recognized
+                        
+                        # Find minimum (best) quartile
+                        unique_matches['quartile_num'] = unique_matches[quartile_col].apply(quartile_to_number)
+                        best_quartile_row = unique_matches.loc[unique_matches['quartile_num'].idxmin()]
+                        
+                        # Take CiteScore from row with best quartile
+                        best_citescore = best_quartile_row[citescore_col]
+                        best_quartile = best_quartile_row[quartile_col]
+                        
+                        # If quartile is in numeric format, convert to Q-format
+                        if isinstance(best_quartile, (int, float)):
+                            best_quartile = f"Q{int(best_quartile)}"
+                        
+                        cs_metrics = {
+                            'citescore': best_citescore,
+                            'quartile': best_quartile
+                        }
+                        break  # Use first successful match
     
-    # Calculate percentages
-    total_refs = sum(age_categories.values())
-    age_categories_with_pct = {}
-    
-    for category, count in age_categories.items():
-        percentage = (count / total_refs * 100) if total_refs > 0 else 0
-        age_categories_with_pct[category] = {
-            'count': count,
-            'percentage': round(percentage, 2)
-        }
-    
-    return age_categories_with_pct, article_age_data
+    return {
+        'if_metrics': if_metrics,
+        'cs_metrics': cs_metrics
+    }
 
 def analyze_citation_seasonality(analyzed_metadata, state, median_days_to_first_citation):
     """Analyze citation seasonality and predict optimal publication months"""
@@ -2109,135 +2140,6 @@ def find_potential_reviewers(analyzed_metadata, citing_metadata, overlap_details
         'total_journal_authors': len(journal_authors),
         'total_overlap_authors': len(overlap_authors),
         'total_potential_reviewers': len(potential_reviewers)
-    }
-
-# === NEW FUNCTIONS FOR METRICS LOADING ===
-
-def normalize_issn_for_comparison(issn):
-    """Normalize ISSN for comparison between different formats"""
-    if not issn:
-        return ""
-
-    # Convert to string if it's a float or other numeric type
-    if isinstance(issn, (float, int)):
-        # Handle NaN values and convert to string without decimal for integers
-        if pd.isna(issn):
-            return ""
-        issn_str = str(int(issn)) if isinstance(issn, float) and issn.is_integer() else str(issn)
-    else:
-        issn_str = str(issn)
-    
-    # Remove any hyphens and spaces
-    clean_issn = issn.replace('-', '').replace(' ', '')
-
-    # Remove any decimal points if present (for float conversion)
-    clean_issn = clean_issn.replace('.', '')
-    
-    # Pad with leading zeros to make 8 digits
-    normalized = clean_issn.zfill(8)
-    
-    return normalized
-
-def load_metrics_data():
-    """Load IF and CS data from Excel files"""
-    state = get_analysis_state()
-    
-    # Load IF data (Web of Science)
-    try:
-        if os.path.exists('IF.xlsx'):
-            state.if_data = pd.read_excel('IF.xlsx')
-            st.success(f"✅ Loaded Web of Science data: {len(state.if_data)} journals")
-        else:
-            st.warning("⚠️ IF.xlsx file not found. Web of Science metrics will not be available.")
-            state.if_data = pd.DataFrame()
-    except Exception as e:
-        st.error(f"❌ Error loading IF.xlsx: {str(e)}")
-        state.if_data = pd.DataFrame()
-    
-    # Load CS data (Scopus)
-    try:
-        if os.path.exists('CS.xlsx'):
-            state.cs_data = pd.read_excel('CS.xlsx')
-            st.success(f"✅ Loaded Scopus data: {len(state.cs_data)} journals")
-        else:
-            st.warning("⚠️ CS.xlsx file not found. Scopus metrics will not be available.")
-            state.cs_data = pd.DataFrame()
-    except Exception as e:
-        st.error(f"❌ Error loading CS.xlsx: {str(e)}")
-        state.cs_data = pd.DataFrame()
-
-def get_journal_metrics(journal_issns):
-    """Get metrics for a journal based on its ISSNs"""
-    state = get_analysis_state()
-    
-    if_metrics = {}
-    cs_metrics = {}
-    
-    # Process each ISSN to find matches
-    for issn in journal_issns:
-        if not issn:
-            continue
-            
-        normalized_issn = normalize_issn_for_comparison(issn)
-        
-        # Search in Web of Science data
-        if not state.if_data.empty:
-            # Apply normalization with error handling
-            def safe_normalize_issn(issn_series):
-                try:
-                    return issn_series.apply(normalize_issn_for_comparison)
-                except:
-                    return pd.Series([""] * len(issn_series))
-    
-            if_match = state.if_data[
-                (safe_normalize_issn(state.if_data['ISSN']) == normalized_issn) |
-                (safe_normalize_issn(state.if_data['eISSN']) == normalized_issn)
-            ]
-            
-            if not if_match.empty:
-                if_metrics = {
-                    'if': if_match.iloc[0]['IF'],
-                    'quartile': if_match.iloc[0]['Quartile']
-                }
-                break  # Use first match
-        
-        # Search in Scopus data
-        if not state.cs_data.empty:
-            # Используем точные названия колонок из вашего файла
-            print_issn_col = 'Print ISSN'
-            eissn_col = 'E-ISSN'
-            citescore_col = 'CiteScore' 
-            quartile_col = 'Quartile'
-            
-            # Проверяем наличие необходимых колонок
-            required_cols = [print_issn_col, eissn_col, citescore_col, quartile_col]
-            missing_cols = [col for col in required_cols if col not in state.cs_data.columns]
-            
-            if missing_cols:
-                print(f"❌ В CS.xlsx отсутствуют колонки: {missing_cols}")
-                print(f"   Доступные колонки: {state.cs_data.columns.tolist()}")
-            else:
-                # Поиск по Print ISSN и E-ISSN
-                cs_match = state.cs_data[
-                    (safe_normalize_issn(state.cs_data[print_issn_col]) == normalized_issn) |
-                    (safe_normalize_issn(state.cs_data[eissn_col]) == normalized_issn)
-                ]
-                
-                if not cs_match.empty:
-                    # Находим минимальный квартиль и соответствующий CiteScore
-                    min_quartile = cs_match[quartile_col].min()
-                    corresponding_row = cs_match[cs_match[quartile_col] == min_quartile].iloc[0]
-                    corresponding_citescore = corresponding_row[citescore_col]
-                    
-                    cs_metrics = {
-                        'citescore': corresponding_citescore,
-                        'quartile': min_quartile
-                    }
-                break  # Use first match
-    
-    return {
-        'if_metrics': if_metrics,
-        'cs_metrics': cs_metrics
     }
 
 # === 17. Enhanced Excel Report Creation ===
@@ -2647,7 +2549,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 all_citing_countries_df = pd.DataFrame(all_citing_countries_data)
                 all_citing_countries_df.to_excel(writer, sheet_name='All_Countries_Citing', index=False)
 
-            # Sheet 18: All journals citing (with percentages) - UPDATED STRUCTURE
+            # Sheet 18: All journals citing (with percentages) - CORRECTED VERSION
             if citing_stats['all_journals']:
                 all_citing_journals_data = []
                 total_articles = citing_stats['n_items']
@@ -2680,8 +2582,16 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     issn_1 = journal_issns[0] if len(journal_issns) > 0 else ""
                     issn_2 = journal_issns[1] if len(journal_issns) > 1 else ""
                     
-                    # Get metrics for this journal
+                    # Get metrics for this journal - CORRECTED CALL
                     metrics = get_journal_metrics(journal_issns)
+                    
+                    # Format values for display
+                    cs_value = metrics['cs_metrics'].get('citescore', '') if metrics['cs_metrics'] else ''
+                    q_value = metrics['cs_metrics'].get('quartile', '') if metrics['cs_metrics'] else ''
+                    
+                    # Convert numeric values to strings for nice display
+                    if cs_value != '':
+                        cs_value = f"{float(cs_value):.1f}" if isinstance(cs_value, (int, float)) else str(cs_value)
                     
                     all_citing_journals_data.append({
                         'Journal': journal_name,
@@ -2693,8 +2603,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                         'IF (WoS)': metrics['if_metrics'].get('if', '') if metrics['if_metrics'] else '',
                         'Q(WoS)': metrics['if_metrics'].get('quartile', '') if metrics['if_metrics'] else '',
                         ' ': '',  # Empty column
-                        'CS (Scopus)': metrics['cs_metrics'].get('citescore', '') if metrics['cs_metrics'] else '',
-                        'Q(Scopus)': metrics['cs_metrics'].get('quartile', '') if metrics['cs_metrics'] else ''
+                        'CS (Scopus)': cs_value,
+                        'Q(Scopus)': q_value
                     })
                 
                 all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
@@ -2779,72 +2689,9 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 top_concepts_df = pd.DataFrame(top_concepts_data)
                 top_concepts_df.to_excel(writer, sheet_name='Top_Concepts', index=False)
 
-            # === NEW SHEETS FOR ADDITIONAL FEATURES ===
+            # === REMOVED SHEETS: Reference_Year_Analysis, Reference_Age_Distribution, Reference_Age_Heatmap_Data, Reference_Publication ===
 
-            # Sheet 22: Reference year analysis (NEW)
-            if 'reference_year_analysis' in additional_data:
-                ref_year_data = []
-                for interval_data in additional_data['reference_year_analysis']:
-                    ref_year_data.append({
-                        'Year_Interval': interval_data['interval'],
-                        'Reference_Count': interval_data['count'],
-                        'Percentage': interval_data['percentage']
-                    })
-                
-                if ref_year_data:
-                    ref_year_df = pd.DataFrame(ref_year_data)
-                    ref_year_df.to_excel(writer, sheet_name='Reference_Year_Analysis', index=False)
-
-            # Sheet 23: Reference age distribution
-            if 'reference_age_distribution' in additional_data:
-                ref_age_data = []
-                age_categories = additional_data['reference_age_distribution']
-                
-                for category, info in age_categories.items():
-                    ref_age_data.append({
-                        'Age_Category': category.replace('_', ' ').title(),
-                        'Count': info['count'],
-                        'Percentage': info['percentage']
-                    })
-                
-                if ref_age_data:
-                    ref_age_df = pd.DataFrame(ref_age_data)
-                    ref_age_df.to_excel(writer, sheet_name='Reference_Age_Distribution', index=False)
-
-            # Sheet 24: Reference age heatmap data
-            if 'article_age_data' in additional_data and additional_data['article_age_data']:
-                heatmap_data = []
-                for article in additional_data['article_age_data']:
-                    heatmap_data.append({
-                        'DOI': article['doi'],
-                        'Publication_Year': article['publication_year'],
-                        'Total_References': article['reference_count'],
-                        'References_1_3_Years': article['ages_1_3'],
-                        'References_4_5_Years': article['ages_4_5'],
-                        'References_6_10_Years': article['ages_6_10'],
-                        'References_Over_10_Years': article['ages_over_10']
-                    })
-                
-                heatmap_df = pd.DataFrame(heatmap_data)
-                heatmap_df.to_excel(writer, sheet_name='Reference_Age_Heatmap_Data', index=False)
-
-            # Sheet 25: Reference publication details (NEW)
-            if 'reference_details' in additional_data and additional_data['reference_details']:
-                ref_details_data = []
-                for ref in additional_data['reference_details']:
-                    ref_details_data.append({
-                        'Article_DOI': ref['article_doi'],
-                        'Article_Year': ref['article_year'],
-                        'Reference_DOI': ref['reference_doi'],
-                        'Reference_Year': ref['reference_year'],
-                        'Reference_Title': ref['reference_title']
-                    })
-                
-                if ref_details_data:
-                    ref_details_df = pd.DataFrame(ref_details_data)
-                    ref_details_df.to_excel(writer, sheet_name='Reference_Publication', index=False)
-
-            # Sheet 26: Citation seasonality
+            # Sheet 22: Citation seasonality
             if 'citation_seasonality' in additional_data:
                 seasonality_data = []
                 citation_seasonality = additional_data['citation_seasonality']
@@ -2880,7 +2727,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     optimal_months_df = pd.DataFrame(optimal_months_data)
                     optimal_months_df.to_excel(writer, sheet_name='Optimal_Publication_Months', index=False)
 
-            # Sheet 27: Potential reviewers
+            # Sheet 23: Potential reviewers
             if 'potential_reviewers' in additional_data:
                 reviewers_data = []
                 potential_reviewers_info = additional_data['potential_reviewers']
@@ -2949,7 +2796,7 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
     """Create visualizations for dashboard"""
     
     # Create tabs for different visualization types
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         translation_manager.get_text('tab_main_metrics'), 
         translation_manager.get_text('tab_authors_organizations'), 
         translation_manager.get_text('tab_geography'), 
@@ -2957,7 +2804,6 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
         translation_manager.get_text('tab_overlaps'),
         translation_manager.get_text('tab_citation_timing'),
         translation_manager.get_text('tab_fast_metrics'),
-        translation_manager.get_text('tab_reference_analysis'),
         translation_manager.get_text('tab_predictive_insights')
     ])
     
@@ -3416,57 +3262,6 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
                         st.progress(fast_metrics['DBI'])
 
     with tab8:
-        st.subheader("📚 Reference Age Analysis")
-        
-        if 'reference_age_distribution' in additional_data:
-            ref_age_data = additional_data['reference_age_distribution']
-            
-            # Display reference age distribution
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("1-3 Years", f"{ref_age_data['1-3_years']['count']} ({ref_age_data['1-3_years']['percentage']}%)")
-            with col2:
-                st.metric("4-5 Years", f"{ref_age_data['4-5_years']['count']} ({ref_age_data['4-5_years']['percentage']}%)")
-            with col3:
-                st.metric("6-10 Years", f"{ref_age_data['6-10_years']['count']} ({ref_age_data['6-10_years']['percentage']}%)")
-            with col4:
-                st.metric("Over 10 Years", f"{ref_age_data['over_10_years']['count']} ({ref_age_data['over_10_years']['percentage']}%)")
-            
-            # Reference age distribution chart
-            categories = ['1-3 Years', '4-5 Years', '6-10 Years', 'Over 10 Years']
-            counts = [ref_age_data['1-3_years']['count'], ref_age_data['4-5_years']['count'], 
-                     ref_age_data['6-10_years']['count'], ref_age_data['over_10_years']['count']]
-            percentages = [ref_age_data['1-3_years']['percentage'], ref_age_data['4-5_years']['percentage'],
-                          ref_age_data['6-10_years']['percentage'], ref_age_data['over_10_years']['percentage']]
-            
-            fig = px.pie(
-                values=counts,
-                names=categories,
-                title="Reference Age Distribution",
-                hover_data=[percentages],
-                labels={'value': 'Count', 'hover_data_0': 'Percentage'}
-            )
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Reference year analysis
-            if 'reference_year_analysis' in additional_data:
-                st.subheader("Reference Publication Year Analysis")
-                
-                ref_year_data = additional_data['reference_year_analysis']
-                intervals = [item['interval'] for item in ref_year_data]
-                counts = [item['count'] for item in ref_year_data]
-                
-                fig = px.bar(
-                    x=intervals,
-                    y=counts,
-                    title="References by Publication Year Intervals",
-                    labels={'x': 'Year Interval', 'y': 'Number of References'}
-                )
-                fig.update_layout(xaxis_tickangle=-45)
-                st.plotly_chart(fig, use_container_width=True)
-
-    with tab9:
         st.subheader("🔮 Predictive Insights & Recommendations")
         
         # Citation seasonality analysis
@@ -3679,20 +3474,14 @@ def analyze_journal(issn, period_str):
     # === NEW ADDITIONAL ANALYSES ===
     overall_status.text("Calculating additional insights...")
     
-    # 1. Reference year analysis (NEW)
-    reference_year_analysis, reference_details = calculate_reference_year_analysis(analyzed_metadata, state)
-    
-    # 2. Reference age distribution and heatmap data
-    reference_age_distribution, article_age_data = calculate_reference_age_distribution(analyzed_metadata, state)
-    
-    # 3. Citation seasonality analysis
+    # Citation seasonality analysis
     citation_seasonality = analyze_citation_seasonality(
         analyzed_metadata, 
         state, 
         citation_timing['days_median']
     )
     
-    # 4. Potential reviewer discovery
+    # Potential reviewer discovery
     potential_reviewers = find_potential_reviewers(
         analyzed_metadata, 
         all_citing_metadata, 
@@ -3702,10 +3491,6 @@ def analyze_journal(issn, period_str):
     
     # Combine all additional data
     additional_data = {
-        'reference_year_analysis': reference_year_analysis,
-        'reference_details': reference_details,
-        'reference_age_distribution': reference_age_distribution,
-        'article_age_data': article_age_data,
         'citation_seasonality': citation_seasonality,
         'potential_reviewers': potential_reviewers
     }
@@ -3857,8 +3642,6 @@ def main():
                 "- " + translation_manager.get_text('capability_6') + "\n" +
                 "- " + translation_manager.get_text('capability_7') + "\n" +
                 "- " + translation_manager.get_text('capability_8') + "\n" +
-                "- **NEW:** Reference publication year analysis\n" +
-                "- **NEW:** Reference age distribution and heatmaps\n" +
                 "- **NEW:** Citation seasonality and optimal publication timing\n" +
                 "- **NEW:** Potential reviewer discovery")
         
@@ -4054,33 +3837,6 @@ def main():
             additional_data = results.get('additional_data', {})
             
             if additional_data:
-                # Reference year analysis
-                if 'reference_year_analysis' in additional_data:
-                    st.subheader("📚 Reference Publication Year Analysis")
-                    
-                    ref_year = additional_data['reference_year_analysis']
-                    
-                    # Display top intervals
-                    top_intervals = ref_year[:10]
-                    for interval in top_intervals:
-                        st.write(f"**{interval['interval']}**: {interval['count']} references ({interval['percentage']}%)")
-                
-                # Reference age analysis
-                if 'reference_age_distribution' in additional_data:
-                    st.subheader("📊 Reference Age Distribution")
-                    
-                    ref_age = additional_data['reference_age_distribution']
-                    
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("1-3 Years", f"{ref_age['1-3_years']['count']}", f"{ref_age['1-3_years']['percentage']}%")
-                    with col2:
-                        st.metric("4-5 Years", f"{ref_age['4-5_years']['count']}", f"{ref_age['4-5_years']['percentage']}%")
-                    with col3:
-                        st.metric("6-10 Years", f"{ref_age['6-10_years']['count']}", f"{ref_age['6-10_years']['percentage']}%")
-                    with col4:
-                        st.metric("Over 10 Years", f"{ref_age['over_10_years']['count']}", f"{ref_age['over_10_years']['percentage']}%")
-                
                 # Citation seasonality
                 if 'citation_seasonality' in additional_data:
                     st.subheader("📅 Citation Seasonality")
@@ -4111,7 +3867,3 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
-
-
-
-
