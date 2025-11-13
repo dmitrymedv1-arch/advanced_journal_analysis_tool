@@ -2208,11 +2208,16 @@ def get_journal_metrics(journal_issns):
         
             # Use the actual column name from your file
             # Common variations: 'E-ISSN', '"E-ISSN"', 'E-ISSN		', 'E-ISSN ', etc.
-            eissn_column = 'E-ISSN'  # Change this to match your actual column name
+            eissn_columns = [col for col in state.cs_data.columns if 'E-ISSN' in col]
+            eissn_column = eissn_columns[0] if eissn_columns else None
+            
+            eissn_condition = pd.Series([False] * len(state.cs_data))
+            if eissn_column and eissn_column in state.cs_data.columns:
+                eissn_condition = (safe_normalize_issn(state.cs_data[eissn_column]) == normalized_issn)
             
             cs_match = state.cs_data[
                 (safe_normalize_issn(state.cs_data['Print ISSN']) == normalized_issn) |
-                (safe_normalize_issn(state.cs_data[eissn_column]) == normalized_issn)
+                eissn_condition
             ]
             
             if not cs_match.empty:
@@ -4102,5 +4107,6 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
