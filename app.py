@@ -2203,32 +2203,36 @@ def get_journal_metrics(journal_issns):
         
         # Search in Scopus data
         if not state.cs_data.empty:
-            # Print column names for debugging
-            print("CS.xlsx columns:", state.cs_data.columns.tolist())
-        
-            # Use the actual column name from your file
-            # Common variations: 'E-ISSN', '"E-ISSN"', 'E-ISSN		', 'E-ISSN ', etc.
-            eissn_columns = [col for col in state.cs_data.columns if 'E-ISSN' in col]
-            eissn_column = eissn_columns[0] if eissn_columns else None
+            # Используем точные названия колонок из вашего файла
+            print_issn_col = 'Print ISSN'
+            eissn_col = 'E-ISSN'
+            citescore_col = 'CiteScore' 
+            quartile_col = 'Quartile'
             
-            eissn_condition = pd.Series([False] * len(state.cs_data))
-            if eissn_column and eissn_column in state.cs_data.columns:
-                eissn_condition = (safe_normalize_issn(state.cs_data[eissn_column]) == normalized_issn)
+            # Проверяем наличие необходимых колонок
+            required_cols = [print_issn_col, eissn_col, citescore_col, quartile_col]
+            missing_cols = [col for col in required_cols if col not in state.cs_data.columns]
             
-            cs_match = state.cs_data[
-                (safe_normalize_issn(state.cs_data['Print ISSN']) == normalized_issn) |
-                eissn_condition
-            ]
-            
-            if not cs_match.empty:
-                # Find the minimum quartile value for this journal
-                min_quartile = cs_match['Quartile'].min()
-                corresponding_citescore = cs_match[cs_match['Quartile'] == min_quartile].iloc[0]['CiteScore']
+            if missing_cols:
+                print(f"❌ В CS.xlsx отсутствуют колонки: {missing_cols}")
+                print(f"   Доступные колонки: {state.cs_data.columns.tolist()}")
+            else:
+                # Поиск по Print ISSN и E-ISSN
+                cs_match = state.cs_data[
+                    (safe_normalize_issn(state.cs_data[print_issn_col]) == normalized_issn) |
+                    (safe_normalize_issn(state.cs_data[eissn_col]) == normalized_issn)
+                ]
                 
-                cs_metrics = {
-                    'citescore': corresponding_citescore,
-                    'quartile': min_quartile
-                }
+                if not cs_match.empty:
+                    # Находим минимальный квартиль и соответствующий CiteScore
+                    min_quartile = cs_match[quartile_col].min()
+                    corresponding_row = cs_match[cs_match[quartile_col] == min_quartile].iloc[0]
+                    corresponding_citescore = corresponding_row[citescore_col]
+                    
+                    cs_metrics = {
+                        'citescore': corresponding_citescore,
+                        'quartile': min_quartile
+                    }
                 break  # Use first match
     
     return {
@@ -4107,6 +4111,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
