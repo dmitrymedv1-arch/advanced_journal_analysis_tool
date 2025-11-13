@@ -3584,9 +3584,6 @@ def debug_issn_matching():
             normalized = state.cs_data['Print ISSN'].fillna('').astype(str).apply(normalize_issn_for_comparison)
             st.write(normalized.head(10).tolist())
 
-def main():
-    # ... остальной код
-
 # === 20. Main Interface ===
 def main():
     initialize_analysis_state()
@@ -3908,6 +3905,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
