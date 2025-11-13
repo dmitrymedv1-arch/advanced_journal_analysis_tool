@@ -1,6 +1,4 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
+
 import requests
 import time
 import threading
@@ -3568,13 +3566,13 @@ def main():
         
         issn = st.text_input(
             translation_manager.get_text('journal_issn'),
-            value="2412-0731",
+            value="2411-1414",
             help=glossary.get_tooltip('ISSN')
         )
         
         period = st.text_input(
             translation_manager.get_text('analysis_period'),
-            value="2412-0731",
+            value="2022-2024",
             help=translation_manager.get_text('period_examples')
         )
         
@@ -3863,8 +3861,3 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
-
-
-
-
-
