@@ -1908,38 +1908,28 @@ def load_metrics_data():
     """Load IF and CS data from Excel files"""
     state = get_analysis_state()
     
-    # Load IF data (Web of Science)
+    # Load IF data (Web of Science) - ВОЗВРАЩАЕМ ПРЕЖНЮЮ РАБОЧУЮ ВЕРСИЮ
     try:
         if os.path.exists('IF.xlsx'):
             state.if_data = pd.read_excel('IF.xlsx')
+            # Removed success message to avoid showing in interface
         else:
+            # Removed warning message to avoid showing in interface
             state.if_data = pd.DataFrame()
     except Exception as e:
-        print(f"Error loading IF data: {e}")
+        # Removed error message to avoid showing in interface
         state.if_data = pd.DataFrame()
     
-    # Load CS data (Scopus) - UPDATED with better error handling
+    # Load CS data (Scopus) - МИНИМАЛЬНОЕ ИСПРАВЛЕНИЕ ДЛЯ CS
     try:
         if os.path.exists('CS.xlsx'):
             state.cs_data = pd.read_excel('CS.xlsx')
-            # Clean the data - remove any rows with completely empty ISSNs
-            state.cs_data = state.cs_data.dropna(subset=['Print ISSN', 'E-ISSN'], how='all')
-            # Fill remaining NaN values with empty strings
+            # Простая очистка: заменяем NaN на пустые строки
             state.cs_data['Print ISSN'] = state.cs_data['Print ISSN'].fillna('')
             state.cs_data['E-ISSN'] = state.cs_data['E-ISSN'].fillna('')
-            state.cs_data['CiteScore'] = state.cs_data['CiteScore'].fillna(0)
-            state.cs_data['Quartile'] = state.cs_data['Quartile'].fillna(0)
-            
-            print(f"✅ Loaded CS data: {len(state.cs_data)} records")
-            print(f"   Columns: {state.cs_data.columns.tolist()}")
-            print(f"   Sample Print ISSN: {state.cs_data['Print ISSN'].head(3).tolist()}")
-            print(f"   Sample E-ISSN: {state.cs_data['E-ISSN'].head(3).tolist()}")
-            
         else:
-            print("⚠️ CS.xlsx file not found")
             state.cs_data = pd.DataFrame()
     except Exception as e:
-        print(f"❌ Error loading CS data: {e}")
         state.cs_data = pd.DataFrame()
 
 def get_journal_metrics(journal_issns):
@@ -1955,46 +1945,45 @@ def get_journal_metrics(journal_issns):
             continue
             
         normalized_issn = normalize_issn_for_comparison(issn)
-        print(f"🔍 Searching for ISSN: {issn} -> normalized: {normalized_issn}")
         
-        # Search in Web of Science data
+        # Search in Web of Science data - НЕ МЕНЯЕМ ЭТУ ЧАСТЬ (она работала)
         if not state.if_data.empty:
-            # ... existing IF search code ...
-            pass
-                  
-        # Search in Scopus data - UPDATED: Now searching in CS.xlsx
-        if not state.cs_data.empty:
-            print(f"📊 CS data available: {len(state.cs_data)} records")
+            # Apply normalization with error handling
+            def safe_normalize_issn(issn_series):
+                try:
+                    return issn_series.fillna('').astype(str).apply(normalize_issn_for_comparison)
+                except Exception as e:
+                    print(f"Error normalizing IF ISSN: {e}")
+                    return pd.Series([""] * len(issn_series))
+    
+            if_match = state.if_data[
+                (safe_normalize_issn(state.if_data['ISSN']) == normalized_issn) |
+                (safe_normalize_issn(state.if_data['eISSN']) == normalized_issn)
+            ]
             
-            # Apply normalization for CS data with better error handling
+            if not if_match.empty:
+                if_metrics = {
+                    'if': if_match.iloc[0]['IF'],
+                    'quartile': if_match.iloc[0]['Quartile']
+                }
+                break  # Use first match
+                  
+        # Search in Scopus data - МИНИМАЛЬНОЕ ИСПРАВЛЕНИЕ ДЛЯ CS
+        if not state.cs_data.empty:
+            # Простая нормализация для CS данных
             def safe_normalize_cs_issn(issn_series):
                 try:
-                    # Fill NaN with empty string, convert to string, and normalize
-                    normalized_series = issn_series.fillna('').astype(str)
-                    # Apply normalization only to non-empty strings
-                    return normalized_series.apply(lambda x: normalize_issn_for_comparison(x) if x and x.strip() else "")
+                    return issn_series.fillna('').astype(str).apply(normalize_issn_for_comparison)
                 except Exception as e:
-                    print(f"Error normalizing CS ISSN: {e}")
                     return pd.Series([""] * len(issn_series))
             
-            # Search for matches in Print ISSN or E-ISSN columns
-            print_issn_matches = safe_normalize_cs_issn(state.cs_data['Print ISSN']) == normalized_issn
-            eissn_matches = safe_normalize_cs_issn(state.cs_data['E-ISSN']) == normalized_issn
-            
-            cs_match = state.cs_data[print_issn_matches | eissn_matches]
-            
-            # Remove any rows where both ISSNs are empty after normalization
-            cs_match = cs_match[
-                (safe_normalize_cs_issn(cs_match['Print ISSN']) != "") | 
-                (safe_normalize_cs_issn(cs_match['E-ISSN']) != "")
+            # Ищем совпадения в Print ISSN или E-ISSN
+            cs_match = state.cs_data[
+                (safe_normalize_cs_issn(state.cs_data['Print ISSN']) == normalized_issn) |
+                (safe_normalize_cs_issn(state.cs_data['E-ISSN']) == normalized_issn)
             ]
             
             if not cs_match.empty:
-                print(f"✅ Found CS match: {len(cs_match)} records")
-                print(f"   Matching records:")
-                for idx, row in cs_match.head(3).iterrows():
-                    print(f"     - {row['Title']}: Print={row['Print ISSN']}, E-ISSN={row['E-ISSN']}, CiteScore={row['CiteScore']}, Quartile={row['Quartile']}")
-                
                 # Handle duplicates - take the best quartile (lowest number)
                 best_quartile = cs_match['Quartile'].min()
                 corresponding_citescore = cs_match[cs_match['Quartile'] == best_quartile]['CiteScore'].iloc[0]
@@ -2004,10 +1993,6 @@ def get_journal_metrics(journal_issns):
                     'quartile': best_quartile
                 }
                 break  # Use first match
-            else:
-                print(f"❌ No CS match found for ISSN: {normalized_issn}")
-
-    print(f"🎯 Final metrics - IF: {if_metrics}, CS: {cs_metrics}")
 
     return {
         'if_metrics': if_metrics,
@@ -3854,4 +3839,5 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
