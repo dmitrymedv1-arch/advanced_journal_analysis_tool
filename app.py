@@ -1941,18 +1941,21 @@ def get_journal_metrics(journal_issns):
     
     # Process each ISSN to find matches
     for issn in journal_issns:
-        if not issn:
+        if not issn or pd.isna(issn):
             continue
             
         normalized_issn = normalize_issn_for_comparison(issn)
+        print(f"🔍 Searching for ISSN: {issn} -> normalized: {normalized_issn}")
+        print(f"🔍 WoS search for: {normalized_issn}")
         
         # Search in Web of Science data
         if not state.if_data.empty:
             # Apply normalization with error handling
             def safe_normalize_issn(issn_series):
                 try:
-                    return issn_series.astype(str).apply(normalize_issn_for_comparison)
-                except:
+                    return issn_series.fillna('').astype(str).apply(normalize_issn_for_comparison)
+                except Exception as e:
+                    print(f"Error normalizing IF ISSN: {e}")
                     return pd.Series([""] * len(issn_series))
     
             if_match = state.if_data[
@@ -1961,6 +1964,7 @@ def get_journal_metrics(journal_issns):
             ]
             
             if not if_match.empty:
+                print(f"✅ Found IF match: {len(if_match)} records")
                 if_metrics = {
                     'if': if_match.iloc[0]['IF'],
                     'quartile': if_match.iloc[0]['Quartile']
@@ -2026,6 +2030,7 @@ def get_journal_metrics(journal_issns):
                                     return 5  # Worst case if not recognized
                         
                         # Find minimum (best) quartile
+                        unique_matches = unique_matches.copy()
                         unique_matches['quartile_num'] = unique_matches[quartile_col].apply(quartile_to_number)
                         best_quartile_row = unique_matches.loc[unique_matches['quartile_num'].idxmin()]
                         
@@ -2041,8 +2046,17 @@ def get_journal_metrics(journal_issns):
                             'citescore': best_citescore,
                             'quartile': best_quartile
                         }
+                        print(f"📊 CS metrics: CiteScore={best_citescore}, Quartile={best_quartile}")
                         break  # Use first successful match
+                   else:
+                        # ДОБАВИТЬ ЭТУ СТРОКУ ДЛЯ ОТЛАДКИ:
+                        print("❌ No unique matches found after deduplication")
+                else:
+                    # ДОБАВИТЬ ЭТУ СТРОКУ ДЛЯ ОТЛАДКИ:
+                    print(f"❌ No CS matches found for {normalized_issn}")
     
+    print(f"🎯 Final metrics - IF: {if_metrics}, CS: {cs_metrics}")
+
     return {
         'if_metrics': if_metrics,
         'cs_metrics': cs_metrics
@@ -3879,5 +3893,6 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
