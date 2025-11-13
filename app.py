@@ -3568,7 +3568,7 @@ def main():
         
         issn = st.text_input(
             translation_manager.get_text('journal_issn'),
-            value="2411-1414",
+            value="2412-0731",
             help=glossary.get_tooltip('ISSN')
         )
         
@@ -3863,3 +3863,4 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
