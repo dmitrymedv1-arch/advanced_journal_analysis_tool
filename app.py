@@ -1577,7 +1577,7 @@ def calculate_dbi_fast(analyzed_metadata):
         'DBI': round(dbi, 3),
         'unique_concepts': len(concept_freq),
         'total_concept_mentions': total_concepts,
-        'top_concepts': concept_freq.most_common(5)
+        'top_concepts': concept_freq.most_common(10)  # Изменено с 5 на 10
     }
 
 def calculate_all_fast_metrics(analyzed_metadata, citing_metadata, state, journal_issn):
@@ -2227,9 +2227,24 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 overlap_df = pd.DataFrame(overlap_list)
                 overlap_df.to_excel(writer, sheet_name='Work_Overlaps', index=False)
 
-            # Sheet 4: Time to first citation
+            # Sheet 4: Time to first citation - ИСКЛЮЧЕНИЕ РЕДАКТОРСКИХ ЗАМЕТОК
             first_citation_list = []
+            filtered_first_citation_details = []
+            
             for detail in citation_timing.get('first_citation_details', []):
+                analyzed_doi = detail['analyzed_doi']
+                citing_doi = detail['citing_doi']
+                
+                # Проверяем, не являются ли это редакторской заметкой
+                analyzed_prefix = get_doi_prefix(analyzed_doi)
+                citing_prefix = get_doi_prefix(citing_doi)
+                
+                # Исключаем записи, где префиксы DOI совпадают и даты публикации одинаковые
+                if (analyzed_prefix == citing_prefix and 
+                    detail['analyzed_date'] == detail['first_citation_date']):
+                    continue  # Пропускаем редакторские заметки
+                
+                filtered_first_citation_details.append(detail)
                 first_citation_list.append({
                     'Analyzed_DOI': safe_convert(detail['analyzed_doi'])[:100],
                     'First_Citing_DOI': safe_convert(detail['citing_doi'])[:100],
@@ -2383,7 +2398,28 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             enhanced_stats_df = pd.DataFrame(enhanced_stats_data)
             enhanced_stats_df.to_excel(writer, sheet_name='Enhanced_Statistics', index=False)
 
-            # Sheet 8: Citation timing
+            # Sheet 8: Citation timing - ОБНОВЛЕННАЯ СТАТИСТИКА БЕЗ РЕДАКТОРСКИХ ЗАМЕТОК
+            # Пересчитываем статистику на основе отфильтрованных данных
+            if filtered_first_citation_details:
+                days_data = [detail['days_to_first_citation'] for detail in filtered_first_citation_details]
+                citation_timing_filtered = {
+                    'days_min': min(days_data) if days_data else 0,
+                    'days_max': max(days_data) if days_data else 0,
+                    'days_mean': np.mean(days_data) if days_data else 0,
+                    'days_median': np.median(days_data) if days_data else 0,
+                    'articles_with_timing_data': len(days_data),
+                    'total_years_covered': citation_timing['total_years_covered']
+                }
+            else:
+                citation_timing_filtered = {
+                    'days_min': 0,
+                    'days_max': 0,
+                    'days_mean': 0,
+                    'days_median': 0,
+                    'articles_with_timing_data': 0,
+                    'total_years_covered': citation_timing['total_years_covered']
+                }
+            
             citation_timing_data = {
                 'Metric': [
                     'Minimum Days to First Citation',
@@ -2394,12 +2430,12 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     'Total Years Covered by Citation Data'
                 ],
                 'Value': [
-                    safe_convert(citation_timing['days_min']),
-                    safe_convert(citation_timing['days_max']),
-                    f"{safe_convert(citation_timing['days_mean']):.1f}",
-                    safe_convert(citation_timing['days_median']),
-                    safe_convert(citation_timing['articles_with_timing_data']),
-                    safe_convert(citation_timing['total_years_covered'])
+                    safe_convert(citation_timing_filtered['days_min']),
+                    safe_convert(citation_timing_filtered['days_max']),
+                    f"{safe_convert(citation_timing_filtered['days_mean']):.1f}",
+                    safe_convert(citation_timing_filtered['days_median']),
+                    safe_convert(citation_timing_filtered['articles_with_timing_data']),
+                    safe_convert(citation_timing_filtered['total_years_covered'])
                 ]
             }
             citation_timing_df = pd.DataFrame(citation_timing_data)
@@ -2417,7 +2453,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 yearly_citations_df = pd.DataFrame(yearly_citations_data)
                 yearly_citations_df.to_excel(writer, sheet_name='Citations_by_Year', index=False)
 
-            # Sheet 10: Citation accumulation curves
+            # Sheet 10: Citation accumulation curves - СОРТИРОВКА ПО ГОДАМ
             accumulation_data = []
             for pub_year, curve_data in citation_timing['accumulation_curves'].items():
                 for data_point in curve_data:
@@ -2428,10 +2464,12 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     })
             
             if accumulation_data:
+                # Сортируем по году публикации и годам с момента публикации
                 accumulation_df = pd.DataFrame(accumulation_data)
+                accumulation_df = accumulation_df.sort_values(['Publication_Year', 'Years_Since_Publication'])
                 accumulation_df.to_excel(writer, sheet_name='Citation_Accumulation_Curves', index=False)
 
-            # Sheet 11: Citation network
+            # Sheet 11: Citation network - СОРТИРОВКА ПО ГОДАМ
             citation_network_data = []
             for year, citing_years in enhanced_stats.get('citation_network', {}).items():
                 year_counts = Counter(citing_years)
@@ -2443,7 +2481,9 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     })
             
             if citation_network_data:
+                # Сортируем по году публикации и году цитирования
                 citation_network_df = pd.DataFrame(citation_network_data)
+                citation_network_df = citation_network_df.sort_values(['Publication_Year', 'Citation_Year'])
                 citation_network_df.to_excel(writer, sheet_name='Citation_Network', index=False)
 
             # Sheet 12: All authors analyzed (with percentages)
@@ -2655,7 +2695,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             fast_metrics_df = pd.DataFrame(fast_metrics_data)
             fast_metrics_df.to_excel(writer, sheet_name='Fast_Metrics', index=False)
 
-            # Sheet 21: Top concepts (NEW)
+            # Sheet 21: Top concepts (NEW) - РАСШИРЕНО ДО 10 ТЕРМИНОВ
             if fast_metrics.get('top_concepts'):
                 top_concepts_data = {
                     'Concept': [safe_convert(concept[0]) for concept in fast_metrics['top_concepts']],
@@ -2702,19 +2742,23 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     optimal_months_df = pd.DataFrame(optimal_months_data)
                     optimal_months_df.to_excel(writer, sheet_name='Optimal_Publication_Months', index=False)
 
-            # Sheet 23: Potential reviewers
+            # Sheet 23: Potential reviewers - ГРУППИРОВКА DOI
             if 'potential_reviewers' in additional_data:
                 reviewers_data = []
                 potential_reviewers_info = additional_data['potential_reviewers']
                 
                 for reviewer in potential_reviewers_info['potential_reviewers']:
-                    # Create separate rows for each DOI
-                    for i, doi in enumerate(reviewer['citing_dois']):
-                        reviewers_data.append({
-                            'Author': safe_convert(reviewer['author']) if i == 0 else '',  # Only show author name in first row
-                            'Citation_Count': safe_convert(reviewer['citation_count']) if i == 0 else '',
+                    # Группируем все DOI автора вместе
+                    grouped_dois = []
+                    for doi in reviewer['citing_dois']:
+                        grouped_dois.append({
+                            'Author': safe_convert(reviewer['author']),
+                            'Citation_Count': safe_convert(reviewer['citation_count']),
                             'Citing_DOI': safe_convert(doi)
                         })
+                    
+                    # Добавляем сгруппированные DOI
+                    reviewers_data.extend(grouped_dois)
                 
                 if reviewers_data:
                     reviewers_df = pd.DataFrame(reviewers_data)
@@ -3218,7 +3262,7 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
         
         # Top concepts
         if fast_metrics.get('top_concepts'):
-            st.subheader(translation_manager.get_text('top_5_thematic_concepts'))
+            st.subheader(translation_manager.get_text('top_10_thematic_concepts'))  # Обновлено с 5 на 10
             concepts_df = pd.DataFrame(fast_metrics['top_concepts'], columns=[translation_manager.get_text('concept'), translation_manager.get_text('mentions')])
             fig = px.bar(
                 concepts_df,
@@ -3863,6 +3907,3 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
-
-
-
