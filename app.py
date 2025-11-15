@@ -19,7 +19,7 @@ import os
 import random
 import seaborn as sns
 import matplotlib.pyplot as plt
-
+from typing import List, Tuple
 
 # Import translation manager
 from languages import translation_manager
@@ -1014,14 +1014,27 @@ def calculate_citation_timing_stats(analyzed_metadata, state):
             if citation_dates:
                 first_citation_date, first_citing_doi = min(citation_dates, key=lambda x: x[0])
                 days_to_first_citation = (first_citation_date - analyzed_date).days
-                if days_to_first_citation >= 0:
+                
+                # === ИСКЛЮЧЕНИЕ РЕДАКТОРСКИХ ЗАМЕТОК ===
+                # Проверяем, не является ли цитирующая статья редакторской заметкой
+                # (имеет тот же DOI-префикс и ту же дату публикации)
+                analyzed_prefix = get_doi_prefix(analyzed_doi)
+                citing_prefix = get_doi_prefix(first_citing_doi)
+                
+                same_prefix = (analyzed_prefix == citing_prefix)
+                same_date = (analyzed_date.date() == first_citation_date.date())
+                
+                # Исключаем записи с тем же префиксом и той же датой (вероятно редакторские заметки)
+                if not (same_prefix and same_date) and days_to_first_citation >= 0:
                     all_days_to_first_citation.append(days_to_first_citation)
                     first_citation_details.append({
                         'analyzed_doi': analyzed_doi,
                         'citing_doi': first_citing_doi,
                         'analyzed_date': analyzed_date,
                         'first_citation_date': first_citation_date,
-                        'days_to_first_citation': days_to_first_citation
+                        'days_to_first_citation': days_to_first_citation,
+                        'same_prefix': same_prefix,
+                        'same_date': same_date
                     })
     
     if all_days_to_first_citation:
@@ -1556,7 +1569,8 @@ def calculate_dbi_fast(analyzed_metadata):
         oa = meta.get('openalex')
         if oa and 'concepts' in oa:
             concepts = oa['concepts']
-            for concept in concepts[:3]:  # Take top-3 concepts
+            # === ИЗМЕНЕНИЕ: расширяем до 10 терминов ===
+            for concept in concepts[:10]:  # Take top-10 concepts
                 concept_name = concept.get('display_name', '')
                 if concept_name:
                     concept_freq[concept_name] += 1
@@ -1577,7 +1591,8 @@ def calculate_dbi_fast(analyzed_metadata):
         'DBI': round(dbi, 3),
         'unique_concepts': len(concept_freq),
         'total_concept_mentions': total_concepts,
-        'top_concepts': concept_freq.most_common(10)  # Изменено с 5 на 10
+        # === ИЗМЕНЕНИЕ: расширяем до 10 терминов ===
+        'top_concepts': concept_freq.most_common(10)
     }
 
 def calculate_all_fast_metrics(analyzed_metadata, citing_metadata, state, journal_issn):
@@ -2115,6 +2130,307 @@ def find_potential_reviewers(analyzed_metadata, citing_metadata, overlap_details
         'total_potential_reviewers': len(potential_reviewers)
     }
 
+# === NEW CLASS FOR TITLE KEYWORDS ANALYSIS ===
+class TitleKeywordsAnalyzer:
+    def __init__(self):
+        # Инициализация стоп-слов и стеммера
+        try:
+            import nltk
+            from nltk.corpus import stopwords
+            from nltk.stem import PorterStemmer
+            
+            # Загружаем стоп-слова
+            nltk.download('stopwords', quiet=True)
+            self.stop_words = set(stopwords.words('english'))
+            self.stemmer = PorterStemmer()
+        except:
+            # Fallback если nltk не доступен
+            self.stop_words = {'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
+            self.stemmer = None
+        
+        # Научные стоп-слова
+        self.scientific_stopwords = {
+            'using', 'based', 'study', 'studies', 'research', 'analysis',
+            'effect', 'effects', 'properties', 'property', 'development',
+            'application', 'applications', 'method', 'methods', 'approach',
+            'review', 'investigation', 'characterization', 'evaluation',
+            'performance', 'behavior', 'structure', 'synthesis', 'design',
+            'fabrication', 'preparation', 'processing', 'measurement',
+            'model', 'models', 'system', 'systems', 'technology', 'material',
+            'materials', 'sample', 'samples', 'device', 'devices', 'film',
+            'films', 'layer', 'layers', 'surface', 'surfaces', 'interface',
+            'interfaces', 'nanoparticle', 'nanoparticles', 'nanostructure',
+            'nanostructures', 'composite', 'composites', 'coating', 'coatings'
+        }
+        
+        # Стемминг научных стоп-слов
+        if self.stemmer:
+            self.scientific_stopwords_stemmed = {
+                self.stemmer.stem(word) for word in self.scientific_stopwords
+            }
+        else:
+            self.scientific_stopwords_stemmed = self.scientific_stopwords
+    
+    def preprocess_content_words(self, text: str) -> List[str]:
+        """Очищает и нормализует содержательные слова (удалено слово 'sub')"""
+        if not text or text in ['Название не найдено', 'Таймаут запроса', 'Ошибка сети', 'Ошибка при получении']:
+            return []
+
+        text = text.lower()
+        text = re.sub(r'[^a-zA-Z\s-]', ' ', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        words = text.split()
+        content_words = []
+
+        for word in words:
+            if '-' in word:
+                continue
+            if len(word) > 2 and word not in self.stop_words:
+                if self.stemmer:
+                    stemmed_word = self.stemmer.stem(word)
+                else:
+                    stemmed_word = word
+                if stemmed_word not in self.scientific_stopwords_stemmed:
+                    content_words.append(stemmed_word)
+
+        return content_words
+
+    def extract_compound_words(self, text: str) -> List[str]:
+        """Извлекает составные слова через дефис"""
+        if not text or text in ['Название не найдено', 'Таймаут запроса', 'Ошибка сети', 'Ошибка при получении']:
+            return []
+
+        text = text.lower()
+        compound_words = re.findall(r'\b[a-z]{2,}-[a-z]{2,}(?:-[a-z]{2,})*\b', text)
+
+        filtered_compounds = []
+        for word in compound_words:
+            parts = word.split('-')
+            if not any(part in self.stop_words for part in parts):
+                filtered_compounds.append(word)
+
+        return filtered_compounds
+
+    def extract_scientific_stopwords(self, text: str) -> List[str]:
+        """Извлекает научные стоп-слова"""
+        if not text or text in ['Название не найдено', 'Таймаут запроса', 'Ошибка сети', 'Ошибка при получении']:
+            return []
+
+        text = text.lower()
+        text = re.sub(r'[^a-zA-Z\s]', ' ', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        words = text.split()
+        scientific_words = []
+
+        for word in words:
+            if len(word) > 2:
+                if self.stemmer:
+                    stemmed_word = self.stemmer.stem(word)
+                else:
+                    stemmed_word = word
+                if stemmed_word in self.scientific_stopwords_stemmed:
+                    for original_word in self.scientific_stopwords:
+                        if self.stemmer:
+                            original_stemmed = self.stemmer.stem(original_word)
+                        else:
+                            original_stemmed = original_word
+                        if original_stemmed == stemmed_word:
+                            scientific_words.append(original_word)
+                            break
+
+        return scientific_words
+
+    def analyze_titles(self, analyzed_titles: List[str], citing_titles: List[str]) -> dict:
+        """Анализирует ключевые слова в названиях анализируемых и цитирующих статей"""
+        # Анализ анализируемых статей
+        analyzed_content_words = []
+        analyzed_compound_words = []
+        analyzed_scientific_words = []
+        
+        valid_analyzed_titles = [t for t in analyzed_titles if t and t not in ['Название не найдено', 'Таймаут запроса', 'Ошибка сети', 'Ошибка при получении']]
+        
+        for title in valid_analyzed_titles:
+            analyzed_content_words.extend(self.preprocess_content_words(title))
+            analyzed_compound_words.extend(self.extract_compound_words(title))
+            analyzed_scientific_words.extend(self.extract_scientific_stopwords(title))
+        
+        # Анализ цитирующих статей
+        citing_content_words = []
+        citing_compound_words = []
+        citing_scientific_words = []
+        
+        valid_citing_titles = [t for t in citing_titles if t and t not in ['Название не найдено', 'Таймаут запроса', 'Ошибка сети', 'Ошибка при получении']]
+        
+        for title in valid_citing_titles:
+            citing_content_words.extend(self.preprocess_content_words(title))
+            citing_compound_words.extend(self.extract_compound_words(title))
+            citing_scientific_words.extend(self.extract_scientific_stopwords(title))
+        
+        # Подсчет частот
+        analyzed_content_freq = Counter(analyzed_content_words)
+        analyzed_compound_freq = Counter(analyzed_compound_words)
+        analyzed_scientific_freq = Counter(analyzed_scientific_words)
+        
+        citing_content_freq = Counter(citing_content_words)
+        citing_compound_freq = Counter(citing_compound_words)
+        citing_scientific_freq = Counter(citing_scientific_words)
+        
+        # Топ-50 для каждого типа
+        top_50_analyzed_content = analyzed_content_freq.most_common(50)
+        top_50_analyzed_compound = analyzed_compound_freq.most_common(50)
+        top_50_analyzed_scientific = analyzed_scientific_freq.most_common(50)
+        
+        top_50_citing_content = citing_content_freq.most_common(50)
+        top_50_citing_compound = citing_compound_freq.most_common(50)
+        top_50_citing_scientific = citing_scientific_freq.most_common(50)
+        
+        return {
+            'analyzed': {
+                'content_words': top_50_analyzed_content,
+                'compound_words': top_50_analyzed_compound,
+                'scientific_words': top_50_analyzed_scientific,
+                'total_titles': len(valid_analyzed_titles)
+            },
+            'citing': {
+                'content_words': top_50_citing_content,
+                'compound_words': top_50_citing_compound,
+                'scientific_words': top_50_citing_scientific,
+                'total_titles': len(valid_citing_titles)
+            }
+        }
+
+def extract_titles_from_metadata(metadata_list):
+    """Извлекает названия статей из метаданных"""
+    titles = []
+    for meta in metadata_list:
+        if not meta:
+            titles.append('')
+            continue
+            
+        cr = meta.get('crossref')
+        oa = meta.get('openalex')
+        
+        title = ''
+        if cr:
+            title_list = cr.get('title', [])
+            if title_list:
+                title = title_list[0]
+        elif oa:
+            title = oa.get('title', '')
+        
+        titles.append(title if title else '')
+    
+    return titles
+
+def normalize_author_name(author_name):
+    """Нормализация имени автора - оставляем только первый инициал"""
+    if not author_name:
+        return author_name
+    
+    # Убираем лишние точки (исправляем Pikalova E..Y. -> Pikalova E.Y.)
+    author_name = re.sub(r'\.\.', '.', author_name)
+    
+    # Разделяем фамилию и инициалы
+    parts = author_name.split()
+    if len(parts) < 2:
+        return author_name
+    
+    # Берем фамилию (первая часть) и первый инициал
+    surname = parts[0]
+    initials = parts[1]
+    
+    # Берем только первую букву инициалов (первый инициал)
+    if '.' in initials:
+        # Если инициалы с точками: "E.Y." -> берем "E."
+        first_initials = re.findall(r'[A-Z]\.', initials)
+        if first_initials:
+            first_initial = first_initials[0]
+        else:
+            # Если формат другой, берем первую букву
+            first_initial = initials[0] + '.' if len(initials) > 0 else ''
+    else:
+        # Если без точек: "EY" -> берем "E."
+        first_initial = initials[0] + '.' if len(initials) > 0 else ''
+    
+    return f"{surname} {first_initial}".strip()
+
+def normalize_keywords_data(keywords_data):
+    """Нормализация данных ключевых слов для объединенного листа"""
+    normalized_data = []
+    
+    # Нормализация для content words
+    analyzed_total = keywords_data['analyzed']['total_titles']
+    citing_total = keywords_data['citing']['total_titles']
+    
+    # Content words
+    for i, (word, analyzed_count) in enumerate(keywords_data['analyzed']['content_words'], 1):
+        citing_count = next((c for w, c in keywords_data['citing']['content_words'] if w == word), 0)
+        
+        # Нормализация частот
+        norm_analyzed = analyzed_count / analyzed_total if analyzed_total > 0 else 0
+        norm_citing = citing_count / citing_total if citing_total > 0 else 0
+        total_norm = norm_analyzed + norm_citing
+        ratio = norm_analyzed / norm_citing if norm_citing > 0 else float('inf')
+        
+        normalized_data.append({
+            'Rank': i,
+            'Keyword Type': 'Content',
+            'Keyword': word,
+            'Norm_Analyzed': round(norm_analyzed, 4),
+            'Norm_Citing': round(norm_citing, 4),
+            'Total_Norm': round(total_norm, 4),
+            'Ratio_Analyzed/Citing': round(ratio, 2)
+        })
+    
+    # Compound words
+    for i, (word, analyzed_count) in enumerate(keywords_data['analyzed']['compound_words'], 1):
+        citing_count = next((c for w, c in keywords_data['citing']['compound_words'] if w == word), 0)
+        
+        norm_analyzed = analyzed_count / analyzed_total if analyzed_total > 0 else 0
+        norm_citing = citing_count / citing_total if citing_total > 0 else 0
+        total_norm = norm_analyzed + norm_citing
+        ratio = norm_analyzed / norm_citing if norm_citing > 0 else float('inf')
+        
+        normalized_data.append({
+            'Rank': i,
+            'Keyword Type': 'Compound',
+            'Keyword': word,
+            'Norm_Analyzed': round(norm_analyzed, 4),
+            'Norm_Citing': round(norm_citing, 4),
+            'Total_Norm': round(total_norm, 4),
+            'Ratio_Analyzed/Citing': round(ratio, 2)
+        })
+    
+    # Scientific stopwords
+    for i, (word, analyzed_count) in enumerate(keywords_data['analyzed']['scientific_words'], 1):
+        citing_count = next((c for w, c in keywords_data['citing']['scientific_words'] if w == word), 0)
+        
+        norm_analyzed = analyzed_count / analyzed_total if analyzed_total > 0 else 0
+        norm_citing = citing_count / citing_total if citing_total > 0 else 0
+        total_norm = norm_analyzed + norm_citing
+        ratio = norm_analyzed / norm_citing if norm_citing > 0 else float('inf')
+        
+        normalized_data.append({
+            'Rank': i,
+            'Keyword Type': 'Scientific',
+            'Keyword': word,
+            'Norm_Analyzed': round(norm_analyzed, 4),
+            'Norm_Citing': round(norm_citing, 4),
+            'Total_Norm': round(total_norm, 4),
+            'Ratio_Analyzed/Citing': round(ratio, 2)
+        })
+    
+    # Сортировка по убыванию Norm_Citing
+    normalized_data.sort(key=lambda x: x['Norm_Citing'], reverse=True)
+    
+    # Обновляем ранги после сортировки
+    for i, item in enumerate(normalized_data, 1):
+        item['Rank'] = i
+    
+    return normalized_data
+
 # === 17. Enhanced Excel Report Creation ===
 def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer, additional_data):
     """Create enhanced Excel report with error handling for large data"""
@@ -2227,38 +2543,30 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 overlap_df = pd.DataFrame(overlap_list)
                 overlap_df.to_excel(writer, sheet_name='Work_Overlaps', index=False)
 
-            # Sheet 4: Time to first citation - ИСКЛЮЧЕНИЕ РЕДАКТОРСКИХ ЗАМЕТОК
+            # Sheet 4: Time to first citation (С ИСКЛЮЧЕНИЕМ РЕДАКТОРСКИХ ЗАМЕТОК)
             first_citation_list = []
-            filtered_first_citation_details = []
-            
             for detail in citation_timing.get('first_citation_details', []):
-                analyzed_doi = detail['analyzed_doi']
-                citing_doi = detail['citing_doi']
-                
-                # Проверяем, не являются ли это редакторской заметкой
-                analyzed_prefix = get_doi_prefix(analyzed_doi)
-                citing_prefix = get_doi_prefix(citing_doi)
-                
-                # Исключаем записи, где префиксы DOI совпадают и даты публикации одинаковые
-                if (analyzed_prefix == citing_prefix and 
-                    detail['analyzed_date'] == detail['first_citation_date']):
-                    continue  # Пропускаем редакторские заметки
-                
-                filtered_first_citation_details.append(detail)
+                # === ИСКЛЮЧЕНИЕ РЕДАКТОРСКИХ ЗАМЕТОК ===
+                # Не включаем записи с тем же префиксом и той же датой
+                if detail.get('same_prefix', False) and detail.get('same_date', False):
+                    continue
+                    
                 first_citation_list.append({
                     'Analyzed_DOI': safe_convert(detail['analyzed_doi'])[:100],
                     'First_Citing_DOI': safe_convert(detail['citing_doi'])[:100],
                     'Publication_Date': detail['analyzed_date'].strftime('%Y-%m-%d') if detail['analyzed_date'] else 'N/A',
                     'First_Citation_Date': detail['first_citation_date'].strftime('%Y-%m-%d') if detail['first_citation_date'] else 'N/A',
-                    'Days_to_First_Citation': safe_convert(detail['days_to_first_citation'])
+                    'Days_to_First_Citation': safe_convert(detail['days_to_first_citation']),
+                    'Same_DOI_Prefix': detail.get('same_prefix', False),
+                    'Same_Publication_Date': detail.get('same_date', False)
                 })
             
             if first_citation_list:
                 first_citation_df = pd.DataFrame(first_citation_list)
                 first_citation_df.to_excel(writer, sheet_name='First_Citations', index=False)
 
-            # Sheet 5: Analyzed articles statistics
-            analyzed_stats_data = {
+            # Sheet 5: Combined Statistics (NEW - объединенный лист)
+            statistics_data = {
                 'Metric': [
                     'Total Articles', 
                     'Total References', 
@@ -2288,7 +2596,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     'Articles with ≥30 citations',
                     'Articles with ≥50 citations'
                 ],
-                'Value': [
+                'Value_Analyzed': [
                     safe_convert(analyzed_stats['n_items']),
                     safe_convert(analyzed_stats['total_refs']),
                     'References with DOI', safe_convert(analyzed_stats['refs_with_doi']), f"{safe_convert(analyzed_stats['refs_with_doi_pct']):.1f}%",
@@ -2316,39 +2624,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     safe_convert(analyzed_stats['articles_with_20_citations']),
                     safe_convert(analyzed_stats['articles_with_30_citations']),
                     safe_convert(analyzed_stats['articles_with_50_citations'])
-                ]
-            }
-            analyzed_stats_df = pd.DataFrame(analyzed_stats_data)
-            analyzed_stats_df.to_excel(writer, sheet_name='Analyzed_Statistics', index=False)
-
-            # Sheet 6: Citing works statistics
-            citing_stats_data = {
-                'Metric': [
-                    'Total Citing Articles', 
-                    'Total References', 
-                    'References with DOI', 'References with DOI Count', 'References with DOI Percentage',
-                    'References without DOI', 'References without DOI Count', 'References without DOI Percentage',
-                    'Self-Citations', 'Self-Citations Count', 'Self-Citations Percentage',
-                    'Single Author Articles',
-                    'Articles with >10 Authors', 
-                    'Minimum References', 
-                    'Maximum References', 
-                    'Average References',
-                    'Median References', 
-                    'Minimum Authors',
-                    'Maximum Authors', 
-                    'Average Authors',
-                    'Median Authors', 
-                    'Single Country Articles', 'Single Country Articles Percentage',
-                    'Multiple Country Articles', 'Multiple Country Articles Percentage',
-                    'No Country Data Articles', 'No Country Data Articles Percentage',
-                    'Total Affiliations',
-                    'Unique Affiliations', 
-                    'Unique Countries',
-                    'Unique Journals',
-                    'Unique Publishers'
                 ],
-                'Value': [
+                'Value_Citing': [
                     safe_convert(citing_stats['n_items']),
                     safe_convert(citing_stats['total_refs']),
                     'References with DOI', safe_convert(citing_stats['refs_with_doi']), f"{safe_convert(citing_stats['refs_with_doi_pct']):.1f}%",
@@ -2371,57 +2648,23 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     safe_convert(citing_stats['unique_affiliations_count']),
                     safe_convert(citing_stats['unique_countries_count']),
                     safe_convert(citing_stats['unique_journals_count']),
-                    safe_convert(citing_stats['unique_publishers_count'])
+                    safe_convert(citing_stats['unique_publishers_count']),
+                    'N/A',  # Articles with ≥10 citations (для цитирующих не применимо)
+                    'N/A',  # Articles with ≥20 citations
+                    'N/A',  # Articles with ≥30 citations
+                    'N/A'   # Articles with ≥50 citations
                 ]
             }
-            citing_stats_df = pd.DataFrame(citing_stats_data)
-            citing_stats_df.to_excel(writer, sheet_name='Citing_Statistics', index=False)
+            statistics_df = pd.DataFrame(statistics_data)
+            statistics_df.to_excel(writer, sheet_name='Statistics', index=False)
 
-            # Sheet 7: Enhanced statistics
-            enhanced_stats_data = {
+            # Sheet 6: Combined Citing Stats (NEW - объединенный лист Enhanced_Statistics и Citation_Timing)
+            citing_stats_data = {
                 'Metric': [
                     'H-index', 'Total Citations',
                     'Average Citations per Article', 'Maximum Citations',
                     'Minimum Citations', 'Articles with Citations',
-                    'Articles without Citations'
-                ],
-                'Value': [
-                    safe_convert(enhanced_stats['h_index']),
-                    safe_convert(enhanced_stats['total_citations']),
-                    f"{safe_convert(enhanced_stats['avg_citations_per_article']):.1f}",
-                    safe_convert(enhanced_stats['max_citations']),
-                    safe_convert(enhanced_stats['min_citations']),
-                    safe_convert(enhanced_stats['articles_with_citations']),
-                    safe_convert(enhanced_stats['articles_without_citations'])
-                ]
-            }
-            enhanced_stats_df = pd.DataFrame(enhanced_stats_data)
-            enhanced_stats_df.to_excel(writer, sheet_name='Enhanced_Statistics', index=False)
-
-            # Sheet 8: Citation timing - ОБНОВЛЕННАЯ СТАТИСТИКА БЕЗ РЕДАКТОРСКИХ ЗАМЕТОК
-            # Пересчитываем статистику на основе отфильтрованных данных
-            if filtered_first_citation_details:
-                days_data = [detail['days_to_first_citation'] for detail in filtered_first_citation_details]
-                citation_timing_filtered = {
-                    'days_min': min(days_data) if days_data else 0,
-                    'days_max': max(days_data) if days_data else 0,
-                    'days_mean': np.mean(days_data) if days_data else 0,
-                    'days_median': np.median(days_data) if days_data else 0,
-                    'articles_with_timing_data': len(days_data),
-                    'total_years_covered': citation_timing['total_years_covered']
-                }
-            else:
-                citation_timing_filtered = {
-                    'days_min': 0,
-                    'days_max': 0,
-                    'days_mean': 0,
-                    'days_median': 0,
-                    'articles_with_timing_data': 0,
-                    'total_years_covered': citation_timing['total_years_covered']
-                }
-            
-            citation_timing_data = {
-                'Metric': [
+                    'Articles without Citations',
                     'Minimum Days to First Citation',
                     'Maximum Days to First Citation', 
                     'Average Days to First Citation',
@@ -2430,18 +2673,25 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     'Total Years Covered by Citation Data'
                 ],
                 'Value': [
-                    safe_convert(citation_timing_filtered['days_min']),
-                    safe_convert(citation_timing_filtered['days_max']),
-                    f"{safe_convert(citation_timing_filtered['days_mean']):.1f}",
-                    safe_convert(citation_timing_filtered['days_median']),
-                    safe_convert(citation_timing_filtered['articles_with_timing_data']),
-                    safe_convert(citation_timing_filtered['total_years_covered'])
+                    safe_convert(enhanced_stats['h_index']),
+                    safe_convert(enhanced_stats['total_citations']),
+                    f"{safe_convert(enhanced_stats['avg_citations_per_article']):.1f}",
+                    safe_convert(enhanced_stats['max_citations']),
+                    safe_convert(enhanced_stats['min_citations']),
+                    safe_convert(enhanced_stats['articles_with_citations']),
+                    safe_convert(enhanced_stats['articles_without_citations']),
+                    safe_convert(citation_timing['days_min']),
+                    safe_convert(citation_timing['days_max']),
+                    f"{safe_convert(citation_timing['days_mean']):.1f}",
+                    safe_convert(citation_timing['days_median']),
+                    safe_convert(citation_timing['articles_with_timing_data']),
+                    safe_convert(citation_timing['total_years_covered'])
                 ]
             }
-            citation_timing_df = pd.DataFrame(citation_timing_data)
-            citation_timing_df.to_excel(writer, sheet_name='Citation_Timing', index=False)
+            citing_stats_df = pd.DataFrame(citing_stats_data)
+            citing_stats_df.to_excel(writer, sheet_name='Citing_Stats', index=False)
 
-            # Sheet 9: Citations by year
+            # Sheet 7: Citations by year
             yearly_citations_data = []
             for yearly_stat in citation_timing['yearly_citations']:
                 yearly_citations_data.append({
@@ -2453,7 +2703,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 yearly_citations_df = pd.DataFrame(yearly_citations_data)
                 yearly_citations_df.to_excel(writer, sheet_name='Citations_by_Year', index=False)
 
-            # Sheet 10: Citation accumulation curves - СОРТИРОВКА ПО ГОДАМ
+            # Sheet 8: Citation accumulation curves (СОРТИРОВКА ПО ГОДАМ)
             accumulation_data = []
             for pub_year, curve_data in citation_timing['accumulation_curves'].items():
                 for data_point in curve_data:
@@ -2463,13 +2713,13 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                         'Cumulative_Citations': safe_convert(data_point['cumulative_citations'])
                     })
             
+            # === СОРТИРОВКА: сначала по году публикации, затем по годам после публикации ===
             if accumulation_data:
-                # Сортируем по году публикации и годам с момента публикации
                 accumulation_df = pd.DataFrame(accumulation_data)
                 accumulation_df = accumulation_df.sort_values(['Publication_Year', 'Years_Since_Publication'])
                 accumulation_df.to_excel(writer, sheet_name='Citation_Accumulation_Curves', index=False)
 
-            # Sheet 11: Citation network - СОРТИРОВКА ПО ГОДАМ
+            # Sheet 9: Citation network (СОРТИРОВКА ПО ГОДАМ)
             citation_network_data = []
             for year, citing_years in enhanced_stats.get('citation_network', {}).items():
                 year_counts = Counter(citing_years)
@@ -2480,17 +2730,24 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                         'Citations_Count': safe_convert(count)
                     })
             
+            # === СОРТИРОВКА: сначала по году публикации, затем по году цитирования ===
             if citation_network_data:
-                # Сортируем по году публикации и году цитирования
                 citation_network_df = pd.DataFrame(citation_network_data)
                 citation_network_df = citation_network_df.sort_values(['Publication_Year', 'Citation_Year'])
                 citation_network_df.to_excel(writer, sheet_name='Citation_Network', index=False)
 
-            # Sheet 12: All authors analyzed (with percentages)
+            # Sheet 10: All authors analyzed (with percentages) - С НОРМАЛИЗАЦИЕЙ ИМЕН
             if analyzed_stats['all_authors']:
                 all_authors_data = []
                 total_articles = safe_convert(analyzed_stats['n_items'])
+                
+                # Нормализуем имена авторов и объединяем счетчики
+                normalized_author_counts = Counter()
                 for author, count in analyzed_stats['all_authors']:
+                    normalized_name = normalize_author_name(author)
+                    normalized_author_counts[normalized_name] += count
+                
+                for author, count in normalized_author_counts.most_common():
                     percentage = (safe_convert(count) / total_articles * 100) if total_articles > 0 else 0
                     all_authors_data.append({
                         'Author': safe_convert(author),
@@ -2500,11 +2757,18 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 all_authors_df = pd.DataFrame(all_authors_data)
                 all_authors_df.to_excel(writer, sheet_name='All_Authors_Analyzed', index=False)
 
-            # Sheet 13: All authors citing (with percentages)
+            # Sheet 11: All authors citing (with percentages) - С НОРМАЛИЗАЦИЕЙ ИМЕН
             if citing_stats['all_authors']:
                 all_citing_authors_data = []
                 total_citing_articles = safe_convert(citing_stats['n_items'])
+                
+                # Нормализуем имена авторов и объединяем счетчики
+                normalized_author_counts = Counter()
                 for author, count in citing_stats['all_authors']:
+                    normalized_name = normalize_author_name(author)
+                    normalized_author_counts[normalized_name] += count
+                
+                for author, count in normalized_author_counts.most_common():
                     percentage = (safe_convert(count) / total_citing_articles * 100) if total_citing_articles > 0 else 0
                     all_citing_authors_data.append({
                         'Author': safe_convert(author),
@@ -2514,7 +2778,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 all_citing_authors_df = pd.DataFrame(all_citing_authors_data)
                 all_citing_authors_df.to_excel(writer, sheet_name='All_Authors_Citing', index=False)
 
-            # Sheet 14: All affiliations analyzed (with percentages)
+            # Sheet 12: All affiliations analyzed (with percentages)
             if analyzed_stats['all_affiliations']:
                 all_affiliations_data = []
                 total_mentions = sum(safe_convert(count) for _, count in analyzed_stats['all_affiliations'])
@@ -2528,7 +2792,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 all_affiliations_df = pd.DataFrame(all_affiliations_data)
                 all_affiliations_df.to_excel(writer, sheet_name='All_Affiliations_Analyzed', index=False)
 
-            # Sheet 15: All affiliations citing (with percentages)
+            # Sheet 13: All affiliations citing (with percentages)
             if citing_stats['all_affiliations']:
                 all_citing_affiliations_data = []
                 total_mentions = sum(safe_convert(count) for _, count in citing_stats['all_affiliations'])
@@ -2542,7 +2806,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 all_citing_affiliations_df = pd.DataFrame(all_citing_affiliations_data)
                 all_citing_affiliations_df.to_excel(writer, sheet_name='All_Affiliations_Citing', index=False)
 
-            # Sheet 16: All countries analyzed (with percentages)
+            # Sheet 14: All countries analyzed (with percentages)
             if analyzed_stats['all_countries']:
                 all_countries_data = []
                 total_mentions = sum(safe_convert(count) for _, count in analyzed_stats['all_countries'])
@@ -2556,7 +2820,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 all_countries_df = pd.DataFrame(all_countries_data)
                 all_countries_df.to_excel(writer, sheet_name='All_Countries_Analyzed', index=False)
 
-            # Sheet 17: All countries citing (with percentages)
+            # Sheet 15: All countries citing (with percentages)
             if citing_stats['all_countries']:
                 all_citing_countries_data = []
                 total_mentions = sum(safe_convert(count) for _, count in citing_stats['all_countries'])
@@ -2570,7 +2834,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 all_citing_countries_df = pd.DataFrame(all_citing_countries_data)
                 all_citing_countries_df.to_excel(writer, sheet_name='All_Countries_Citing', index=False)
 
-            # Sheet 18: All journals citing (with percentages) - UPDATED VERSION WITH CS DATA
+            # Sheet 16: All journals citing (with percentages) - UPDATED VERSION WITH CS DATA
             if citing_stats['all_journals']:
                 all_citing_journals_data = []
                 total_articles = safe_convert(citing_stats['n_items'])
@@ -2625,7 +2889,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 all_citing_journals_df = pd.DataFrame(all_citing_journals_data)
                 all_citing_journals_df.to_excel(writer, sheet_name='All_Journals_Citing', index=False)
 
-            # Sheet 19: All publishers citing (with percentages)
+            # Sheet 17: All publishers citing (with percentages)
             if citing_stats['all_publishers']:
                 all_citing_publishers_data = []
                 total_articles = safe_convert(citing_stats['n_items'])
@@ -2639,7 +2903,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 all_citing_publishers_df = pd.DataFrame(all_citing_publishers_data)
                 all_citing_publishers_df.to_excel(writer, sheet_name='All_Publishers_Citing', index=False)
 
-            # Sheet 20: Fast metrics (NEW)
+            # Sheet 18: Fast metrics (NEW)
             fast_metrics_data = {
                 'Metric': [
                     'Reference Age (median)', 'Reference Age (mean)',
@@ -2695,7 +2959,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             fast_metrics_df = pd.DataFrame(fast_metrics_data)
             fast_metrics_df.to_excel(writer, sheet_name='Fast_Metrics', index=False)
 
-            # Sheet 21: Top concepts (NEW) - РАСШИРЕНО ДО 10 ТЕРМИНОВ
+            # Sheet 19: Top concepts (NEW) - РАСШИРЕНО ДО 10 ТЕРМИНОВ
             if fast_metrics.get('top_concepts'):
                 top_concepts_data = {
                     'Concept': [safe_convert(concept[0]) for concept in fast_metrics['top_concepts']],
@@ -2704,9 +2968,17 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 top_concepts_df = pd.DataFrame(top_concepts_data)
                 top_concepts_df.to_excel(writer, sheet_name='Top_Concepts', index=False)
 
-            # === REMOVED SHEETS: Reference_Year_Analysis, Reference_Age_Distribution, Reference_Age_Heatmap_Data, Reference_Publication ===
+            # === НОВЫЙ ЛИСТ: Объединенный анализ ключевых слов в названиях ===
+            # Sheet 20: Combined Title Keywords (NEW)
+            if 'title_keywords' in additional_data:
+                keywords_data = additional_data['title_keywords']
+                normalized_keywords = normalize_keywords_data(keywords_data)
+                
+                if normalized_keywords:
+                    keywords_df = pd.DataFrame(normalized_keywords)
+                    keywords_df.to_excel(writer, sheet_name='Title_Keywords', index=False)
 
-            # Sheet 22: Citation seasonality
+            # Sheet 21: Citation seasonality
             if 'citation_seasonality' in additional_data:
                 seasonality_data = []
                 citation_seasonality = additional_data['citation_seasonality']
@@ -2742,43 +3014,23 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     optimal_months_df = pd.DataFrame(optimal_months_data)
                     optimal_months_df.to_excel(writer, sheet_name='Optimal_Publication_Months', index=False)
 
-            # Sheet 23: Potential reviewers - ГРУППИРОВКА DOI
+            # Sheet 22: Potential reviewers
             if 'potential_reviewers' in additional_data:
                 reviewers_data = []
                 potential_reviewers_info = additional_data['potential_reviewers']
                 
                 for reviewer in potential_reviewers_info['potential_reviewers']:
-                    # Группируем все DOI автора вместе
-                    grouped_dois = []
-                    for doi in reviewer['citing_dois']:
-                        grouped_dois.append({
-                            'Author': safe_convert(reviewer['author']),
-                            'Citation_Count': safe_convert(reviewer['citation_count']),
+                    # Create separate rows for each DOI
+                    for i, doi in enumerate(reviewer['citing_dois']):
+                        reviewers_data.append({
+                            'Author': safe_convert(reviewer['author']) if i == 0 else '',  # Only show author name in first row
+                            'Citation_Count': safe_convert(reviewer['citation_count']) if i == 0 else '',
                             'Citing_DOI': safe_convert(doi)
                         })
-                    
-                    # Добавляем сгруппированные DOI
-                    reviewers_data.extend(grouped_dois)
                 
                 if reviewers_data:
                     reviewers_df = pd.DataFrame(reviewers_data)
                     reviewers_df.to_excel(writer, sheet_name='Potential_Reviewers', index=False)
-
-                # Summary statistics
-                summary_data = {
-                    'Metric': [
-                        'Total Journal Authors',
-                        'Total Overlap Authors', 
-                        'Total Potential Reviewers Found'
-                    ],
-                    'Value': [
-                        safe_convert(potential_reviewers_info['total_journal_authors']),
-                        safe_convert(potential_reviewers_info['total_overlap_authors']),
-                        safe_convert(potential_reviewers_info['total_potential_reviewers'])
-                    ]
-                }
-                summary_df = pd.DataFrame(summary_data)
-                summary_df.to_excel(writer, sheet_name='Reviewer_Discovery_Summary', index=False)
 
             # Ensure at least one sheet exists
             if len(writer.sheets) == 0:
@@ -3262,7 +3514,7 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
         
         # Top concepts
         if fast_metrics.get('top_concepts'):
-            st.subheader(translation_manager.get_text('top_10_thematic_concepts'))  # Обновлено с 5 на 10
+            st.subheader(translation_manager.get_text('top_10_thematic_concepts'))
             concepts_df = pd.DataFrame(fast_metrics['top_concepts'], columns=[translation_manager.get_text('concept'), translation_manager.get_text('mentions')])
             fig = px.bar(
                 concepts_df,
@@ -3511,10 +3763,22 @@ def analyze_journal(issn, period_str):
         state
     )
     
+    # === НОВЫЙ АНАЛИЗ: Ключевые слова в названиях ===
+    overall_status.text("Analyzing title keywords...")
+    title_keywords_analyzer = TitleKeywordsAnalyzer()
+    
+    # Извлекаем названия статей
+    analyzed_titles = extract_titles_from_metadata(analyzed_metadata)
+    citing_titles = extract_titles_from_metadata(all_citing_metadata)
+    
+    # Анализируем ключевые слова
+    title_keywords = title_keywords_analyzer.analyze_titles(analyzed_titles, citing_titles)
+    
     # Combine all additional data
     additional_data = {
         'citation_seasonality': citation_seasonality,
-        'potential_reviewers': potential_reviewers
+        'potential_reviewers': potential_reviewers,
+        'title_keywords': title_keywords
     }
     
     overall_progress.progress(0.9)
@@ -3683,7 +3947,8 @@ def main():
                 "- " + translation_manager.get_text('capability_7') + "\n" +
                 "- " + translation_manager.get_text('capability_8') + "\n" +
                 "- **NEW:** Citation seasonality and optimal publication timing\n" +
-                "- **NEW:** Potential reviewer discovery")
+                "- **NEW:** Potential reviewer discovery\n" +
+                "- **NEW:** Title keywords analysis")
         
         st.warning("**" + translation_manager.get_text('note') + ":** \n" +
                   "- " + translation_manager.get_text('note_text_1') + "\n" +
@@ -3758,12 +4023,13 @@ def main():
         st.markdown("---")
         st.header("📈 " + translation_manager.get_text('detailed_statistics'))
         
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             translation_manager.get_text('analyzed_articles'), 
             translation_manager.get_text('citing_works'), 
             translation_manager.get_text('comparative_analysis'), 
             translation_manager.get_text('fast_metrics'),
-            "🔮 Predictive Insights"
+            "🔮 Predictive Insights",
+            "🔤 Title Keywords"
         ])
         
         with tab1:
@@ -3903,6 +4169,69 @@ def main():
                             st.write(f"{i}. **{reviewer['author']}** - {reviewer['citation_count']} citations")
             else:
                 st.info("No additional predictive insights available for this analysis.")
+
+        with tab6:
+            st.subheader("🔤 Title Keywords Analysis")
+            
+            additional_data = results.get('additional_data', {})
+            
+            if 'title_keywords' in additional_data:
+                keywords_data = additional_data['title_keywords']
+                
+                st.write(f"**Analyzed articles:** {keywords_data['analyzed']['total_titles']} titles")
+                st.write(f"**Citing articles:** {keywords_data['citing']['total_titles']} titles")
+                
+                # Content words
+                st.subheader("📝 Content Words (Top-10)")
+                content_data = []
+                for i, (word, count) in enumerate(keywords_data['analyzed']['content_words'][:10], 1):
+                    citing_count = next((c for w, c in keywords_data['citing']['content_words'] if w == word), 0)
+                    content_data.append({
+                        'Rank': i,
+                        'Keyword': word,
+                        'Analyzed Articles': count,
+                        'Citing Articles': citing_count
+                    })
+                
+                if content_data:
+                    content_df = pd.DataFrame(content_data)
+                    st.dataframe(content_df)
+                
+                # Compound words
+                if keywords_data['analyzed']['compound_words']:
+                    st.subheader("🔗 Compound Words (Top-10)")
+                    compound_data = []
+                    for i, (word, count) in enumerate(keywords_data['analyzed']['compound_words'][:10], 1):
+                        citing_count = next((c for w, c in keywords_data['citing']['compound_words'] if w == word), 0)
+                        compound_data.append({
+                            'Rank': i,
+                            'Keyword': word,
+                            'Analyzed Articles': count,
+                            'Citing Articles': citing_count
+                        })
+                    
+                    if compound_data:
+                        compound_df = pd.DataFrame(compound_data)
+                        st.dataframe(compound_df)
+                
+                # Scientific stopwords
+                if keywords_data['analyzed']['scientific_words']:
+                    st.subheader("📚 Scientific Stopwords (Top-10)")
+                    scientific_data = []
+                    for i, (word, count) in enumerate(keywords_data['analyzed']['scientific_words'][:10], 1):
+                        citing_count = next((c for w, c in keywords_data['citing']['scientific_words'] if w == word), 0)
+                        scientific_data.append({
+                            'Rank': i,
+                            'Keyword': word,
+                            'Analyzed Articles': count,
+                            'Citing Articles': citing_count
+                        })
+                    
+                    if scientific_data:
+                        scientific_df = pd.DataFrame(scientific_data)
+                        st.dataframe(scientific_df)
+            else:
+                st.info("Title keywords analysis not available for this dataset.")
 
 # Run application
 if __name__ == "__main__":
