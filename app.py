@@ -3267,6 +3267,10 @@ def is_in_scopus_fast(citing_work, state):
     if not citing_work:
         return False
     
+    # Проверяем, что кэш существует
+    if not hasattr(state, 'scopus_issn_cache') or state.scopus_issn_cache is None:
+        return False
+    
     # Извлекаем все ISSN из цитирующей работы
     issns = set()
     cr = citing_work.get('crossref')
@@ -3292,6 +3296,10 @@ def is_in_scopus_fast(citing_work, state):
 def is_in_wos_fast(citing_work, state):
     """Быстрая проверка нахождения в WoS через кэш"""
     if not citing_work:
+        return False
+    
+    # Проверяем, что кэш существует
+    if not hasattr(state, 'wos_issn_cache') or state.wos_issn_cache is None:
         return False
     
     # Извлекаем все ISSN из цитирующей работы
@@ -5875,4 +5883,5 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
