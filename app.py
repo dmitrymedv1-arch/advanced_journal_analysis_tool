@@ -798,10 +798,6 @@ class AnalysisState:
         self.openalex_client = OpenAlexClient(self.config, self.logger, self.cache_manager)
         self.data_processor = DataProcessor(self.logger)
         self.metrics_calculator = MetricsCalculator(self.logger)
-        
-        # New cache attributes for optimized ISSN lookup
-        self.scopus_issn_cache = None
-        self.wos_issn_cache = None
 
 # =============================================================================
 # ORIGINAL CODE (PRESERVED)
@@ -3238,163 +3234,9 @@ def normalize_keywords_data(keywords_data):
     
     return normalized_data
 
-# === NEW OPTIMIZED FUNCTIONS FOR SPECIAL ANALYSIS ===
-
-def create_issn_lookup_cache():
-    """Создает кэш для быстрого поиска ISSN"""
-    state = get_analysis_state()
-    
-    # Кэш для Scopus
-    state.scopus_issn_cache = set()
-    if not state.cs_data.empty:
-        for col in ['Print ISSN', 'E-ISSN']:
-            if col in state.cs_data.columns:
-                issns = state.cs_data[col].dropna().astype(str).apply(normalize_issn_for_comparison)
-                state.scopus_issn_cache.update(issns)
-        print(f"✅ Created Scopus ISSN cache with {len(state.scopus_issn_cache)} entries")
-    
-    # Кэш для WoS
-    state.wos_issn_cache = set()
-    if not state.if_data.empty:
-        for col in ['ISSN', 'eISSN']:
-            if col in state.if_data.columns:
-                issns = state.if_data[col].dropna().astype(str).apply(normalize_issn_for_comparison)
-                state.wos_issn_cache.update(issns)
-        print(f"✅ Created WoS ISSN cache with {len(state.wos_issn_cache)} entries")
-
-def is_in_scopus_fast(citing_work, state):
-    """Быстрая проверка нахождения в Scopus через кэш"""
-    if not citing_work:
-        return False
-    
-    # Извлекаем все ISSN из цитирующей работы
-    issns = set()
-    cr = citing_work.get('crossref')
-    oa = citing_work.get('openalex')
-    
-    if cr:
-        cr_issns = cr.get('ISSN', [])
-        if isinstance(cr_issns, str):
-            cr_issns = [cr_issns]
-        issns.update(normalize_issn_for_comparison(issn) for issn in cr_issns if issn)
-    
-    if oa:
-        host_venue = oa.get('host_venue', {})
-        if host_venue:
-            oa_issns = host_venue.get('issn', [])
-            if isinstance(oa_issns, str):
-                oa_issns = [oa_issns]
-            issns.update(normalize_issn_for_comparison(issn) for issn in oa_issns if issn)
-    
-    # Быстрая проверка через кэш
-    return any(issn in state.scopus_issn_cache for issn in issns if issn)
-
-def is_in_wos_fast(citing_work, state):
-    """Быстрая проверка нахождения в WoS через кэш"""
-    if not citing_work:
-        return False
-    
-    # Извлекаем все ISSN из цитирующей работы
-    issns = set()
-    cr = citing_work.get('crossref')
-    oa = citing_work.get('openalex')
-    
-    if cr:
-        cr_issns = cr.get('ISSN', [])
-        if isinstance(cr_issns, str):
-            cr_issns = [cr_issns]
-        issns.update(normalize_issn_for_comparison(issn) for issn in cr_issns if issn)
-    
-    if oa:
-        host_venue = oa.get('host_venue', {})
-        if host_venue:
-            oa_issns = host_venue.get('issn', [])
-            if isinstance(oa_issns, str):
-                oa_issns = [oa_issns]
-            issns.update(normalize_issn_for_comparison(issn) for issn in oa_issns if issn)
-    
-    # Быстрая проверка через кэш
-    return any(issn in state.wos_issn_cache for issn in issns if issn)
-
-def get_citing_publication_date(citing):
-    """Извлекает дату публикации цитирующей работы"""
-    citing_pub_date = None
-    citing_pub_date_str = citing.get('pub_date')
-    if citing_pub_date_str:
-        try:
-            citing_pub_date = datetime.fromisoformat(citing_pub_date_str.replace('Z', '+00:00'))
-        except:
-            # Try to get from OpenAlex data
-            oa = citing.get('openalex')
-            if oa and oa.get('publication_date'):
-                try:
-                    citing_pub_date = datetime.fromisoformat(oa['publication_date'].replace('Z', '+00:00'))
-                except:
-                    pass
-    return citing_pub_date
-
-def prefilter_citations_by_date(citations, cs_start_date, cs_end_date, if_citing_start, if_citing_end):
-    """Предварительная фильтрация цитирований по датам"""
-    filtered = []
-    for citing in citations:
-        citing_pub_date = get_citing_publication_date(citing)
-        if not citing_pub_date:
-            continue
-            
-        # Проверяем, попадает ли цитирование в любой из периодов
-        in_cs_period = (cs_start_date <= citing_pub_date <= cs_end_date)
-        in_if_period = (if_citing_start <= citing_pub_date <= if_citing_end)
-        
-        if in_cs_period or in_if_period:
-            filtered.append(citing)
-    
-    return filtered
-
-def process_citations_batch(citations_batch, state, analyzed_pub_date, analyzed_doi, analyzed_in_cs, analyzed_in_if_pub, cs_start_date, cs_end_date, if_citing_start, if_citing_end):
-    """Обрабатывает батч цитирований параллельно"""
-    batch_results = {
-        'A': 0, 'C': 0, 'E': 0, 'F': 0,
-        'cs_citations': [], 'cs_scopus_citations': [],
-        'if_citations': [], 'if_wos_citations': []
-    }
-    
-    for citing in citations_batch:
-        if not citing:
-            continue
-            
-        citing_doi = citing.get('doi')
-        if not citing_doi:
-            continue
-        
-        citing_pub_date = get_citing_publication_date(citing)
-        if not citing_pub_date:
-            continue
-        
-        # CiteScore calculations
-        citing_in_cs = (cs_start_date <= citing_pub_date <= cs_end_date)
-        if analyzed_in_cs and citing_in_cs:
-            batch_results['A'] += 1
-            batch_results['cs_citations'].append((analyzed_doi, citing_doi, analyzed_pub_date.date(), citing_pub_date.date()))
-            
-            if is_in_scopus_fast(citing, state):
-                batch_results['C'] += 1
-                batch_results['cs_scopus_citations'].append((analyzed_doi, citing_doi, analyzed_pub_date.date(), citing_pub_date.date()))
-        
-        # Impact Factor calculations
-        citing_in_if_cite = (if_citing_start <= citing_pub_date <= if_citing_end)
-        if analyzed_in_if_pub and citing_in_if_cite:
-            batch_results['E'] += 1
-            batch_results['if_citations'].append((analyzed_doi, citing_doi, analyzed_pub_date.date(), citing_pub_date.date()))
-            
-            if is_in_wos_fast(citing, state):
-                batch_results['F'] += 1
-                batch_results['if_wos_citations'].append((analyzed_doi, citing_doi, analyzed_pub_date.date(), citing_pub_date.date()))
-    
-    return batch_results
-
 # === NEW FUNCTION FOR SPECIAL ANALYSIS METRICS ===
-def calculate_special_analysis_metrics_fast(analyzed_metadata, citing_metadata, state):
-    """Calculate CiteScore and Impact Factor metrics for Special Analysis mode - OPTIMIZED VERSION"""
+def calculate_special_analysis_metrics(analyzed_metadata, citing_metadata, state):
+    """Calculate CiteScore and Impact Factor metrics for Special Analysis mode"""
     
     # Initialize metrics with default values
     special_metrics = {
@@ -3408,10 +3250,6 @@ def calculate_special_analysis_metrics_fast(analyzed_metadata, citing_metadata, 
     # Check if we're in Special Analysis mode
     if not state.is_special_analysis:
         return special_metrics
-    
-    # Create ISSN lookup cache for fast searching
-    if not hasattr(state, 'scopus_issn_cache') or not hasattr(state, 'wos_issn_cache'):
-        create_issn_lookup_cache()
     
     # Get current date for time window calculations
     current_date = datetime.now()
@@ -3456,6 +3294,9 @@ def calculate_special_analysis_metrics_fast(analyzed_metadata, citing_metadata, 
         'if_wos_citations': []  # List of (analyzed_doi, citing_doi, analyzed_date, citing_date) for WoS-corrected Impact Factor
     }
     
+    # Load metrics data for ISSN validation
+    load_metrics_data()
+    
     # Helper function to extract publication date from metadata
     def get_publication_date(metadata):
         """Extract publication date from metadata (Crossref or OpenAlex)"""
@@ -3484,6 +3325,90 @@ def calculate_special_analysis_metrics_fast(analyzed_metadata, citing_metadata, 
                 pass
                 
         return None
+    
+    # Helper function to check if citing work is in Scopus (CS.xlsx)
+    def is_in_scopus(citing_work):
+        if not citing_work:
+            return False
+        
+        # Extract ISSNs from citing work
+        issns = []
+        cr = citing_work.get('crossref')
+        oa = citing_work.get('openalex')
+        
+        if cr:
+            cr_issns = cr.get('ISSN', [])
+            if isinstance(cr_issns, str):
+                cr_issns = [cr_issns]
+            issns.extend([issn for issn in cr_issns if issn])
+        
+        if oa:
+            host_venue = oa.get('host_venue', {})
+            if host_venue:
+                oa_issns = host_venue.get('issn', [])
+                if isinstance(oa_issns, str):
+                    oa_issns = [oa_issns]
+                issns.extend([issn for issn in oa_issns if issn])
+        
+        # Check each ISSN against CS data
+        for issn in set(issns):  # Remove duplicates
+            if not issn:
+                continue
+                
+            normalized_issn = normalize_issn_for_comparison(issn)
+            if not state.cs_data.empty:
+                # Check against Print ISSN and E-ISSN columns in CS data
+                cs_match = state.cs_data[
+                    (state.cs_data['Print ISSN'].fillna('').astype(str).apply(normalize_issn_for_comparison) == normalized_issn) |
+                    (state.cs_data['E-ISSN'].fillna('').astype(str).apply(normalize_issn_for_comparison) == normalized_issn)
+                ]
+                if not cs_match.empty:
+                    print(f"✅ Found in Scopus: {issn} -> {normalized_issn}")
+                    return True
+        
+        return False
+    
+    # Helper function to check if citing work is in WoS (IF.xlsx)
+    def is_in_wos(citing_work):
+        if not citing_work:
+            return False
+        
+        # Extract ISSNs from citing work
+        issns = []
+        cr = citing_work.get('crossref')
+        oa = citing_work.get('openalex')
+        
+        if cr:
+            cr_issns = cr.get('ISSN', [])
+            if isinstance(cr_issns, str):
+                cr_issns = [cr_issns]
+            issns.extend([issn for issn in cr_issns if issn])
+        
+        if oa:
+            host_venue = oa.get('host_venue', {})
+            if host_venue:
+                oa_issns = host_venue.get('issn', [])
+                if isinstance(oa_issns, str):
+                    oa_issns = [oa_issns]
+                issns.extend([issn for issn in oa_issns if issn])
+        
+        # Check each ISSN against IF data
+        for issn in set(issns):  # Remove duplicates
+            if not issn:
+                continue
+                
+            normalized_issn = normalize_issn_for_comparison(issn)
+            if not state.if_data.empty:
+                # Check against ISSN and eISSN columns in IF data
+                if_match = state.if_data[
+                    (state.if_data['ISSN'].fillna('').astype(str).apply(normalize_issn_for_comparison) == normalized_issn) |
+                    (state.if_data['eISSN'].fillna('').astype(str).apply(normalize_issn_for_comparison) == normalized_issn)
+                ]
+                if not if_match.empty:
+                    print(f"✅ Found in WoS: {issn} -> {normalized_issn}")
+                    return True
+        
+        return False
     
     # Step 1: Process analyzed articles for CiteScore (B) and Impact Factor (D)
     print(f"📊 Processing {len(analyzed_metadata)} analyzed articles...")
@@ -3528,13 +3453,6 @@ def calculate_special_analysis_metrics_fast(analyzed_metadata, citing_metadata, 
     
     total_citations_processed = 0
     
-    # Progress bar for citation processing
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    total_articles = len([a for a in analyzed_metadata if a and a.get('crossref')])
-    processed_articles = 0
-    
     for analyzed in analyzed_metadata:
         if not analyzed or not analyzed.get('crossref'):
             continue
@@ -3548,109 +3466,76 @@ def calculate_special_analysis_metrics_fast(analyzed_metadata, citing_metadata, 
         if not analyzed_pub_date:
             continue
             
-        # Check if this article is in any relevant period
-        analyzed_in_cs = (cs_start_date <= analyzed_pub_date <= cs_end_date)
-        analyzed_in_if_pub = (if_analyzed_start <= analyzed_pub_date <= if_analyzed_end)
-        
-        if not analyzed_in_cs and not analyzed_in_if_pub:
-            processed_articles += 1
-            continue
-            
         # Get citing works for this analyzed article
         citings = state.citing_cache.get(analyzed_doi, [])
         
-        # Pre-filter citations by date to reduce processing
-        filtered_citings = prefilter_citations_by_date(citings, cs_start_date, cs_end_date, if_citing_start, if_citing_end)
-        
-        if not filtered_citings:
-            processed_articles += 1
-            continue
-        
-        # Process citations in batches for better performance
-        BATCH_SIZE = 50
-        batches = [filtered_citings[i:i + BATCH_SIZE] for i in range(0, len(filtered_citings), BATCH_SIZE)]
-        
-        with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(batches))) as executor:
-            future_to_batch = {
-                executor.submit(
-                    process_citations_batch, 
-                    batch, state, analyzed_pub_date, analyzed_doi, analyzed_in_cs, analyzed_in_if_pub,
-                    cs_start_date, cs_end_date, if_citing_start, if_citing_end
-                ): batch for batch in batches
-            }
+        for citing in citings:
+            if not citing:
+                continue
+                
+            citing_doi = citing.get('doi')
+            if not citing_doi:
+                continue
             
-            for future in as_completed(future_to_batch):
-                batch_results = future.result()
-                A += batch_results['A']
-                C += batch_results['C']
-                E += batch_results['E']
-                F += batch_results['F']
+            total_citations_processed += 1
+            
+            # Initialize citing article usage tracking if not exists
+            if citing_doi not in citing_articles_usage:
+                citing_articles_usage[citing_doi] = {
+                    'used_for_sc': False,
+                    'used_for_sc_corr': False,
+                    'used_for_if': False,
+                    'used_for_if_corr': False
+                }
+            
+            # Get citing work publication date
+            citing_pub_date = None
+            citing_pub_date_str = citing.get('pub_date')
+            if citing_pub_date_str:
+                try:
+                    citing_pub_date = datetime.fromisoformat(citing_pub_date_str.replace('Z', '+00:00'))
+                except:
+                    # Try to get from OpenAlex data
+                    citing_pub_date = get_publication_date(citing)
+            
+            if not citing_pub_date:
+                continue
+            
+            # CiteScore calculations (A and C) - COUNT EACH CITATION
+            # BOTH analyzed article AND citing work must be in CiteScore period
+            analyzed_in_cs = (cs_start_date <= analyzed_pub_date <= cs_end_date)
+            citing_in_cs = (cs_start_date <= citing_pub_date <= cs_end_date)
+            
+            if analyzed_in_cs and citing_in_cs:
+                # Count this citation for CiteScore
+                A += 1
+                analyzed_articles_usage[analyzed_doi]['cs_citations_count'] += 1
+                citation_details['cs_citations'].append((analyzed_doi, citing_doi, analyzed_pub_date.date(), citing_pub_date.date()))
+                citing_articles_usage[citing_doi]['used_for_sc'] = True  # NEW: Mark citing article for SC
                 
-                # Update analyzed article usage counts
-                analyzed_articles_usage[analyzed_doi]['cs_citations_count'] += batch_results['A']
-                analyzed_articles_usage[analyzed_doi]['if_citations_count'] += batch_results['E']
+                # Check if citing work is in Scopus
+                if is_in_scopus(citing):
+                    C += 1
+                    citation_details['cs_scopus_citations'].append((analyzed_doi, citing_doi, analyzed_pub_date.date(), citing_pub_date.date()))
+                    citing_articles_usage[citing_doi]['used_for_sc_corr'] = True  # NEW: Mark citing article for SC_corr
+            
+            # Impact Factor calculations (E and F) - COUNT EACH CITATION
+            # Analyzed article in IF publication window, citing work in IF citation window
+            analyzed_in_if_pub = (if_analyzed_start <= analyzed_pub_date <= if_analyzed_end)
+            citing_in_if_cite = (if_citing_start <= citing_pub_date <= if_citing_end)
+            
+            if analyzed_in_if_pub and citing_in_if_cite:
+                # Count this citation for Impact Factor
+                E += 1
+                analyzed_articles_usage[analyzed_doi]['if_citations_count'] += 1
+                citation_details['if_citations'].append((analyzed_doi, citing_doi, analyzed_pub_date.date(), citing_pub_date.date()))
+                citing_articles_usage[citing_doi]['used_for_if'] = True  # NEW: Mark citing article for IF
                 
-                # Update citing articles usage
-                for citation in batch_results['cs_citations']:
-                    citing_doi = citation[1]
-                    if citing_doi not in citing_articles_usage:
-                        citing_articles_usage[citing_doi] = {
-                            'used_for_sc': False,
-                            'used_for_sc_corr': False,
-                            'used_for_if': False,
-                            'used_for_if_corr': False
-                        }
-                    citing_articles_usage[citing_doi]['used_for_sc'] = True
-                
-                for citation in batch_results['cs_scopus_citations']:
-                    citing_doi = citation[1]
-                    if citing_doi not in citing_articles_usage:
-                        citing_articles_usage[citing_doi] = {
-                            'used_for_sc': False,
-                            'used_for_sc_corr': False,
-                            'used_for_if': False,
-                            'used_for_if_corr': False
-                        }
-                    citing_articles_usage[citing_doi]['used_for_sc_corr'] = True
-                
-                for citation in batch_results['if_citations']:
-                    citing_doi = citation[1]
-                    if citing_doi not in citing_articles_usage:
-                        citing_articles_usage[citing_doi] = {
-                            'used_for_sc': False,
-                            'used_for_sc_corr': False,
-                            'used_for_if': False,
-                            'used_for_if_corr': False
-                        }
-                    citing_articles_usage[citing_doi]['used_for_if'] = True
-                
-                for citation in batch_results['if_wos_citations']:
-                    citing_doi = citation[1]
-                    if citing_doi not in citing_articles_usage:
-                        citing_articles_usage[citing_doi] = {
-                            'used_for_sc': False,
-                            'used_for_sc_corr': False,
-                            'used_for_if': False,
-                            'used_for_if_corr': False
-                        }
-                    citing_articles_usage[citing_doi]['used_for_if_corr'] = True
-                
-                # Объединяем детали цитирований
-                citation_details['cs_citations'].extend(batch_results['cs_citations'])
-                citation_details['cs_scopus_citations'].extend(batch_results['cs_scopus_citations'])
-                citation_details['if_citations'].extend(batch_results['if_citations'])
-                citation_details['if_wos_citations'].extend(batch_results['if_wos_citations'])
-        
-        total_citations_processed += len(filtered_citings)
-        processed_articles += 1
-        
-        # Update progress
-        progress = processed_articles / total_articles
-        progress_bar.progress(progress)
-        status_text.text(f"Processing citations: {processed_articles}/{total_articles} articles ({total_citations_processed} citations)")
-    
-    progress_bar.empty()
-    status_text.empty()
+                # Check if citing work is in WoS
+                if is_in_wos(citing):
+                    F += 1
+                    citation_details['if_wos_citations'].append((analyzed_doi, citing_doi, analyzed_pub_date.date(), citing_pub_date.date()))
+                    citing_articles_usage[citing_doi]['used_for_if_corr'] = True  # NEW: Mark citing article for IF_corr
     
     print(f"📊 Citation Processing Complete:")
     print(f"   Total citations processed: {total_citations_processed}")
@@ -4376,8 +4261,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 # Citation months
                 for month in range(1, 13):
                     month_name = datetime(2023, month, 1).strftime('%B')
-                    citation_count = safe_convert(citation_seasonality['citation_months'].get(month, 0))
-                    publication_count = safe_convert(citation_seasonality['publication_months'].get(month, 0))
+                    citation_count = safe_convert(citation_seasonality['citation_months'].get(m, 0))
+                    publication_count = safe_convert(citation_seasonality['publication_months'].get(m, 0))
                     
                     seasonality_data.append({
                         'Month_Number': safe_convert(month),
@@ -5234,14 +5119,14 @@ def analyze_journal(issn, period_str, special_analysis=False):
     overall_status.text(translation_manager.get_text('calculating_fast_metrics'))
     fast_metrics = calculate_all_fast_metrics(analyzed_metadata, all_citing_metadata, state, issn)
     
-    # Special Analysis metrics calculation (NEW) - USING OPTIMIZED VERSION
+    # Special Analysis metrics calculation (NEW)
     special_analysis_metrics = {}
     if state.is_special_analysis:
-        overall_status.text("Calculating Special Analysis metrics (optimized)...")
-        special_analysis_metrics = calculate_special_analysis_metrics_fast(analyzed_metadata, all_citing_metadata, state)
+        overall_status.text("Calculating Special Analysis metrics...")
+        special_analysis_metrics = calculate_special_analysis_metrics(analyzed_metadata, all_citing_metadata, state)
     
     # === NEW ADDITIONAL ANALYSES ===
-    overall_status.text("Completing analysis...")
+    overall_status.text("Calculating additional insights...")
     
     # Citation seasonality analysis
     citation_seasonality = analyze_citation_seasonality(
