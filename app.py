@@ -5504,7 +5504,6 @@ def main():
                   "- " + translation_manager.get_text('note_text_1') + "\n" +
                   "- " + translation_manager.get_text('note_text_2') + "\n" +
                   "- " + translation_manager.get_text('note_text_3') + "\n" +
-                  "- " + translation_manager.get_text('note_text_4') + "\n" +
                   "- " + translation_manager.get_text('note_text_5'))
     
     # Main area
@@ -5876,3 +5875,4 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
