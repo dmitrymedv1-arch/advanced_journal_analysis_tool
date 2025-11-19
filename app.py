@@ -4261,8 +4261,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 # Citation months
                 for month in range(1, 13):
                     month_name = datetime(2023, month, 1).strftime('%B')
-                    citation_count = safe_convert(citation_seasonality['citation_months'].get(m, 0))
-                    publication_count = safe_convert(citation_seasonality['publication_months'].get(m, 0))
+                    citation_count = safe_convert(citation_seasonality['citation_months'].get(month, 0))
+                    publication_count = safe_convert(citation_seasonality['publication_months'].get(month, 0))
                     
                     seasonality_data.append({
                         'Month_Number': safe_convert(month),
@@ -5761,3 +5761,4 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
