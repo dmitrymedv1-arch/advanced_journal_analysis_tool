@@ -3429,6 +3429,11 @@ def calculate_special_analysis_metrics_fast(analyzed_metadata, citing_metadata, 
     if not state.is_special_analysis:
         return special_metrics
     
+    try:
+        # Create ISSN lookup cache for fast searching
+        if not hasattr(state, 'scopus_issn_cache') or not hasattr(state, 'wos_issn_cache'):
+            create_issn_lookup_cache()
+    
     # Create ISSN lookup cache for fast searching
     if not hasattr(state, 'scopus_issn_cache') or not hasattr(state, 'wos_issn_cache'):
         create_issn_lookup_cache()
@@ -3706,6 +3711,11 @@ def calculate_special_analysis_metrics_fast(analyzed_metadata, citing_metadata, 
     print(f"   Impact Factor: {special_metrics['impact_factor']} (Corrected: {special_metrics['impact_factor_corrected']})")
     
     return special_metrics
+
+    except Exception as e:
+        st.error(f"Error in Special Analysis calculation: {str(e)}")
+        # Return default metrics in case of error
+        return special_metrics
 
 # === NEW FUNCTIONS FOR COMBINED SHEETS ===
 
@@ -5895,6 +5905,7 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
 
