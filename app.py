@@ -3244,43 +3244,27 @@ def create_issn_lookup_cache():
     """Создает кэш для быстрого поиска ISSN"""
     state = get_analysis_state()
     
-    # Инициализируем кэши как пустые множества, даже если данных нет
-    state.scopus_issn_cache = set()
-    state.wos_issn_cache = set()
-    
     # Кэш для Scopus
+    state.scopus_issn_cache = set()
     if not state.cs_data.empty:
         for col in ['Print ISSN', 'E-ISSN']:
             if col in state.cs_data.columns:
-                try:
-                    issns = state.cs_data[col].dropna().astype(str).apply(normalize_issn_for_comparison)
-                    state.scopus_issn_cache.update(issns)
-                except Exception as e:
-                    print(f"Warning: Error processing Scopus ISSN column {col}: {e}")
+                issns = state.cs_data[col].dropna().astype(str).apply(normalize_issn_for_comparison)
+                state.scopus_issn_cache.update(issns)
         print(f"✅ Created Scopus ISSN cache with {len(state.scopus_issn_cache)} entries")
-    else:
-        print("⚠️ No Scopus data available for ISSN cache")
     
     # Кэш для WoS
+    state.wos_issn_cache = set()
     if not state.if_data.empty:
         for col in ['ISSN', 'eISSN']:
             if col in state.if_data.columns:
-                try:
-                    issns = state.if_data[col].dropna().astype(str).apply(normalize_issn_for_comparison)
-                    state.wos_issn_cache.update(issns)
-                except Exception as e:
-                    print(f"Warning: Error processing WoS ISSN column {col}: {e}")
+                issns = state.if_data[col].dropna().astype(str).apply(normalize_issn_for_comparison)
+                state.wos_issn_cache.update(issns)
         print(f"✅ Created WoS ISSN cache with {len(state.wos_issn_cache)} entries")
-    else:
-        print("⚠️ No WoS data available for ISSN cache")
 
 def is_in_scopus_fast(citing_work, state):
     """Быстрая проверка нахождения в Scopus через кэш"""
     if not citing_work:
-        return False
-    
-    # Проверяем, что кэш существует
-    if not hasattr(state, 'scopus_issn_cache') or state.scopus_issn_cache is None:
         return False
     
     # Извлекаем все ISSN из цитирующей работы
@@ -3308,10 +3292,6 @@ def is_in_scopus_fast(citing_work, state):
 def is_in_wos_fast(citing_work, state):
     """Быстрая проверка нахождения в WoS через кэш"""
     if not citing_work:
-        return False
-    
-    # Проверяем, что кэш существует
-    if not hasattr(state, 'wos_issn_cache') or state.wos_issn_cache is None:
         return False
     
     # Извлекаем все ISSN из цитирующей работы
@@ -3429,289 +3409,283 @@ def calculate_special_analysis_metrics_fast(analyzed_metadata, citing_metadata, 
     if not state.is_special_analysis:
         return special_metrics
     
-    try:
-        # Create ISSN lookup cache for fast searching
-        if not hasattr(state, 'scopus_issn_cache') or not hasattr(state, 'wos_issn_cache'):
-            create_issn_lookup_cache()
-        
-        # Get current date for time window calculations
-        current_date = datetime.now()
-        
-        # Define time windows for Special Analysis
-        # CiteScore windows (1580 to 120 days ago)
-        cs_start_date = current_date - timedelta(days=1580)
-        cs_end_date = current_date - timedelta(days=120)
-        
-        # Impact Factor windows
-        # Analyzed articles: 1265 to 535 days ago
-        if_analyzed_start = current_date - timedelta(days=1265)
-        if_analyzed_end = current_date - timedelta(days=535)
-        
-        # Citing works: 534 to 170 days ago  
-        if_citing_start = current_date - timedelta(days=534)
-        if_citing_end = current_date - timedelta(days=170)
-        
-        print(f"🔍 Special Analysis Date Windows:")
-        print(f"   CiteScore: {cs_start_date.date()} to {cs_end_date.date()}")
-        print(f"   IF Analyzed: {if_analyzed_start.date()} to {if_analyzed_end.date()}")
-        print(f"   IF Citing: {if_citing_start.date()} to {if_citing_end.date()}")
-        
-        # Initialize counters
-        B = 0  # Articles for CiteScore (published in CS window)
-        A = 0  # All citations for CiteScore (COUNTING EACH CITATION)
-        C = 0  # Citations from Scopus-indexed journals for CiteScore (COUNTING EACH CITATION)
-        
-        D = 0  # Articles for Impact Factor (published in IF window)
-        E = 0  # All citations for Impact Factor (COUNTING EACH CITATION) 
-        F = 0  # Citations from WoS-indexed journals for Impact Factor (COUNTING EACH CITATION)
-        
-        # Track which articles are used for metrics (for Excel reporting)
-        analyzed_articles_usage = {}
-        citing_articles_usage = {}  # NEW: Track citing articles usage
-        
-        # Detailed citation tracking - count each citation separately
-        citation_details = {
-            'cs_citations': [],  # List of (analyzed_doi, citing_doi, analyzed_date, citing_date) for CiteScore
-            'cs_scopus_citations': [],  # List of (analyzed_doi, citing_doi, analyzed_date, citing_date) for Scopus-corrected CiteScore
-            'if_citations': [],  # List of (analyzed_doi, citing_doi, analyzed_date, citing_date) for Impact Factor
-            'if_wos_citations': []  # List of (analyzed_doi, citing_doi, analyzed_date, citing_date) for WoS-corrected Impact Factor
-        }
-        
-        # Helper function to extract publication date from metadata
-        def get_publication_date(metadata):
-            """Extract publication date from metadata (Crossref or OpenAlex)"""
-            if not metadata:
-                return None
-                
-            # Try Crossref first
-            cr = metadata.get('crossref')
-            if cr:
-                date_parts = cr.get('published', {}).get('date-parts', [[]])[0]
-                if date_parts and len(date_parts) >= 1:
-                    try:
-                        year = date_parts[0]
-                        month = date_parts[1] if len(date_parts) > 1 else 1
-                        day = date_parts[2] if len(date_parts) > 2 else 1
-                        return datetime(year, month, day)
-                    except:
-                        pass
+    # Create ISSN lookup cache for fast searching
+    if not hasattr(state, 'scopus_issn_cache') or not hasattr(state, 'wos_issn_cache'):
+        create_issn_lookup_cache()
+    
+    # Get current date for time window calculations
+    current_date = datetime.now()
+    
+    # Define time windows for Special Analysis
+    # CiteScore windows (1580 to 120 days ago)
+    cs_start_date = current_date - timedelta(days=1580)
+    cs_end_date = current_date - timedelta(days=120)
+    
+    # Impact Factor windows
+    # Analyzed articles: 1265 to 535 days ago
+    if_analyzed_start = current_date - timedelta(days=1265)
+    if_analyzed_end = current_date - timedelta(days=535)
+    
+    # Citing works: 534 to 170 days ago  
+    if_citing_start = current_date - timedelta(days=534)
+    if_citing_end = current_date - timedelta(days=170)
+    
+    print(f"🔍 Special Analysis Date Windows:")
+    print(f"   CiteScore: {cs_start_date.date()} to {cs_end_date.date()}")
+    print(f"   IF Analyzed: {if_analyzed_start.date()} to {if_analyzed_end.date()}")
+    print(f"   IF Citing: {if_citing_start.date()} to {if_citing_end.date()}")
+    
+    # Initialize counters
+    B = 0  # Articles for CiteScore (published in CS window)
+    A = 0  # All citations for CiteScore (COUNTING EACH CITATION)
+    C = 0  # Citations from Scopus-indexed journals for CiteScore (COUNTING EACH CITATION)
+    
+    D = 0  # Articles for Impact Factor (published in IF window)
+    E = 0  # All citations for Impact Factor (COUNTING EACH CITATION) 
+    F = 0  # Citations from WoS-indexed journals for Impact Factor (COUNTING EACH CITATION)
+    
+    # Track which articles are used for metrics (for Excel reporting)
+    analyzed_articles_usage = {}
+    citing_articles_usage = {}  # NEW: Track citing articles usage
+    
+    # Detailed citation tracking - count each citation separately
+    citation_details = {
+        'cs_citations': [],  # List of (analyzed_doi, citing_doi, analyzed_date, citing_date) for CiteScore
+        'cs_scopus_citations': [],  # List of (analyzed_doi, citing_doi, analyzed_date, citing_date) for Scopus-corrected CiteScore
+        'if_citations': [],  # List of (analyzed_doi, citing_doi, analyzed_date, citing_date) for Impact Factor
+        'if_wos_citations': []  # List of (analyzed_doi, citing_doi, analyzed_date, citing_date) for WoS-corrected Impact Factor
+    }
+    
+    # Helper function to extract publication date from metadata
+    def get_publication_date(metadata):
+        """Extract publication date from metadata (Crossref or OpenAlex)"""
+        if not metadata:
+            return None
             
-            # Try OpenAlex
-            oa = metadata.get('openalex')
-            if oa and oa.get('publication_date'):
+        # Try Crossref first
+        cr = metadata.get('crossref')
+        if cr:
+            date_parts = cr.get('published', {}).get('date-parts', [[]])[0]
+            if date_parts and len(date_parts) >= 1:
                 try:
-                    return datetime.fromisoformat(oa['publication_date'].replace('Z', '+00:00'))
+                    year = date_parts[0]
+                    month = date_parts[1] if len(date_parts) > 1 else 1
+                    day = date_parts[2] if len(date_parts) > 2 else 1
+                    return datetime(year, month, day)
                 except:
                     pass
-                    
-            return None
         
-        # Step 1: Process analyzed articles for CiteScore (B) and Impact Factor (D)
-        print(f"📊 Processing {len(analyzed_metadata)} analyzed articles...")
-        
-        for analyzed in analyzed_metadata:
-            if not analyzed or not analyzed.get('crossref'):
-                continue
+        # Try OpenAlex
+        oa = metadata.get('openalex')
+        if oa and oa.get('publication_date'):
+            try:
+                return datetime.fromisoformat(oa['publication_date'].replace('Z', '+00:00'))
+            except:
+                pass
                 
-            analyzed_doi = analyzed['crossref'].get('DOI')
-            if not analyzed_doi:
-                continue
-                
-            # Get publication date
-            analyzed_pub_date = get_publication_date(analyzed)
+        return None
+    
+    # Step 1: Process analyzed articles for CiteScore (B) and Impact Factor (D)
+    print(f"📊 Processing {len(analyzed_metadata)} analyzed articles...")
+    
+    for analyzed in analyzed_metadata:
+        if not analyzed or not analyzed.get('crossref'):
+            continue
             
-            # Initialize usage tracking for this analyzed article
-            analyzed_articles_usage[analyzed_doi] = {
-                'used_for_sc': False,
-                'used_for_if': False,
-                'cs_citations_count': 0,  # Number of citations for CiteScore
-                'if_citations_count': 0,  # Number of citations for Impact Factor
-                'publication_date': analyzed_pub_date
-            }
+        analyzed_doi = analyzed['crossref'].get('DOI')
+        if not analyzed_doi:
+            continue
             
-            # Check if this article should be used for CiteScore (B)
-            if analyzed_pub_date and (cs_start_date <= analyzed_pub_date <= cs_end_date):
-                B += 1
-                analyzed_articles_usage[analyzed_doi]['used_for_sc'] = True
-                print(f"✅ Article {analyzed_doi} included in CiteScore (published: {analyzed_pub_date.date()})")
-            
-            # Check if this article should be used for Impact Factor (D)
-            if analyzed_pub_date and (if_analyzed_start <= analyzed_pub_date <= if_analyzed_end):
-                D += 1
-                analyzed_articles_usage[analyzed_doi]['used_for_if'] = True
-                print(f"✅ Article {analyzed_doi} included in Impact Factor (published: {analyzed_pub_date.date()})")
+        # Get publication date
+        analyzed_pub_date = get_publication_date(analyzed)
         
-        print(f"📈 Articles for CiteScore (B): {B}")
-        print(f"📈 Articles for Impact Factor (D): {D}")
-        
-        # Step 2: Process citing works and citations - COUNT EACH CITATION SEPARATELY
-        print(f"🔍 Processing citations for {len(analyzed_metadata)} analyzed articles...")
-        
-        total_citations_processed = 0
-        
-        # Progress bar for citation processing
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        total_articles = len([a for a in analyzed_metadata if a and a.get('crossref')])
-        processed_articles = 0
-        
-        for analyzed in analyzed_metadata:
-            if not analyzed or not analyzed.get('crossref'):
-                continue
-                
-            analyzed_doi = analyzed['crossref'].get('DOI')
-            if not analyzed_doi:
-                continue
-                
-            # Get analyzed article publication date
-            analyzed_pub_date = get_publication_date(analyzed)
-            if not analyzed_pub_date:
-                continue
-                
-            # Check if this article is in any relevant period
-            analyzed_in_cs = (cs_start_date <= analyzed_pub_date <= cs_end_date)
-            analyzed_in_if_pub = (if_analyzed_start <= analyzed_pub_date <= if_analyzed_end)
-            
-            if not analyzed_in_cs and not analyzed_in_if_pub:
-                processed_articles += 1
-                continue
-                
-            # Get citing works for this analyzed article
-            citings = state.citing_cache.get(analyzed_doi, [])
-            
-            # Pre-filter citations by date to reduce processing
-            filtered_citings = prefilter_citations_by_date(citings, cs_start_date, cs_end_date, if_citing_start, if_citing_end)
-            
-            if not filtered_citings:
-                processed_articles += 1
-                continue
-            
-            # Process citations in batches for better performance
-            BATCH_SIZE = 50
-            batches = [filtered_citings[i:i + BATCH_SIZE] for i in range(0, len(filtered_citings), BATCH_SIZE)]
-            
-            with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(batches))) as executor:
-                future_to_batch = {
-                    executor.submit(
-                        process_citations_batch, 
-                        batch, state, analyzed_pub_date, analyzed_doi, analyzed_in_cs, analyzed_in_if_pub,
-                        cs_start_date, cs_end_date, if_citing_start, if_citing_end
-                    ): batch for batch in batches
-                }
-                
-                for future in as_completed(future_to_batch):
-                    batch_results = future.result()
-                    A += batch_results['A']
-                    C += batch_results['C']
-                    E += batch_results['E']
-                    F += batch_results['F']
-                    
-                    # Update analyzed article usage counts
-                    analyzed_articles_usage[analyzed_doi]['cs_citations_count'] += batch_results['A']
-                    analyzed_articles_usage[analyzed_doi]['if_citations_count'] += batch_results['E']
-                    
-                    # Update citing articles usage
-                    for citation in batch_results['cs_citations']:
-                        citing_doi = citation[1]
-                        if citing_doi not in citing_articles_usage:
-                            citing_articles_usage[citing_doi] = {
-                                'used_for_sc': False,
-                                'used_for_sc_corr': False,
-                                'used_for_if': False,
-                                'used_for_if_corr': False
-                            }
-                        citing_articles_usage[citing_doi]['used_for_sc'] = True
-                    
-                    for citation in batch_results['cs_scopus_citations']:
-                        citing_doi = citation[1]
-                        if citing_doi not in citing_articles_usage:
-                            citing_articles_usage[citing_doi] = {
-                                'used_for_sc': False,
-                                'used_for_sc_corr': False,
-                                'used_for_if': False,
-                                'used_for_if_corr': False
-                            }
-                        citing_articles_usage[citing_doi]['used_for_sc_corr'] = True
-                    
-                    for citation in batch_results['if_citations']:
-                        citing_doi = citation[1]
-                        if citing_doi not in citing_articles_usage:
-                            citing_articles_usage[citing_doi] = {
-                                'used_for_sc': False,
-                                'used_for_sc_corr': False,
-                                'used_for_if': False,
-                                'used_for_if_corr': False
-                            }
-                        citing_articles_usage[citing_doi]['used_for_if'] = True
-                    
-                    for citation in batch_results['if_wos_citations']:
-                        citing_doi = citation[1]
-                        if citing_doi not in citing_articles_usage:
-                            citing_articles_usage[citing_doi] = {
-                                'used_for_sc': False,
-                                'used_for_sc_corr': False,
-                                'used_for_if': False,
-                                'used_for_if_corr': False
-                            }
-                        citing_articles_usage[citing_doi]['used_for_if_corr'] = True
-                    
-                    # Объединяем детали цитирований
-                    citation_details['cs_citations'].extend(batch_results['cs_citations'])
-                    citation_details['cs_scopus_citations'].extend(batch_results['cs_scopus_citations'])
-                    citation_details['if_citations'].extend(batch_results['if_citations'])
-                    citation_details['if_wos_citations'].extend(batch_results['if_wos_citations'])
-            
-            total_citations_processed += len(filtered_citings)
-            processed_articles += 1
-            
-            # Update progress
-            progress = processed_articles / total_articles
-            progress_bar.progress(progress)
-            status_text.text(f"Processing citations: {processed_articles}/{total_articles} articles ({total_citations_processed} citations)")
-        
-        progress_bar.empty()
-        status_text.empty()
-        
-        print(f"📊 Citation Processing Complete:")
-        print(f"   Total citations processed: {total_citations_processed}")
-        print(f"   CiteScore: A={A}, C={C}, B={B}")
-        print(f"   Impact Factor: E={E}, F={F}, D={D}")
-        
-        # Calculate final metrics
-        special_metrics['cite_score'] = round(A / B, 2) if B > 0 else 0
-        special_metrics['cite_score_corrected'] = round(C / B, 2) if B > 0 else 0
-        special_metrics['impact_factor'] = round(E / D, 2) if D > 0 else 0
-        special_metrics['impact_factor_corrected'] = round(F / D, 2) if D > 0 else 0
-        
-        # Store debug information
-        special_metrics['debug_info'] = {
-            'B': B,
-            'A': A, 
-            'C': C,
-            'D': D,
-            'E': E,
-            'F': F,
-            'analyzed_articles_usage': analyzed_articles_usage,
-            'citing_articles_usage': citing_articles_usage,  # NEW: Include citing articles usage
-            'citation_details': citation_details,
-            'total_cs_citations': len(citation_details['cs_citations']),
-            'total_cs_scopus_citations': len(citation_details['cs_scopus_citations']),
-            'total_if_citations': len(citation_details['if_citations']),
-            'total_if_wos_citations': len(citation_details['if_wos_citations']),
-            'total_citations_processed': total_citations_processed
+        # Initialize usage tracking for this analyzed article
+        analyzed_articles_usage[analyzed_doi] = {
+            'used_for_sc': False,
+            'used_for_if': False,
+            'cs_citations_count': 0,  # Number of citations for CiteScore
+            'if_citations_count': 0,  # Number of citations for Impact Factor
+            'publication_date': analyzed_pub_date
         }
         
-        print(f"🎯 Final Metrics:")
-        print(f"   CiteScore: {special_metrics['cite_score']} (Corrected: {special_metrics['cite_score_corrected']})")
-        print(f"   Impact Factor: {special_metrics['impact_factor']} (Corrected: {special_metrics['impact_factor_corrected']})")
+        # Check if this article should be used for CiteScore (B)
+        if analyzed_pub_date and (cs_start_date <= analyzed_pub_date <= cs_end_date):
+            B += 1
+            analyzed_articles_usage[analyzed_doi]['used_for_sc'] = True
+            print(f"✅ Article {analyzed_doi} included in CiteScore (published: {analyzed_pub_date.date()})")
         
-        return special_metrics
-
-    except Exception as e:
-        st.error(f"Error in Special Analysis calculation: {str(e)}")
-        # Return default metrics in case of error
-        return special_metrics
+        # Check if this article should be used for Impact Factor (D)
+        if analyzed_pub_date and (if_analyzed_start <= analyzed_pub_date <= if_analyzed_end):
+            D += 1
+            analyzed_articles_usage[analyzed_doi]['used_for_if'] = True
+            print(f"✅ Article {analyzed_doi} included in Impact Factor (published: {analyzed_pub_date.date()})")
+    
+    print(f"📈 Articles for CiteScore (B): {B}")
+    print(f"📈 Articles for Impact Factor (D): {D}")
+    
+    # Step 2: Process citing works and citations - COUNT EACH CITATION SEPARATELY
+    print(f"🔍 Processing citations for {len(analyzed_metadata)} analyzed articles...")
+    
+    total_citations_processed = 0
+    
+    # Progress bar for citation processing
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    total_articles = len([a for a in analyzed_metadata if a and a.get('crossref')])
+    processed_articles = 0
+    
+    for analyzed in analyzed_metadata:
+        if not analyzed or not analyzed.get('crossref'):
+            continue
+            
+        analyzed_doi = analyzed['crossref'].get('DOI')
+        if not analyzed_doi:
+            continue
+            
+        # Get analyzed article publication date
+        analyzed_pub_date = get_publication_date(analyzed)
+        if not analyzed_pub_date:
+            continue
+            
+        # Check if this article is in any relevant period
+        analyzed_in_cs = (cs_start_date <= analyzed_pub_date <= cs_end_date)
+        analyzed_in_if_pub = (if_analyzed_start <= analyzed_pub_date <= if_analyzed_end)
+        
+        if not analyzed_in_cs and not analyzed_in_if_pub:
+            processed_articles += 1
+            continue
+            
+        # Get citing works for this analyzed article
+        citings = state.citing_cache.get(analyzed_doi, [])
+        
+        # Pre-filter citations by date to reduce processing
+        filtered_citings = prefilter_citations_by_date(citings, cs_start_date, cs_end_date, if_citing_start, if_citing_end)
+        
+        if not filtered_citings:
+            processed_articles += 1
+            continue
+        
+        # Process citations in batches for better performance
+        BATCH_SIZE = 50
+        batches = [filtered_citings[i:i + BATCH_SIZE] for i in range(0, len(filtered_citings), BATCH_SIZE)]
+        
+        with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(batches))) as executor:
+            future_to_batch = {
+                executor.submit(
+                    process_citations_batch, 
+                    batch, state, analyzed_pub_date, analyzed_doi, analyzed_in_cs, analyzed_in_if_pub,
+                    cs_start_date, cs_end_date, if_citing_start, if_citing_end
+                ): batch for batch in batches
+            }
+            
+            for future in as_completed(future_to_batch):
+                batch_results = future.result()
+                A += batch_results['A']
+                C += batch_results['C']
+                E += batch_results['E']
+                F += batch_results['F']
+                
+                # Update analyzed article usage counts
+                analyzed_articles_usage[analyzed_doi]['cs_citations_count'] += batch_results['A']
+                analyzed_articles_usage[analyzed_doi]['if_citations_count'] += batch_results['E']
+                
+                # Update citing articles usage
+                for citation in batch_results['cs_citations']:
+                    citing_doi = citation[1]
+                    if citing_doi not in citing_articles_usage:
+                        citing_articles_usage[citing_doi] = {
+                            'used_for_sc': False,
+                            'used_for_sc_corr': False,
+                            'used_for_if': False,
+                            'used_for_if_corr': False
+                        }
+                    citing_articles_usage[citing_doi]['used_for_sc'] = True
+                
+                for citation in batch_results['cs_scopus_citations']:
+                    citing_doi = citation[1]
+                    if citing_doi not in citing_articles_usage:
+                        citing_articles_usage[citing_doi] = {
+                            'used_for_sc': False,
+                            'used_for_sc_corr': False,
+                            'used_for_if': False,
+                            'used_for_if_corr': False
+                        }
+                    citing_articles_usage[citing_doi]['used_for_sc_corr'] = True
+                
+                for citation in batch_results['if_citations']:
+                    citing_doi = citation[1]
+                    if citing_doi not in citing_articles_usage:
+                        citing_articles_usage[citing_doi] = {
+                            'used_for_sc': False,
+                            'used_for_sc_corr': False,
+                            'used_for_if': False,
+                            'used_for_if_corr': False
+                        }
+                    citing_articles_usage[citing_doi]['used_for_if'] = True
+                
+                for citation in batch_results['if_wos_citations']:
+                    citing_doi = citation[1]
+                    if citing_doi not in citing_articles_usage:
+                        citing_articles_usage[citing_doi] = {
+                            'used_for_sc': False,
+                            'used_for_sc_corr': False,
+                            'used_for_if': False,
+                            'used_for_if_corr': False
+                        }
+                    citing_articles_usage[citing_doi]['used_for_if_corr'] = True
+                
+                # Объединяем детали цитирований
+                citation_details['cs_citations'].extend(batch_results['cs_citations'])
+                citation_details['cs_scopus_citations'].extend(batch_results['cs_scopus_citations'])
+                citation_details['if_citations'].extend(batch_results['if_citations'])
+                citation_details['if_wos_citations'].extend(batch_results['if_wos_citations'])
+        
+        total_citations_processed += len(filtered_citings)
+        processed_articles += 1
+        
+        # Update progress
+        progress = processed_articles / total_articles
+        progress_bar.progress(progress)
+        status_text.text(f"Processing citations: {processed_articles}/{total_articles} articles ({total_citations_processed} citations)")
+    
+    progress_bar.empty()
+    status_text.empty()
+    
+    print(f"📊 Citation Processing Complete:")
+    print(f"   Total citations processed: {total_citations_processed}")
+    print(f"   CiteScore: A={A}, C={C}, B={B}")
+    print(f"   Impact Factor: E={E}, F={F}, D={D}")
+    
+    # Calculate final metrics
+    special_metrics['cite_score'] = round(A / B, 2) if B > 0 else 0
+    special_metrics['cite_score_corrected'] = round(C / B, 2) if B > 0 else 0
+    special_metrics['impact_factor'] = round(E / D, 2) if D > 0 else 0
+    special_metrics['impact_factor_corrected'] = round(F / D, 2) if D > 0 else 0
+    
+    # Store debug information
+    special_metrics['debug_info'] = {
+        'B': B,
+        'A': A, 
+        'C': C,
+        'D': D,
+        'E': E,
+        'F': F,
+        'analyzed_articles_usage': analyzed_articles_usage,
+        'citing_articles_usage': citing_articles_usage,  # NEW: Include citing articles usage
+        'citation_details': citation_details,
+        'total_cs_citations': len(citation_details['cs_citations']),
+        'total_cs_scopus_citations': len(citation_details['cs_scopus_citations']),
+        'total_if_citations': len(citation_details['if_citations']),
+        'total_if_wos_citations': len(citation_details['if_wos_citations']),
+        'total_citations_processed': total_citations_processed
+    }
+    
+    print(f"🎯 Final Metrics:")
+    print(f"   CiteScore: {special_metrics['cite_score']} (Corrected: {special_metrics['cite_score_corrected']})")
+    print(f"   Impact Factor: {special_metrics['impact_factor']} (Corrected: {special_metrics['impact_factor_corrected']})")
+    
+    return special_metrics
 
 # === NEW FUNCTIONS FOR COMBINED SHEETS ===
 
@@ -5530,6 +5504,7 @@ def main():
                   "- " + translation_manager.get_text('note_text_1') + "\n" +
                   "- " + translation_manager.get_text('note_text_2') + "\n" +
                   "- " + translation_manager.get_text('note_text_3') + "\n" +
+                  "- " + translation_manager.get_text('note_text_4') + "\n" +
                   "- " + translation_manager.get_text('note_text_5'))
     
     # Main area
@@ -5901,8 +5876,3 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
-
-
-
-
-
