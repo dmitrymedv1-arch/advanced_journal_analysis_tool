@@ -3244,23 +3244,35 @@ def create_issn_lookup_cache():
     """Создает кэш для быстрого поиска ISSN"""
     state = get_analysis_state()
     
-    # Кэш для Scopus
+    # Инициализируем кэши как пустые множества, даже если данных нет
     state.scopus_issn_cache = set()
+    state.wos_issn_cache = set()
+    
+    # Кэш для Scopus
     if not state.cs_data.empty:
         for col in ['Print ISSN', 'E-ISSN']:
             if col in state.cs_data.columns:
-                issns = state.cs_data[col].dropna().astype(str).apply(normalize_issn_for_comparison)
-                state.scopus_issn_cache.update(issns)
+                try:
+                    issns = state.cs_data[col].dropna().astype(str).apply(normalize_issn_for_comparison)
+                    state.scopus_issn_cache.update(issns)
+                except Exception as e:
+                    print(f"Warning: Error processing Scopus ISSN column {col}: {e}")
         print(f"✅ Created Scopus ISSN cache with {len(state.scopus_issn_cache)} entries")
+    else:
+        print("⚠️ No Scopus data available for ISSN cache")
     
     # Кэш для WoS
-    state.wos_issn_cache = set()
     if not state.if_data.empty:
         for col in ['ISSN', 'eISSN']:
             if col in state.if_data.columns:
-                issns = state.if_data[col].dropna().astype(str).apply(normalize_issn_for_comparison)
-                state.wos_issn_cache.update(issns)
+                try:
+                    issns = state.if_data[col].dropna().astype(str).apply(normalize_issn_for_comparison)
+                    state.wos_issn_cache.update(issns)
+                except Exception as e:
+                    print(f"Warning: Error processing WoS ISSN column {col}: {e}")
         print(f"✅ Created WoS ISSN cache with {len(state.wos_issn_cache)} entries")
+    else:
+        print("⚠️ No WoS data available for ISSN cache")
 
 def is_in_scopus_fast(citing_work, state):
     """Быстрая проверка нахождения в Scopus через кэш"""
@@ -5883,5 +5895,6 @@ def main():
 # Run application
 if __name__ == "__main__":
     main()
+
 
 
