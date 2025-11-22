@@ -791,6 +791,8 @@ class AnalysisState:
         self.is_special_analysis = False
         self.include_ror_data = False  # NEW: Flag for ROR data inclusion
         self.ror_cache = {}  # NEW: In-memory cache for ROR data
+        self.include_author_id_data = False  # NEW: Flag for Author ID data inclusion
+        self.author_id_cache = {}  # NEW: In-memory cache for Author ID data
         
         # Initialize components
         self.config = AnalysisConfig()
@@ -3929,6 +3931,433 @@ def create_combined_countries_sheet(analyzed_countries_data, citing_countries_da
     
     return combined_data
 
+# === NEW FUNCTIONS FOR AUTHOR ID DATA ===
+
+def format_author_name_from_raw(raw_name):
+    """Из любого raw_author_name делает полное имя: Sabirov Denis или Agliullin Marat"""
+    if not raw_name:
+        return "Unknown Author"
+    
+    # Убираем лишние пробелы и запятые
+    name = re.sub(r'\s+', ' ', raw_name.strip().replace(',', ' '))
+    parts = name.split()
+    
+    if len(parts) == 1:
+        return parts[0]  # только фамилия
+    
+    # Фамилия — всегда последняя часть
+    family = parts[-1]
+    
+    # Имя — все части кроме последней, объединяем пробелами
+    given_names = ' '.join(parts[:-1])
+    
+    return f"{family} {given_names}"
+
+def extract_clean_authors_from_work(data):
+    """Извлекает авторов из данных OpenAlex в формате Фамилия Имя с аффилиацией"""
+    authors = []
+    for auth in data.get('authorships', []):
+        raw_name = auth.get('raw_author_name')
+        if not raw_name:
+            continue
+            
+        name = format_author_name_from_raw(raw_name)
+        
+        # Аффилиация — только название учреждения, без страны
+        aff = "No affiliation"
+        for inst in auth.get('institutions', []):
+            if inst and inst.get('display_name'):
+                aff = inst['display_name']
+                break  # берём только первую
+        
+        # Разделяем имя на фамилию и имя для поиска
+        name_parts = name.split()
+        surname = name_parts[0] if name_parts else ""
+        given_name = ' '.join(name_parts[1:]) if len(name_parts) > 1 else ""
+        
+        authors.append({
+            'name': name,
+            'surname': surname,
+            'given_name': given_name,
+            'affiliation': aff
+        })
+    
+    return authors
+
+def get_work_by_doi(doi):
+    """Получает данные работы по DOI из OpenAlex"""
+    doi = doi.strip()
+    url = f"https://api.openalex.org/works/https://doi.org/{doi}"
+    try:
+        r = requests.get(url, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except:
+        return None
+
+def search_orcid_author(surname, given_name, affiliation):
+    """Поиск автора в ORCID API по фамилии, имени и аффилиации - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
+    try:
+        if not surname or not surname.strip():
+            return None, None, None
+            
+        print(f"🔍 ORCID Search: {surname} {given_name}, Affiliation: {affiliation}")
+        
+        # Формируем поисковый запрос
+        query_parts = [f"family-name:{surname.strip()}"]
+        
+        if given_name and given_name.strip():
+            # Используем полное имя вместо инициала
+            clean_given_name = given_name.strip()
+            query_parts.append(f"given-names:{clean_given_name}")
+        
+        if affiliation and affiliation.strip():
+            # Используем более широкий поиск по аффилиации
+            query_parts.append(f'affiliation-org-name:"{affiliation.strip()}"')
+        
+        query = " AND ".join(query_parts)
+        url = f"https://pub.orcid.org/v3.0/search/?q={quote(query)}"
+        
+        headers = {
+            'Accept': 'application/json',
+            'User-Agent': 'JournalAnalysisTool/1.0'
+        }
+        
+        print(f"📡 ORCID API Request: {url}")
+        
+        response = requests.get(url, headers=headers, timeout=15)
+        
+        if response.status_code == 200:
+            data = response.json()
+            num_results = data.get('num-found', 0)
+            print(f"✅ ORCID API Response: {num_results} results found")
+            
+            if num_results > 0:
+                # Берем первый (наиболее релевантный) результат
+                result = data['result'][0]
+                orcid_id = result.get('orcid-identifier', {}).get('path')
+                
+                if orcid_id:
+                    print(f"🎯 Found ORCID: {orcid_id}")
+                    
+                    # Получаем подробную информацию для Scopus и WoS ID
+                    orcid_url, scopus_id, wos_id = get_detailed_orcid_info(orcid_id)
+                    return orcid_url, scopus_id, wos_id
+            else:
+                print("❌ No results found in ORCID")
+        else:
+            print(f"❌ ORCID API Error: {response.status_code} - {response.text}")
+            
+        return None, None, None
+        
+    except Exception as e:
+        print(f"🚨 Error searching ORCID for {surname} {given_name}: {str(e)}")
+        return None, None, None
+
+def get_detailed_orcid_info(orcid_id):
+    """Получает подробную информацию из профиля ORCID включая Scopus и WoS ID"""
+    try:
+        orcid_url = f"https://orcid.org/{orcid_id}"
+        scopus_id = None
+        wos_id = None
+        
+        # Получаем person данные
+        person_url = f"https://pub.orcid.org/v3.0/{orcid_id}/person"
+        headers = {'Accept': 'application/json', 'User-Agent': 'JournalAnalysisTool/1.0'}
+        
+        response = requests.get(person_url, headers=headers, timeout=15)
+        
+        if response.status_code == 200:
+            person_data = response.json()
+            
+            # Ищем внешние идентификаторы
+            external_ids = person_data.get('external-identifiers', {}).get('external-identifier', [])
+            
+            for ext_id in external_ids:
+                ext_id_type = ext_id.get('external-id-type', '')
+                ext_id_value = ext_id.get('external-id-value', '')
+                
+                if not ext_id_value:
+                    continue
+                    
+                if ext_id_type.upper() in ['SCOPUS', 'SCOPUS AUTHOR ID']:
+                    scopus_id = f"https://www.scopus.com/authid/detail.uri?authorId={ext_id_value}"
+                    print(f"🔍 Found Scopus ID: {scopus_id}")
+                    
+                elif ext_id_type.upper() in ['RESEARCHERID', 'WOS']:
+                    wos_id = f"https://www.webofscience.com/wos/author/record/{ext_id_value}"
+                    print(f"🔍 Found WoS ID: {wos_id}")
+            
+            # Дополнительная проверка для Researcher URLs
+            researcher_urls = person_data.get('researcher-urls', {}).get('researcher-url', [])
+            for url_data in researcher_urls:
+                url_value = url_data.get('url', {}).get('value', '')
+                if 'scopus' in url_value.lower() and 'authorId' in url_value:
+                    scopus_id = url_value
+                elif 'researcherid' in url_value.lower() or 'webofscience' in url_value.lower():
+                    wos_id = url_value
+        
+        print(f"✅ Detailed info - ORCID: {orcid_url}, Scopus: {scopus_id}, WoS: {wos_id}")
+        return orcid_url, scopus_id, wos_id
+        
+    except Exception as e:
+        print(f"🚨 Error getting detailed ORCID info: {str(e)}")
+        return f"https://orcid.org/{orcid_id}", None, None
+
+def search_orcid_author_cached(surname, given_name, affiliation, cache_dict):
+    """Кэшированная версия поиска автора в ORCID - ИСПРАВЛЕННАЯ"""
+    if not surname or not surname.strip():
+        return None, None, None
+        
+    cache_key = f"{surname}_{given_name}_{affiliation}".lower().strip()
+    
+    if cache_key in cache_dict:
+        print(f"📦 Using cached result for {cache_key}")
+        return cache_dict[cache_key]
+    
+    # Выполняем поиск
+    orcid_id, scopus_id, wos_id = search_orcid_author(surname, given_name, affiliation)
+    
+    # Кэшируем результат (даже если None)
+    cache_dict[cache_key] = (orcid_id, scopus_id, wos_id)
+    
+    return orcid_id, scopus_id, wos_id
+
+def process_author_id_data_parallel(author_list, state):
+    """Обработка данных авторов в параллельном режиме - УЛУЧШЕННАЯ ВЕРСИЯ"""
+    if not state.include_author_id_data:
+        return []
+    
+    if not author_list:
+        print("❌ No authors to process")
+        return []
+    
+    print(f"🔍 Starting parallel Author ID processing for {len(author_list)} authors")
+    
+    # Прогресс-бар
+    author_progress = st.progress(0)
+    author_status = st.empty()
+    
+    results = []
+    processed_count = 0
+    total_authors = len(author_list)
+    
+    # Подготавливаем аргументы для параллельной обработки
+    args_list = []
+    for author in author_list:
+        surname = author.get('surname', '').strip()
+        given_name = author.get('given_name', '').strip()
+        affiliation = author.get('affiliation', '').strip()
+        
+        if surname:  # Только авторы с фамилией
+            args_list.append((surname, given_name, affiliation, state.author_id_cache))
+    
+    if not args_list:
+        print("❌ No valid authors to process")
+        author_progress.empty()
+        author_status.empty()
+        return []
+    
+    # Используем меньше рабочих потоков для избежания rate limiting
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {}
+        
+        for i, args in enumerate(args_list):
+            future = executor.submit(search_orcid_author_cached, args[0], args[1], args[2], args[3])
+            futures[future] = i
+        
+        for i, future in enumerate(as_completed(futures)):
+            author_index = futures[future]
+            author_data = author_list[author_index]
+            
+            try:
+                orcid_id, scopus_id, wos_id = future.result()
+                
+                # Создаем запись с полной информацией об авторе
+                result_entry = {
+                    'Full Name': author_data['full_name'],
+                    'Surname': author_data['surname'],
+                    'Given Name': author_data['given_name'],
+                    'Affiliation': author_data['affiliation'],
+                    '.': '.',  # Точка в пустой колонке
+                    'ORCID ID': orcid_id if orcid_id else '',
+                    'Scopus ID': scopus_id if scopus_id else '',
+                    'WoS ID': wos_id if wos_id else '',
+                    'Sources': ', '.join(author_data['sources']),
+                    'All Affiliations': '; '.join(author_data['all_affiliations']) if author_data['all_affiliations'] else 'No affiliation'
+                }
+                
+                results.append(result_entry)
+                processed_count += 1
+                
+                # Обновляем прогресс
+                progress = (i + 1) / len(args_list)
+                author_progress.progress(progress)
+                author_status.text(f"🔍 Processing Author ID data: {i + 1}/{len(args_list)}")
+                
+                # Добавляем небольшую задержку для избежания rate limiting
+                time.sleep(0.2)
+                
+            except Exception as e:
+                print(f"⚠️ Error processing author {author_data['surname']} {author_data['given_name']}: {str(e)}")
+                # Добавляем запись с ошибкой (но без ID)
+                results.append({
+                    'Full Name': author_data['full_name'],
+                    'Surname': author_data['surname'],
+                    'Given Name': author_data['given_name'],
+                    'Affiliation': author_data['affiliation'],
+                    '.': '.',
+                    'ORCID ID': '',
+                    'Scopus ID': '',
+                    'WoS ID': '',
+                    'Sources': ', '.join(author_data['sources']),
+                    'All Affiliations': '; '.join(author_data['all_affiliations']) if author_data['all_affiliations'] else 'No affiliation'
+                })
+                processed_count += 1
+    
+    author_progress.empty()
+    author_status.empty()
+    
+    print(f"✅ Author ID processing completed: {processed_count}/{total_authors} authors processed")
+    
+    # Логируем статистику
+    found_orcid = sum(1 for r in results if r['ORCID ID'] != '')
+    found_scopus = sum(1 for r in results if r['Scopus ID'] != '') 
+    found_wos = sum(1 for r in results if r['WoS ID'] != '')
+    
+    print(f"📊 Results - ORCID: {found_orcid}, Scopus: {found_scopus}, WoS: {found_wos}")
+    
+    return results
+
+def extract_unique_authors_from_metadata(analyzed_metadata, citing_metadata, state):
+    """Извлекает уникальных авторов из метаданных анализируемых и цитирующих статей с объединением аффилиаций"""
+    author_records = {}  # ключ: "Фамилия Имя", значение: список аффилиаций
+    
+    def process_metadata(metadata_list, source_type):
+        """Обрабатывает метаданные и добавляет авторов в общую коллекцию"""
+        for meta in metadata_list:
+            if not meta or not meta.get('openalex'):
+                continue
+                
+            doi = meta.get('doi')
+            if not doi:
+                continue
+                
+            # Получаем данные работы
+            work_data = get_work_by_doi(doi)
+            if not work_data:
+                continue
+                
+            # Извлекаем авторов
+            authors = extract_clean_authors_from_work(work_data)
+            for author in authors:
+                author_name = author['name']
+                affiliation = author['affiliation']
+                
+                if author_name not in author_records:
+                    author_records[author_name] = {
+                        'surname': author['surname'],
+                        'given_name': author['given_name'],
+                        'affiliations': set(),
+                        'sources': set()
+                    }
+                
+                # Добавляем аффилиацию (если есть)
+                if affiliation and affiliation != "No affiliation":
+                    author_records[author_name]['affiliations'].add(affiliation)
+                
+                # Отмечаем источник
+                author_records[author_name]['sources'].add(source_type)
+    
+    # Обрабатываем анализируемые статьи
+    print("🔍 Processing analyzed articles for authors...")
+    process_metadata(analyzed_metadata, 'analyzed')
+    
+    # Обрабатываем цитирующие статьи
+    print("🔍 Processing citing articles for authors...")
+    process_metadata(citing_metadata, 'citing')
+    
+    # Преобразуем в список с выбором лучшей аффилиации
+    author_list = []
+    
+    for author_name, data in author_records.items():
+        affiliations_list = list(data['affiliations'])
+        
+        # Выбираем лучшую аффилиацию по приоритету:
+        # 1. Аффилиация из анализируемых статей
+        # 2. Первая аффилиация из цитирующих статей  
+        # 3. "No affiliation" если ничего нет
+        
+        best_affiliation = "No affiliation"
+        if affiliations_list:
+            # Если автор есть в анализируемых статьях, предпочитаем его аффилиации
+            if 'analyzed' in data['sources']:
+                # Ищем аффилиации из анализируемых статей
+                analyzed_affiliations = set()
+                # Для этого нужно проверить исходные данные, но в упрощенной версии берем первую
+                best_affiliation = affiliations_list[0]
+            else:
+                # Только цитирующие статьи - берем первую аффилиацию
+                best_affiliation = affiliations_list[0]
+        
+        author_list.append({
+            'surname': data['surname'],
+            'given_name': data['given_name'],
+            'full_name': author_name,
+            'affiliation': best_affiliation,
+            'all_affiliations': affiliations_list,  # сохраняем все аффилиации для отладки
+            'sources': list(data['sources'])
+        })
+    
+    # Сортируем по фамилии для удобства
+    author_list.sort(key=lambda x: x['surname'])
+    
+    print(f"📊 Extracted {len(author_list)} unique authors from metadata")
+    print(f"   - With affiliations: {len([a for a in author_list if a['affiliation'] != 'No affiliation'])}")
+    print(f"   - From analyzed articles: {len([a for a in author_list if 'analyzed' in a['sources']])}")
+    print(f"   - From citing articles: {len([a for a in author_list if 'citing' in a['sources']])}")
+    print(f"   - From both sources: {len([a for a in author_list if len(a['sources']) > 1])}")
+    
+    return author_list
+
+def create_author_id_sheet(analyzed_metadata, citing_metadata, state):
+    """Создает лист Author_ID_data с данными об идентификаторах авторов"""
+    if not state.include_author_id_data:
+        return []
+    
+    # Извлекаем уникальных авторов с объединением данных
+    unique_authors = extract_unique_authors_from_metadata(analyzed_metadata, citing_metadata, state)
+    
+    if not unique_authors:
+        st.info("No authors found for Author ID data processing.")
+        return []
+    
+    # Показываем статистику
+    st.info(f"📊 Found {len(unique_authors)} unique authors for ID processing")
+    
+    # Обрабатываем данные авторов
+    author_id_data = process_author_id_data_parallel(unique_authors, state)
+    
+    # Создаем финальный DataFrame с нужными колонками
+    final_columns = [
+        'Full Name', 
+        'Surname', 
+        'Given Name', 
+        'Affiliation', 
+        '.', 
+        'ORCID ID', 
+        'Scopus ID', 
+        'WoS ID'
+    ]
+    
+    # Фильтруем только нужные колонки для итогового листа
+    final_data = []
+    for record in author_id_data:
+        final_record = {col: record[col] for col in final_columns}
+        final_data.append(final_record)
+    
+    return final_data
+
 # === 17. Enhanced Excel Report Creation ===
 def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer, additional_data):
     """Create enhanced Excel report with error handling for large data"""
@@ -4518,6 +4947,14 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 special_metrics_df = pd.DataFrame(special_metrics_data)
                 special_metrics_df.to_excel(writer, sheet_name='Special_Analysis_Metrics', index=False)
 
+            # === NEW SHEET: Author ID Data ===
+            # Sheet 20: Author_ID_data (NEW)
+            if state.include_author_id_data:
+                author_id_data = create_author_id_sheet(analyzed_data, citing_data, state)
+                if author_id_data:
+                    author_id_df = pd.DataFrame(author_id_data)
+                    author_id_df.to_excel(writer, sheet_name='Author_ID_data', index=False)
+
             # Ensure at least one sheet exists
             if len(writer.sheets) == 0:
                 summary_df = pd.DataFrame({
@@ -4867,7 +5304,7 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
                         st.error("❌ " + translation_manager.get_text('high_self_citations_problems'))
 
 # === 19. Main Analysis Function ===
-def analyze_journal(issn, period_str, special_analysis=False, include_ror_data=False):
+def analyze_journal(issn, period_str, special_analysis=False, include_ror_data=False, include_author_id_data=False):
     global delayer
     delayer = AdaptiveDelayer()
     
@@ -4879,6 +5316,9 @@ def analyze_journal(issn, period_str, special_analysis=False, include_ror_data=F
     
     # NEW: Set ROR data inclusion based on checkbox
     state.include_ror_data = include_ror_data
+    
+    # NEW: Set Author ID data inclusion based on checkbox
+    state.include_author_id_data = include_author_id_data
     
     # Load metrics data at the start
     load_metrics_data()
@@ -5179,12 +5619,22 @@ def main():
             help=glossary.get_tooltip('ISSN')
         )
         
-        # Special Analysis checkbox
+        # Special Analysis checkbox ДО поля Period
         special_analysis = st.checkbox(
             "🎯 Special Analysis Mode", 
             value=False,
-            help="Calculate CiteScore and Impact Factor metrics using fixed time windows (current date -1580 days to current date -120 days)"
+            help="Calculate CiteScore and Impact Factor metrics using their specific timeframe windows (with lags until they are officially announced)"
         )
+        
+        # Period input - disabled when Special Analysis is active
+        period = st.text_input(
+            translation_manager.get_text('analysis_period'),
+            value="2022-2025",
+            help=translation_manager.get_text('period_examples'),
+            disabled=special_analysis  # Теперь это работает правильно!
+        )
+        
+        st.markdown("---")  # Разделитель между основными параметрами и опциями
         
         # NEW: Include ROR data checkbox
         include_ror_data = st.checkbox(
@@ -5193,19 +5643,18 @@ def main():
             help="Include ROR organization data in Combined_Affiliations sheet (may increase processing time)"
         )
         
-        # Period input - disabled when Special Analysis is active
-        period = st.text_input(
-            translation_manager.get_text('analysis_period'),
-            value="2022-2025",
-            help=translation_manager.get_text('period_examples'),
-            disabled=special_analysis
+        # NEW: Include Author ID data checkbox
+        include_author_id_data = st.checkbox(
+            "👤 Include Author ID data", 
+            value=False,
+            help="Include Author ID data (ORCID, Scopus ID, WoS ID) in Author_ID_data sheet (may significantly increase processing time)"
         )
-        
-        if special_analysis:
-            st.info("🔬 Special Analysis Mode: Using fixed period for CiteScore & Impact Factor calculation")
         
         if include_ror_data:
             st.info("🔍 ROR Data: Organization information will be included in Combined_Affiliations sheet")
+        
+        if include_author_id_data:
+            st.info("👤 Author ID Data: Author identifiers (ORCID, Scopus ID, WoS ID) will be included in Author_ID_data sheet")
         
         st.markdown("---")
         st.header("📚 " + translation_manager.get_text('dictionary_of_terms'))
@@ -5296,7 +5745,8 @@ def main():
                 "- " + translation_manager.get_text('capability_7') + "\n" +
                 "- " + translation_manager.get_text('capability_8') + "\n" +
                 "- **NEW:** Special Analysis metrics (CiteScore & Impact Factor)\n" +
-                "- **NEW:** ROR organization data integration")
+                "- **NEW:** ROR organization data integration\n" +
+                "- **NEW:** Author ID data (ORCID, Scopus ID, WoS ID)")
         
         st.warning("**" + translation_manager.get_text('note') + ":** \n" +
                   "- " + translation_manager.get_text('note_text_1') + "\n" +
@@ -5304,7 +5754,8 @@ def main():
                   "- " + translation_manager.get_text('note_text_3') + "\n" +
                   "- " + translation_manager.get_text('note_text_4') + "\n" +
                   "- " + translation_manager.get_text('note_text_5') + "\n" +
-                  "- **NEW:** ROR data processing may increase analysis time for large datasets")
+                  "- **NEW:** ROR data processing may increase analysis time for large datasets\n" +
+                  "- **NEW:** Author ID data processing may significantly increase analysis time due to API rate limits")
     
     # Main area
     col1, col2 = st.columns([2, 1])
@@ -5322,7 +5773,7 @@ def main():
                 return
                 
             with st.spinner(translation_manager.get_text('analysis_starting')):
-                analyze_journal(issn, period, special_analysis, include_ror_data)
+                analyze_journal(issn, period, special_analysis, include_ror_data, include_author_id_data)
     
     with col2:
         st.subheader("📤 " + translation_manager.get_text('results'))
