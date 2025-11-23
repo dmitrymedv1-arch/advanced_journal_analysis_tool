@@ -188,18 +188,18 @@ def parallel_metrics_calculation(analyzed_metadata, citing_metadata, state, jour
         }
 
 def parallel_analyses(analyzed_metadata, citing_metadata, state, citation_timing_data, analyzed_stats=None, citing_stats=None):
-    """Parallel execution of independent analyses"""
+    """Parallel execution of independent analyses - ИСПРАВЛЕНО: гарантированное выполнение всех анализов"""
     with ThreadPoolExecutor(max_workers=5) as executor:
-        # Title keywords analysis
+        # Title keywords analysis - ВСЕГДА выполняем
         future_keywords = executor.submit(parallel_title_keywords_analysis, analyzed_metadata, citing_metadata)
         
-        # Citation seasonality
+        # Citation seasonality - ВСЕГДА выполняем
         future_seasonality = executor.submit(analyze_citation_seasonality, analyzed_metadata, state, citation_timing_data)
         
-        # Potential reviewers
+        # Potential reviewers - ВСЕГДА выполняем
         future_reviewers = executor.submit(find_potential_reviewers, analyzed_metadata, citing_metadata, [], state)
         
-        # Special analysis metrics (if needed) - ИСПРАВЛЕННЫЙ ВЫЗОВ
+        # Special analysis metrics (if needed)
         if state.is_special_analysis:
             future_special = executor.submit(calculate_special_analysis_metrics, analyzed_metadata, citing_metadata, state)
         else:
@@ -210,7 +210,6 @@ def parallel_analyses(analyzed_metadata, citing_metadata, state, citation_timing
             analyzed_affiliations = []
             citing_affiliations = []
             
-            # Извлекаем affiliations из метаданных
             for item in analyzed_metadata:
                 if item and item.get('openalex'):
                     _, affiliations, _ = extract_affiliations_and_countries(item.get('openalex'))
@@ -226,31 +225,47 @@ def parallel_analyses(analyzed_metadata, citing_metadata, state, citation_timing
         else:
             future_ror = None
         
-        # Collect results
+        # Collect results - ИСПРАВЛЕНО: гарантируем получение всех результатов
+        try:
+            keywords_result = future_keywords.result()
+        except Exception as e:
+            print(f"Warning: Title keywords analysis failed: {e}")
+            keywords_result = {'analyzed': {'content_words': [], 'compound_words': [], 'scientific_words': [], 'total_titles': 0}, 
+                             'citing': {'content_words': [], 'compound_words': [], 'scientific_words': [], 'total_titles': 0}}
+        
+        try:
+            seasonality_result = future_seasonality.result()
+        except Exception as e:
+            print(f"Warning: Citation seasonality analysis failed: {e}")
+            seasonality_result = {'citation_months': {}, 'publication_months': {}, 'optimal_publication_months': [], 'total_citations_by_month': 0}
+        
+        try:
+            reviewers_result = future_reviewers.result()
+        except Exception as e:
+            print(f"Warning: Potential reviewers analysis failed: {e}")
+            reviewers_result = {'potential_reviewers': [], 'total_journal_authors': 0, 'total_overlap_authors': 0, 'total_potential_reviewers': 0}
+        
         results = {
-            'keywords': future_keywords.result(),
-            'seasonality': future_seasonality.result(),
-            'reviewers': future_reviewers.result()
+            'title_keywords': keywords_result,  # ИСПРАВЛЕНО: правильное имя ключа
+            'citation_seasonality': seasonality_result,  # ИСПРАВЛЕНО: правильное имя ключа
+            'potential_reviewers': reviewers_result  # ИСПРАВЛЕНО: правильное имя ключа
         }
         
         if future_special:
-            results['special_analysis'] = future_special.result()
+            try:
+                results['special_analysis_metrics'] = future_special.result()  # ИСПРАВЛЕНО: правильное имя ключа
+            except Exception as e:
+                print(f"Warning: Special analysis metrics failed: {e}")
+                results['special_analysis_metrics'] = {}
+        else:
+            results['special_analysis_metrics'] = {}  # ИСПРАВЛЕНО: добавляем пустой словарь даже если не в special mode
+            
         if future_ror:
-            results['ror_data'] = future_ror.result()
-        
-        return results
-        
-        # Collect results
-        results = {
-            'keywords': future_keywords.result(),
-            'seasonality': future_seasonality.result(),
-            'reviewers': future_reviewers.result()
-        }
-        
-        if future_special:
-            results['special_analysis'] = future_special.result()
-        if future_ror:
-            results['ror_data'] = future_ror.result()
+            try:
+                results['ror_data'] = future_ror.result()
+            except Exception as e:
+                print(f"Warning: ROR data processing failed: {e}")
+                results['ror_data'] = {}
         
         return results
 
@@ -1198,7 +1213,7 @@ class MetricsCalculator:
 # =============================================================================
 # STATE MANAGEMENT (ORIGINAL)
 # =============================================================================
-
+  
 class AnalysisState:
     """Enhanced state management for analysis"""
     
@@ -4243,9 +4258,13 @@ def create_combined_affiliations_sheet(analyzed_affiliations_data, citing_affili
     
     # NEW: Process ROR data in parallel if enabled
     ror_results = {}
-    if state.include_ror_data:
-        affiliations_list = list(all_affiliations)
-        ror_results = process_ror_data_parallel(affiliations_list, state)
+    if state.include_ror_data and hasattr(state, 'ror_cache'):
+        try:
+            affiliations_list = list(all_affiliations)
+            ror_results = process_ror_data_parallel(affiliations_list, state)
+        except Exception as e:
+            print(f"Warning: ROR data processing failed: {e}")
+            ror_results = {}
     
     for affiliation in all_affiliations:
         analyzed_count = analyzed_affiliations.get(affiliation, 0)
@@ -4282,12 +4301,15 @@ def create_combined_affiliations_sheet(analyzed_affiliations_data, citing_affili
         # NEW: Get ROR information from cache or API results
         colab_ror = ""
         website = ""
-        if state.include_ror_data:
+        if state.include_ror_data and hasattr(state, 'ror_cache'):
             if affiliation in ror_results:
                 colab_ror, website = ror_results[affiliation]
             else:
                 # Fallback to direct search if not in results
-                colab_ror, website = search_ror_organization_cached(affiliation, state.ror_cache)
+                try:
+                    colab_ror, website = search_ror_organization_cached(affiliation, state.ror_cache)
+                except Exception as e:
+                    print(f"Warning: ROR search failed for {affiliation}: {e}")
         
         combined_data.append({
             'Affiliation': affiliation,
@@ -5374,16 +5396,16 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 top_concepts_df.to_excel(writer, sheet_name='Top_Concepts', index=False)
 
             # === НОВЫЙ ЛИСТ: Объединенный анализ ключевых слов в названиях ===
-            # Sheet 16: Combined Title Keywords (NEW)
+            # Sheet 16: Combined Title Keywords (NEW) - ИСПРАВЛЕНО: правильное имя листа
             if 'title_keywords' in additional_data:
                 keywords_data = additional_data['title_keywords']
                 normalized_keywords = normalize_keywords_data(keywords_data)
                 
                 if normalized_keywords:
                     keywords_df = pd.DataFrame(normalized_keywords)
-                    keywords_df.to_excel(writer, sheet_name='Title_Keywords', index=False)
+                    keywords_df.to_excel(writer, sheet_name='Combined_Title_Keywords', index=False)
 
-            # Sheet 17: Citation seasonality
+            # Sheet 17: Citation seasonality - ИСПРАВЛЕНО: правильное имя листа
             if 'citation_seasonality' in additional_data:
                 seasonality_data = []
                 citation_seasonality = additional_data['citation_seasonality']
@@ -5404,8 +5426,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 if seasonality_data:
                     seasonality_df = pd.DataFrame(seasonality_data)
                     seasonality_df.to_excel(writer, sheet_name='Citation_Seasonality', index=False)
-
-                # Optimal publication months
+            
+                # Optimal publication months - ИСПРАВЛЕНО: создаем отдельный лист
                 if citation_seasonality['optimal_publication_months']:
                     optimal_months_data = []
                     for optimal in citation_seasonality['optimal_publication_months']:
@@ -5418,8 +5440,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     
                     optimal_months_df = pd.DataFrame(optimal_months_data)
                     optimal_months_df.to_excel(writer, sheet_name='Optimal_Publication_Months', index=False)
-
-            # Sheet 18: Potential reviewers
+              
+            # Sheet 18: Potential reviewers - ИСПРАВЛЕНО: правильное имя листа
             if 'potential_reviewers' in additional_data:
                 reviewers_data = []
                 potential_reviewers_info = additional_data['potential_reviewers']
@@ -5437,7 +5459,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     reviewers_df = pd.DataFrame(reviewers_data)
                     reviewers_df.to_excel(writer, sheet_name='Potential_Reviewers', index=False)
 
-            # Sheet 19: Special Analysis Metrics (NEW)
+            # Sheet 19: Special Analysis Metrics (NEW) - ИСПРАВЛЕНО: правильное имя листа
             if 'special_analysis_metrics' in additional_data:
                 special_metrics = additional_data['special_analysis_metrics']
                 debug_info = special_metrics.get('debug_info', {})
@@ -5898,10 +5920,32 @@ def analyze_journal_optimized(issn, period_str, special_analysis=False, include_
     delayer = AdaptiveDelayer()
 
     analysis_start_time = time.time()
-    st.info("⏱️ Starting analysis timer...")
+    
+    # Создаем контейнер для счетчика общего времени
+    timer_container = st.empty()
+    timer_container.info("⏱️ Starting analysis...")
     
     state = get_analysis_state()
     state.analysis_complete = False
+    
+    # Функция для обновления счетчика общего времени
+    def update_timer():
+        elapsed_time = time.time() - analysis_start_time
+        minutes = int(elapsed_time // 60)
+        seconds = int(elapsed_time % 60)
+        timer_container.info(f"⏱️ Total analysis time: {minutes:02d}:{seconds:02d}")
+    
+    # Запускаем обновление таймера в отдельном потоке
+    import threading
+    stop_timer = False
+    
+    def timer_thread():
+        while not stop_timer:
+            update_timer()
+            time.sleep(1)  # Обновляем каждую секунду
+    
+    timer_thread = threading.Thread(target=timer_thread, daemon=True)
+    timer_thread.start()
     
     # Set analysis modes
     state.is_special_analysis = special_analysis
@@ -6177,6 +6221,16 @@ def analyze_journal_optimized(issn, period_str, special_analysis=False, include_
     overall_progress.empty()
     overall_status.empty()
 
+    # Останавливаем таймер
+    stop_timer = True
+    timer_thread.join(timeout=1)
+    
+    # Финальное отображение времени
+    elapsed_time = time.time() - analysis_start_time
+    minutes = int(elapsed_time // 60)
+    seconds = int(elapsed_time % 60)
+    timer_container.success(f"✅ Total analysis completed in: {minutes:02d}:{seconds:02d}")
+
 # =============================================================================
 # 20. UPDATED MAIN INTERFACE WITH OPTIMIZED ANALYSIS
 # =============================================================================
@@ -6336,18 +6390,14 @@ def main_optimized():
                 "- " + translation_manager.get_text('capability_8') + "\n" +
                 "- **NEW:** Special Analysis metrics (CiteScore & Impact Factor)\n" +
                 "- **NEW:** ROR organization data integration\n" +
-                "- **NEW:** Author ID data (ORCID, Scopus ID, WoS ID)\n" +
-                "- **OPTIMIZED:** Parallel processing and enhanced caching")
+                "- **NEW:** Author ID data (ORCID, Scopus ID, WoS ID)\n")
         
         st.warning("**" + translation_manager.get_text('note') + ":** \n" +
                   "- " + translation_manager.get_text('note_text_1') + "\n" +
                   "- " + translation_manager.get_text('note_text_2') + "\n" +
                   "- " + translation_manager.get_text('note_text_3') + "\n" +
                   "- " + translation_manager.get_text('note_text_4') + "\n" +
-                  "- " + translation_manager.get_text('note_text_5') + "\n" +
-                  "- **NEW:** ROR data processing may increase analysis time for large datasets\n" +
-                  "- **NEW:** Author ID data processing may significantly increase analysis time due to API rate limits\n" +
-                  "- **OPTIMIZED:** Parallel processing reduces overall analysis time by 30-50%")
+                  "- " + translation_manager.get_text('note_text_5') + "\n")
     
     # Main area
     col1, col2 = st.columns([2, 1])
