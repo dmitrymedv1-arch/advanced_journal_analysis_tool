@@ -4941,38 +4941,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             special_metrics = additional_data.get('special_analysis_metrics', {})
             analyzed_articles_usage = special_metrics.get('debug_info', {}).get('analyzed_articles_usage', {})
             
-            for i, item in enumerate(analyzed_data):
-                if i >= MAX_ROWS:
-                    break
-                if item and item.get('crossref'):
-                    cr = item['crossref']
-                    oa = item.get('openalex', {})
-                    authors_list, affiliations_list, countries_list = extract_affiliations_and_countries(oa)
-                    journal_info = extract_journal_info(item)
-                    
-                    analyzed_doi = cr.get('DOI', '')
-                    usage_info = analyzed_articles_usage.get(analyzed_doi, {})
-                    
-                    analyzed_list.append({
-                        'DOI': safe_convert(cr.get('DOI', ''))[:100],
-                        'Title': (cr.get('title', [''])[0] if cr.get('title') else 'No title')[:200],
-                        'Authors_Crossref': safe_join([f"{a.get('given', '')} {a.get('family', '')}".strip() for a in cr.get('author', []) if a.get('given') or a.get('family')])[:300],
-                        'Authors_OpenAlex': safe_join(authors_list)[:300],
-                        'Affiliations': safe_join(affiliations_list)[:500],
-                        'Countries': safe_join(countries_list)[:100],
-                        'Publication_Year': safe_convert(cr.get('published', {}).get('date-parts', [[0]])[0][0]),
-                        'Journal': safe_convert(journal_info['journal_name'])[:100],
-                        'Publisher': safe_convert(journal_info['publisher'])[:100],
-                        'ISSN': safe_join([str(issn) for issn in journal_info['issn'] if issn])[:50],
-                        'Reference_Count': safe_convert(cr.get('reference-count', 0)),
-                        'Citations_Crossref': safe_convert(cr.get('is-referenced-by-count', 0)),
-                        'Citations_OpenAlex': safe_convert(oa.get('cited_by_count', 0)) if oa else 0,
-                        'Author_Count': safe_convert(len(cr.get('author', []))),
-                        'Work_Type': safe_convert(cr.get('type', ''))[:50],
-                        'Used for SC': '×' if usage_info.get('used_for_sc') else '',
-                        'Used for IF': '×' if usage_info.get('used_for_if') else ''
-                    })
-            
             if analyzed_list:
                 analyzed_df = pd.DataFrame(analyzed_list)
                 analyzed_df.to_excel(writer, sheet_name='Analyzed_Articles', index=False)
@@ -6475,3 +6443,4 @@ def main_optimized():
 if __name__ == "__main__":
     # Use optimized version by default
     main_optimized()
+
