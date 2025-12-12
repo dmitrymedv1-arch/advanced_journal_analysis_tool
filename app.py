@@ -1845,10 +1845,39 @@ def fetch_articles_by_issn_period(issn, from_date, until_date):
     return items
 
 # === 9. DOI Prefix Extraction ===
-def get_doi_prefix(doi):
+def normalize_doi(doi):
+    """Нормализует DOI в единый формат (без https://doi.org/)"""
     if not doi or doi == 'N/A':
+        return ""
+    
+    # Приводим к строке и очищаем
+    doi_str = str(doi).strip().lower()
+    
+    # Удаляем различные префиксы
+    prefixes = [
+        'https://doi.org/',
+        'http://doi.org/',
+        'doi.org/',
+        'doi:'
+    ]
+    
+    for prefix in prefixes:
+        if doi_str.startswith(prefix):
+            doi_str = doi_str[len(prefix):]
+            break
+    
+    return doi_str
+
+def get_doi_prefix(doi):
+    """Извлекает префикс DOI после нормализации"""
+    normalized_doi = normalize_doi(doi)
+    if not normalized_doi:
         return ''
-    return doi.split('/')[0] if '/' in doi else doi[:7]
+    
+    # Извлекаем часть до первого /
+    if '/' in normalized_doi:
+        return normalized_doi.split('/')[0]
+    return normalized_doi
 
 # === 10. Processing with Progress Bar ===
 def process_with_progress(items, func, desc="Processing", unit="items"):
@@ -2204,6 +2233,41 @@ def enhanced_stats_calculation(analyzed_metadata, citing_metadata, state):
 
 # === 15. Time to First Citation Calculation ===
 def calculate_citation_timing_stats(analyzed_metadata, state):
+    """Calculate time to first citation statistics with proper DOI prefix comparison"""
+    
+    def normalize_doi(doi):
+        """Normalize DOI to consistent format (without https://doi.org/)"""
+        if not doi or doi == 'N/A':
+            return ""
+        
+        # Convert to string and clean
+        doi_str = str(doi).strip().lower()
+        
+        # Remove various DOI prefixes
+        prefixes = [
+            'https://doi.org/',
+            'http://doi.org/',
+            'doi.org/',
+            'doi:'
+        ]
+        
+        for prefix in prefixes:
+            if doi_str.startswith(prefix):
+                doi_str = doi_str[len(prefix):]
+                break
+        
+        return doi_str
+    
+    def get_doi_prefix_from_normalized(doi):
+        """Extract DOI prefix from normalized DOI"""
+        if not doi:
+            return ''
+        
+        # Extract part before first /
+        if '/' in doi:
+            return doi.split('/')[0]
+        return doi
+    
     all_days_to_first_citation = []
     citation_timing_stats = {}
     first_citation_details = []
@@ -2242,36 +2306,62 @@ def calculate_citation_timing_stats(analyzed_metadata, state):
                 first_citation_date, first_citing_doi = min(citation_dates, key=lambda x: x[0])
                 days_to_first_citation = (first_citation_date - analyzed_date).days
                 
-                # === ИСКЛЮЧЕНИЕ РЕДАКТОРСКИХ ЗАМЕТОК ===
-                # Проверяем, не является ли цитирующая статья редакторской заметкой
-                # (имеет тот же DOI-префикс и ту же дату публикации)
-                analyzed_prefix = get_doi_prefix(analyzed_doi)
-                citing_prefix = get_doi_prefix(first_citing_doi)
+                # === FIXED DOI PREFIX COMPARISON ===
+                # Normalize DOIs before comparison
+                analyzed_doi_normalized = normalize_doi(analyzed_doi)
+                citing_doi_normalized = normalize_doi(first_citing_doi)
                 
-                same_prefix = (analyzed_prefix == citing_prefix)
+                # Extract prefixes from normalized DOIs
+                analyzed_prefix = get_doi_prefix_from_normalized(analyzed_doi_normalized)
+                citing_prefix = get_doi_prefix_from_normalized(citing_doi_normalized)
+                
+                # Check if prefixes match (excluding empty prefixes)
+                same_prefix = (analyzed_prefix == citing_prefix and analyzed_prefix != '')
                 same_date = (analyzed_date.date() == first_citation_date.date())
+                is_editorial_note = same_prefix and same_date
                 
-                # Исключаем записи с тем же префиксом и той же датой (вероятно редакторские заметки)
-                if not (same_prefix and same_date) and days_to_first_citation >= 0:
-                    all_days_to_first_citation.append(days_to_first_citation)
+                if days_to_first_citation >= 0:
+                    # Always save all details for Excel reporting
                     first_citation_details.append({
                         'analyzed_doi': analyzed_doi,
+                        'analyzed_doi_normalized': analyzed_doi_normalized,
                         'citing_doi': first_citing_doi,
+                        'citing_doi_normalized': citing_doi_normalized,
                         'analyzed_date': analyzed_date,
                         'first_citation_date': first_citation_date,
                         'days_to_first_citation': days_to_first_citation,
                         'same_prefix': same_prefix,
-                        'same_date': same_date
+                        'same_date': same_date,
+                        'is_editorial_note': is_editorial_note,
+                        'analyzed_prefix': analyzed_prefix,
+                        'citing_prefix': citing_prefix
                     })
+                    
+                    # Exclude editorial notes from statistical calculations
+                    if not is_editorial_note:
+                        all_days_to_first_citation.append(days_to_first_citation)
+                    else:
+                        print(f"⚠️ Editorial note excluded: {analyzed_doi} -> {first_citing_doi} (same prefix: {analyzed_prefix}, same date: {same_date})")
     
     if all_days_to_first_citation:
         citation_timing_stats = {
+            # Statistics WITHOUT editorial notes (for Citing_Stats)
             'min_days_to_first_citation': min(all_days_to_first_citation),
             'max_days_to_first_citation': max(all_days_to_first_citation),
             'mean_days_to_first_citation': np.mean(all_days_to_first_citation),
             'median_days_to_first_citation': np.median(all_days_to_first_citation),
             'articles_with_citation_timing_data': len(all_days_to_first_citation),
-            'first_citation_details': first_citation_details
+            
+            # All details (for Excel)
+            'first_citation_details': first_citation_details,
+            
+            # Statistics for ALL data (including editorial notes)
+            'all_data_stats': {
+                'total_citations_analyzed': len(first_citation_details),
+                'editorial_notes_count': len([d for d in first_citation_details if d.get('is_editorial_note', False)]),
+                'non_editorial_citations': len(all_days_to_first_citation),
+                'articles_with_any_citation': len(set(detail['analyzed_doi'] for detail in first_citation_details))
+            }
         }
     else:
         citation_timing_stats = {
@@ -2280,7 +2370,13 @@ def calculate_citation_timing_stats(analyzed_metadata, state):
             'mean_days_to_first_citation': 0,
             'median_days_to_first_citation': 0,
             'articles_with_citation_timing_data': 0,
-            'first_citation_details': []
+            'first_citation_details': [],
+            'all_data_stats': {
+                'total_citations_analyzed': 0,
+                'editorial_notes_count': 0,
+                'non_editorial_citations': 0,
+                'articles_with_any_citation': 0
+            }
         }
     
     return citation_timing_stats
@@ -5016,22 +5112,27 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 overlap_df = pd.DataFrame(overlap_list)
                 overlap_df.to_excel(writer, sheet_name='Work_Overlaps', index=False)
 
-            # Sheet 4: Time to first citation (С ИСКЛЮЧЕНИЕМ РЕДАКТОРСКИХ ЗАМЕТОК)
+            # Sheet 4: Time to first citation (WITH EDITORIAL NOTES EXCLUDED)
             first_citation_list = []
             for detail in citation_timing.get('first_citation_details', []):
-                # === ИСКЛЮЧЕНИЕ РЕДАКТОРСКИХ ЗАМЕТОК ===
-                # Не включаем записи с тем же префиксом и той же датой
-                if detail.get('same_prefix', False) and detail.get('same_date', False):
+                # === EXCLUDE EDITORIAL NOTES ===
+                # Skip records that are editorial notes (same prefix AND same date)
+                if detail.get('is_editorial_note', False):
                     continue
                     
+                # Normalize DOIs for consistent display
+                analyzed_doi_normalized = normalize_doi(detail['analyzed_doi'])
+                citing_doi_normalized = normalize_doi(detail['citing_doi'])
+                
                 first_citation_list.append({
-                    'Analyzed_DOI': safe_convert(detail['analyzed_doi'])[:100],
-                    'First_Citing_DOI': safe_convert(detail['citing_doi'])[:100],
+                    'Analyzed_DOI': safe_convert(analyzed_doi_normalized)[:100],
+                    'First_Citing_DOI': safe_convert(citing_doi_normalized)[:100],
                     'Publication_Date': detail['analyzed_date'].strftime('%Y-%m-%d') if detail['analyzed_date'] else 'N/A',
                     'First_Citation_Date': detail['first_citation_date'].strftime('%Y-%m-%d') if detail['first_citation_date'] else 'N/A',
                     'Days_to_First_Citation': safe_convert(detail['days_to_first_citation']),
                     'Same_DOI_Prefix': detail.get('same_prefix', False),
-                    'Same_Publication_Date': detail.get('same_date', False)
+                    'Same_Publication_Date': detail.get('same_date', False),
+                    'Editorial_Note_Excluded': detail.get('is_editorial_note', False)
                 })
             
             if first_citation_list:
@@ -6443,3 +6544,4 @@ def main_optimized():
 if __name__ == "__main__":
     # Use optimized version by default
     main_optimized()
+
