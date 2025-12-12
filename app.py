@@ -4940,7 +4940,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             state = get_analysis_state()
             special_metrics = additional_data.get('special_analysis_metrics', {})
             analyzed_articles_usage = special_metrics.get('debug_info', {}).get('analyzed_articles_usage', {})
-            
+                        
             if analyzed_list:
                 analyzed_df = pd.DataFrame(analyzed_list)
                 analyzed_df.to_excel(writer, sheet_name='Analyzed_Articles', index=False)
@@ -6443,4 +6443,3 @@ def main_optimized():
 if __name__ == "__main__":
     # Use optimized version by default
     main_optimized()
-
