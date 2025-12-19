@@ -2042,24 +2042,30 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
             continue
 
         cr = meta.get('crossref')
+        oa = meta.get('openalex')  # ДОБАВЛЕНО: определяем oa здесь
+        
         if cr:
-            # Сначала пытаемся получить ссылки из Crossref
+            # Сначала получаем количество ссылок из Crossref
             refs = cr.get('reference', [])
             ref_count_cr = len(refs)
             
-            # Если нет ссылок в Crossref, проверяем OpenAlex
-            if ref_count_cr == 0 and oa:
-                ref_count_oa = oa.get('referenced_works_count', 0)
-                if ref_count_oa > 0:
-                    ref_count = ref_count_oa
-                    # Для OpenAlex не можем проанализировать DOI ссылок, 
-                    # поэтому помечаем все как без DOI
-                    refs_without_doi += ref_count_oa
+            # Проверяем OpenAlex если в Crossref 0
+            ref_count = 0
+            if ref_count_cr == 0:
+                if oa:  # Теперь oa определена
+                    ref_count_oa = oa.get('referenced_works_count', 0)
+                    if ref_count_oa > 0:
+                        ref_count = ref_count_oa
+                        # Для данных OpenAlex не можем определить DOI ссылок,
+                        # поэтому считаем все как ссылки без DOI
+                        refs_without_doi += ref_count_oa
+                        # Предупреждение в лог
+                        # print(f"⚠️ Using OpenAlex reference count ({ref_count_oa}) for article")
                 else:
                     ref_count = 0
             else:
                 ref_count = ref_count_cr
-                # Анализируем ссылки из Crossref
+                # Анализируем ссылки из Crossref (проверяем DOI)
                 for ref in refs:
                     ref_doi = ref.get('DOI', '')
                     if ref_doi:
@@ -6561,4 +6567,5 @@ def main_optimized():
 if __name__ == "__main__":
     # Use optimized version by default
     main_optimized()
+
 
