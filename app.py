@@ -2037,62 +2037,24 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
     journal_freq = Counter()
     publisher_freq = Counter()
 
-    def get_reference_count_for_stats(cr_data, oa_data):
-        """Получает количество ссылок для статистики с приоритетом OpenAlex"""
-        # Сначала пытаемся получить из OpenAlex
-        if oa_data and 'referenced_works_count' in oa_data:
-            ref_count_oa = oa_data.get('referenced_works_count', 0)
-            if ref_count_oa is not None:
-                return ref_count_oa
-        
-        # Если в OpenAlex нет, пробуем Crossref
-        if cr_data and 'reference-count' in cr_data:
-            ref_count_cr = cr_data.get('reference-count', 0)
-            if ref_count_cr is not None:
-                return ref_count_cr
-        
-        # Если оба источника дают 0 или нет данных, возвращаем 0
-        return 0
-
     for meta in metadata_list:
         if not meta:
             continue
 
         cr = meta.get('crossref')
-        oa = meta.get('openalex')
-        
-        # Получаем общее количество ссылок с приоритетом OpenAlex
-        total_ref_count = get_reference_count_for_stats(cr, oa)
-        
-        # Если есть данные Crossref, обрабатываем отдельные ссылки
         if cr:
             refs = cr.get('reference', [])
-            processed_refs_count = len(refs)
-            
-            # Если Crossref имеет данные о ссылках, используем их для детального анализа
-            if processed_refs_count > 0:
-                total_refs += processed_refs_count
-                for ref in refs:
-                    ref_doi = ref.get('DOI', '')
-                    if ref_doi:
-                        refs_with_doi += 1
-                        if get_doi_prefix(ref_doi) == journal_prefix:
-                            self_cites += 1
-                    else:
-                        refs_without_doi += 1
-                ref_counts.append(processed_refs_count)
-            else:
-                # Если в Crossref нет данных о ссылках, но OpenAlex дал количество
-                if total_ref_count > 0:
-                    total_refs += total_ref_count
-                    ref_counts.append(total_ref_count)
-                    # Для ссылок без деталей считаем, что все без DOI
-                    refs_without_doi += total_ref_count
+            total_refs += len(refs)
+            for ref in refs:
+                ref_doi = ref.get('DOI', '')
+                if ref_doi:
+                    refs_with_doi += 1
+                    if get_doi_prefix(ref_doi) == journal_prefix:
+                        self_cites += 1
                 else:
-                    # Если оба источника дают 0
-                    ref_counts.append(0)
-            
-            # ... остальная обработка авторов, дат и т.д. (без изменений) ...
+                    refs_without_doi += 1
+            ref_counts.append(len(refs))
+
             authors = cr.get('author', [])
             num_auth = len(authors)
             author_counts.append(num_auth)
@@ -2121,17 +2083,8 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
                 journal_freq[journal_name] += 1
             if publisher:
                 publisher_freq[publisher] += 1
-        
-        # Если нет Crossref, но есть OpenAlex, используем данные OpenAlex для количества ссылок
-        elif oa and not cr:
-            if total_ref_count > 0:
-                total_refs += total_ref_count
-                ref_counts.append(total_ref_count)
-                refs_without_doi += total_ref_count  # Без деталей, считаем все без DOI
-            else:
-                ref_counts.append(0)
 
-        # Обработка OpenAlex данных (без изменений)
+        oa = meta.get('openalex')
         if oa:
             try:
                 authors_list, affiliations_list, countries_list = extract_affiliations_and_countries(oa)
@@ -2179,18 +2132,15 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
 
     n_items = len(metadata_list)
 
-    # Расчет процентов с защитой от деления на ноль
     refs_with_doi_pct = (refs_with_doi / total_refs * 100) if total_refs > 0 else 0
     refs_without_doi_pct = (refs_without_doi / total_refs * 100) if total_refs > 0 else 0
     self_cites_pct = (self_cites / total_refs * 100) if total_refs > 0 else 0
 
-    # Расчет статистики по ссылкам
     ref_min = min(ref_counts) if ref_counts else 0
     ref_max = max(ref_counts) if ref_counts else 0
     ref_mean = sum(ref_counts)/n_items if n_items > 0 else 0
     ref_median = sorted(ref_counts)[n_items//2] if n_items > 0 else 0
 
-    # Расчет статистики по авторам
     auth_min = min(author_counts) if author_counts else 0
     auth_max = max(author_counts) if author_counts else 0
     auth_mean = sum(author_counts)/n_items if n_items > 0 else 0
@@ -5005,7 +4955,7 @@ def precompute_excel_data(analyzed_data, citing_data, analyzed_stats, citing_sta
         'analyzed_articles_usage': analyzed_articles_usage,
         'citing_articles_usage': citing_articles_usage
     }
-    
+
 def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer, additional_data):
     """Create enhanced Excel report with error handling for large data"""
     
@@ -5043,23 +4993,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
         cleaned = [str(x).strip() for x in items if x is not None and str(x).strip()]
         result = sep.join(cleaned)
         return result[:max_len] if max_len else result
-    
-    def get_reference_count(cr_data, oa_data):
-        """Получает количество ссылок с приоритетом OpenAlex, затем Crossref"""
-        # Сначала пытаемся получить из OpenAlex
-        if oa_data and 'referenced_works_count' in oa_data:
-            ref_count_oa = oa_data.get('referenced_works_count', 0)
-            if ref_count_oa is not None and ref_count_oa > 0:
-                return safe_convert(ref_count_oa)
-        
-        # Если в OpenAlex нет или равно 0, пробуем Crossref
-        if cr_data and 'reference-count' in cr_data:
-            ref_count_cr = cr_data.get('reference-count', 0)
-            if ref_count_cr is not None and ref_count_cr > 0:
-                return safe_convert(ref_count_cr)
-        
-        # Если оба источника дают 0 или нет данных, возвращаем 0
-        return 0
             
     try:
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
@@ -5075,13 +5008,9 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 cr = precomputed['cr']
                 article_data = precomputed['article_data']
                 journal_info = precomputed['journal_info']
-                oa = precomputed['oa']
                 
                 analyzed_doi = cr.get('DOI', '')
                 usage_info = analyzed_articles_usage.get(analyzed_doi, {})
-                
-                # Получаем количество ссылок с приоритетом OpenAlex
-                reference_count = get_reference_count(cr, oa)
                 
                 analyzed_list.append({
                     'DOI': safe_convert(cr.get('DOI', ''))[:100],
@@ -5094,15 +5023,24 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     'Journal': safe_convert(journal_info['journal_name'])[:100],  # ИЗ КЭША
                     'Publisher': safe_convert(journal_info['publisher'])[:100],  # ИЗ КЭША
                     'ISSN': safe_join([str(issn) for issn in journal_info['issn'] if issn])[:50],  # ИЗ КЭША
-                    'Reference_Count': reference_count,  # ОБНОВЛЕНО: используем функцию get_reference_count
+                    'Reference_Count': safe_convert(cr.get('reference-count', 0)),
                     'Citations_Crossref': safe_convert(cr.get('is-referenced-by-count', 0)),
-                    'Citations_OpenAlex': safe_convert(oa.get('cited_by_count', 0)) if oa else 0,
+                    'Citations_OpenAlex': safe_convert(precomputed['oa'].get('cited_by_count', 0)) if precomputed['oa'] else 0,
                     'Author_Count': safe_convert(len(cr.get('author', []))),
                     'Work_Type': safe_convert(cr.get('type', ''))[:50],
                     'Used for SC': '×' if usage_info.get('used_for_sc') else '',
                     'Used for IF': '×' if usage_info.get('used_for_if') else ''
                 })
             
+            # Get special analysis metrics if available
+            state = get_analysis_state()
+            special_metrics = additional_data.get('special_analysis_metrics', {})
+            analyzed_articles_usage = special_metrics.get('debug_info', {}).get('analyzed_articles_usage', {})
+                        
+            if analyzed_list:
+                analyzed_df = pd.DataFrame(analyzed_list)
+                analyzed_df.to_excel(writer, sheet_name='Analyzed_Articles', index=False)
+
             # Sheet 2: Citing works (with optimization) - UPDATED WITH 4 NEW COLUMNS
             citing_list = []
             
@@ -5124,9 +5062,6 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     
                     citing_doi = cr.get('DOI', '')
                     
-                    # Получаем количество ссылок с приоритетом OpenAlex для цитирующих работ
-                    reference_count = get_reference_count(cr, oa)
-                    
                     # FIXED: Properly extract usage information from citing_usage_dict
                     usage_info = citing_usage_dict.get(citing_doi, {})
                     
@@ -5145,7 +5080,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                         'Journal': safe_convert(journal_info['journal_name'])[:100],
                         'Publisher': safe_convert(journal_info['publisher'])[:100],
                         'ISSN': safe_join([str(issn) for issn in journal_info['issn'] if issn])[:50],
-                        'Reference_Count': reference_count,  # ОБНОВЛЕНО: используем функцию get_reference_count
+                        'Reference_Count': safe_convert(cr.get('reference-count', 0)),
                         'Citations_Crossref': safe_convert(cr.get('is-referenced-by-count', 0)),
                         'Citations_OpenAlex': safe_convert(oa.get('cited_by_count', 0)) if oa else 0,
                         'Author_Count': safe_convert(len(cr.get('author', []))),
@@ -5156,6 +5091,10 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                         'Used for IF': '×' if usage_info.get('used_for_if') else '',
                         'Used for IF_corr': '×' if usage_info.get('used_for_if_corr') else ''
                     })
+            
+            if citing_list:
+                citing_df = pd.DataFrame(citing_list)
+                citing_df.to_excel(writer, sheet_name='Citing_Works', index=False)
 
             # Sheet 3: Overlaps between analyzed and citing works
             overlap_list = []
@@ -6605,5 +6544,3 @@ def main_optimized():
 if __name__ == "__main__":
     # Use optimized version by default
     main_optimized()
-
-
