@@ -5157,12 +5157,14 @@ def precompute_excel_data(analyzed_data, citing_data, analyzed_stats, citing_sta
             # Используем кэшированные функции
             article_data = cached_extract_article_data({'openalex': oa})
             journal_info = cached_extract_journal_info(item)
+            topics_info = cached_extract_topics_info(item)
             
             analyzed_precomputed.append({
                 'cr': cr,
                 'oa': oa,
                 'article_data': article_data,
                 'journal_info': journal_info,
+                'topics_info': topics_info,
                 'doi': cr.get('DOI', '')
             })
     
@@ -5247,6 +5249,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 cr = precomputed['cr']
                 article_data = precomputed['article_data']
                 journal_info = precomputed['journal_info']
+                topics_info = precomputed['topics_info']
                 
                 analyzed_doi = cr.get('DOI', '')
                 usage_info = analyzed_articles_usage.get(analyzed_doi, {})
@@ -5287,7 +5290,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 analyzed_df = pd.DataFrame(analyzed_list)
                 analyzed_df.to_excel(writer, sheet_name='Analyzed_Articles', index=False)
 
-            # Sheet 2: Citing works (with optimization) - UPDATED WITH 4 NEW COLUMNS
+            # Sheet 2: Citing works (with optimization) - UPDATED WITH 4 NEW COLUMNS         
             citing_list = []
             
             # Get citing articles usage from special analysis metrics - FIXED LOGIC
@@ -5297,53 +5300,53 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 citing_usage_dict = debug_info.get('citing_articles_usage', {})
                 print(f"🔍 DEBUG: Loaded citing_usage_dict with {len(citing_usage_dict)} entries for Citing_Works sheet")
             
-            for i, item in enumerate(citing_data):
+            # ИСПРАВЛЕНО: используем предварительно обработанные данные
+            for i, precomputed in enumerate(citing_precomputed):
                 if i >= MAX_ROWS:
                     break
-                if item and item.get('crossref'):
-                    cr = item['crossref']
-                    oa = item.get('openalex', {})
-                    authors_list, affiliations_list, countries_list = extract_affiliations_and_countries(oa)
-                    journal_info = extract_journal_info(item)
                     
-                    citing_doi = cr.get('DOI', '')
-                    
-                    # FIXED: Properly extract usage information from citing_usage_dict
-                    usage_info = citing_usage_dict.get(citing_doi, {})
-                    
-                    # Debug output for first few records
-                    if i < 5 and citing_doi:
-                        print(f"🔍 Citing_Works DEBUG - Item {i}: DOI={citing_doi}, usage_info={usage_info}")
-                    
-                    topics_info = journal_info.get('topics', {})
-                    
-                    citing_list.append({
-                        'DOI': safe_convert(cr.get('DOI', ''))[:100],
-                        'Title': (cr.get('title', [''])[0] if cr.get('title') else 'No title')[:200],
-                        'Authors_Crossref': safe_join([f"{a.get('given', '')} {a.get('family', '')}".strip() for a in cr.get('author', []) if a.get('given') or a.get('family')])[:300],
-                        'Authors_OpenAlex': safe_join(authors_list)[:300],
-                        'Affiliations': safe_join(affiliations_list)[:500],
-                        'Countries': safe_join(countries_list)[:100],
-                        'Publication_Year': safe_convert(cr.get('published', {}).get('date-parts', [[0]])[0][0]),
-                        'Journal': safe_convert(journal_info['journal_name'])[:100],
-                        'Publisher': safe_convert(journal_info['publisher'])[:100],
-                        'ISSN': safe_join([str(issn) for issn in journal_info['issn'] if issn])[:50],
-                        'Reference_Count': safe_convert(cr.get('reference-count', 0) or (oa.get('referenced_works_count', 0) if oa else 0)),
-                        'Citations_Crossref': safe_convert(cr.get('is-referenced-by-count', 0)),
-                        'Citations_OpenAlex': safe_convert(oa.get('cited_by_count', 0)) if oa else 0,
-                        'Author_Count': safe_convert(len(cr.get('author', []))),
-                        'Work_Type': safe_convert(cr.get('type', ''))[:50],
-                        # FIXED: 4 columns for special analysis usage - using proper dictionary access
-                        'Used for SC': '×' if usage_info.get('used_for_sc') else '',
-                        'Used for SC_corr': '×' if usage_info.get('used_for_sc_corr') else '',
-                        'Used for IF': '×' if usage_info.get('used_for_if') else '',
-                        'Used for IF_corr': '×' if usage_info.get('used_for_if_corr') else '',
-                        'Topic': safe_convert(topics_info.get('topic', ''))[:100],
-                        'Subfield': safe_convert(topics_info.get('subfield', ''))[:100],
-                        'Field': safe_convert(topics_info.get('field', ''))[:100],
-                        'Domain': safe_convert(topics_info.get('domain', ''))[:100],
-                        'Concepts': safe_join(topics_info.get('concepts', []))[:300]
-                    })
+                cr = precomputed['cr']
+                article_data = precomputed['article_data']
+                journal_info = precomputed['journal_info']
+                topics_info = precomputed['topics_info']  # ДОБАВЛЕНО: используем topics_info из предобработки
+                
+                citing_doi = cr.get('DOI', '')
+                
+                # FIXED: Properly extract usage information from citing_usage_dict
+                usage_info = citing_usage_dict.get(citing_doi, {})
+                
+                # Debug output for first few records
+                if i < 5 and citing_doi:
+                    print(f"🔍 Citing_Works DEBUG - Item {i}: DOI={citing_doi}, usage_info={usage_info}")
+                
+                citing_list.append({
+                    'DOI': safe_convert(cr.get('DOI', ''))[:100],
+                    'Title': (cr.get('title', [''])[0] if cr.get('title') else 'No title')[:200],
+                    'Authors_Crossref': safe_join([f"{a.get('given', '')} {a.get('family', '')}".strip() for a in cr.get('author', []) if a.get('given') or a.get('family')])[:300],
+                    'Authors_OpenAlex': safe_join(article_data['authors'])[:300],  # Используем article_data из предобработки
+                    'Affiliations': safe_join(article_data['affiliations'])[:500],  # Используем article_data из предобработки
+                    'Countries': safe_join(article_data['countries'])[:100],  # Используем article_data из предобработки
+                    'Publication_Year': safe_convert(cr.get('published', {}).get('date-parts', [[0]])[0][0]),
+                    'Journal': safe_convert(journal_info['journal_name'])[:100],  # Используем journal_info из предобработки
+                    'Publisher': safe_convert(journal_info['publisher'])[:100],  # Используем journal_info из предобработки
+                    'ISSN': safe_join([str(issn) for issn in journal_info['issn'] if issn])[:50],  # Используем journal_info из предобработки
+                    'Reference_Count': safe_convert(cr.get('reference-count', 0) or (precomputed['oa'].get('referenced_works_count', 0) if precomputed['oa'] else 0)),
+                    'Citations_Crossref': safe_convert(cr.get('is-referenced-by-count', 0)),
+                    'Citations_OpenAlex': safe_convert(precomputed['oa'].get('cited_by_count', 0)) if precomputed['oa'] else 0,
+                    'Author_Count': safe_convert(len(cr.get('author', []))),
+                    'Work_Type': safe_convert(cr.get('type', ''))[:50],
+                    # FIXED: 4 columns for special analysis usage - using proper dictionary access
+                    'Used for SC': '×' if usage_info.get('used_for_sc') else '',
+                    'Used for SC_corr': '×' if usage_info.get('used_for_sc_corr') else '',
+                    'Used for IF': '×' if usage_info.get('used_for_if') else '',
+                    'Used for IF_corr': '×' if usage_info.get('used_for_if_corr') else '',
+                    # ДОБАВЛЕНО: новые колонки для topics
+                    'Topic': safe_convert(topics_info.get('topic', ''))[:100],
+                    'Subfield': safe_convert(topics_info.get('subfield', ''))[:100],
+                    'Field': safe_convert(topics_info.get('field', ''))[:100],
+                    'Domain': safe_convert(topics_info.get('domain', ''))[:100],
+                    'Concepts': safe_join(topics_info.get('concepts', []))[:300]
+                })
             
             if citing_list:
                 citing_df = pd.DataFrame(citing_list)
@@ -5727,10 +5730,19 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     keywords_df = pd.DataFrame(normalized_keywords)
                     keywords_df.to_excel(writer, sheet_name='Combined_Title_Keywords', index=False)
 
-            # Sheet 17: Terms and Topics (NEW)
-            if 'terms_topics_data' in additional_data and additional_data['terms_topics_data']:
-                terms_topics_df = pd.DataFrame(additional_data['terms_topics_data'])
+            # Sheet 17: Terms and Topics (NEW) - ВСЕГДА создаем лист, даже если данные пустые
+            terms_topics_data = additional_data.get('terms_topics_data', [])
+            if terms_topics_data:
+                terms_topics_df = pd.DataFrame(terms_topics_data)
                 terms_topics_df.to_excel(writer, sheet_name='Terms_and_Topics', index=False)
+            else:
+                # Создаем пустой лист с заголовками для ясности
+                empty_terms_topics_df = pd.DataFrame(columns=[
+                    'Term', 'Type', 'Analyzed count', 'Citing Count', 
+                    'Analyzed norm count', 'Citing norm Count', 'Total norm count',
+                    'First_Year', 'Peak_Year', 'Recent_5_Years_Count'
+                ])
+                empty_terms_topics_df.to_excel(writer, sheet_name='Terms_and_Topics', index=False)
 
             # Sheet 18: Citation seasonality - ИСПРАВЛЕНО: правильное имя листа
             if 'citation_seasonality' in additional_data:
@@ -5897,12 +5909,14 @@ def precompute_excel_data(analyzed_data, citing_data, analyzed_stats, citing_sta
                 
                 article_data = cached_extract_article_data({'openalex': oa})
                 journal_info = cached_extract_journal_info(item)
+                topics_info = cached_extract_topics_info(item)
                 
                 chunk_results.append({
                     'cr': cr,
                     'oa': oa,
                     'article_data': article_data,
                     'journal_info': journal_info,
+                    'topics_info': topics_info,
                     'doi': cr.get('DOI', '')
                 })
         return chunk_results
@@ -6813,6 +6827,7 @@ def main_optimized():
 if __name__ == "__main__":
     # Use optimized version by default
     main_optimized()
+
 
 
 
