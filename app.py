@@ -2043,17 +2043,34 @@ def extract_stats_from_metadata(metadata_list, is_analyzed=True, journal_prefix=
 
         cr = meta.get('crossref')
         if cr:
+            # Сначала пытаемся получить ссылки из Crossref
             refs = cr.get('reference', [])
-            total_refs += len(refs)
-            for ref in refs:
-                ref_doi = ref.get('DOI', '')
-                if ref_doi:
-                    refs_with_doi += 1
-                    if get_doi_prefix(ref_doi) == journal_prefix:
-                        self_cites += 1
+            ref_count_cr = len(refs)
+            
+            # Если нет ссылок в Crossref, проверяем OpenAlex
+            if ref_count_cr == 0 and oa:
+                ref_count_oa = oa.get('referenced_works_count', 0)
+                if ref_count_oa > 0:
+                    ref_count = ref_count_oa
+                    # Для OpenAlex не можем проанализировать DOI ссылок, 
+                    # поэтому помечаем все как без DOI
+                    refs_without_doi += ref_count_oa
                 else:
-                    refs_without_doi += 1
-            ref_counts.append(len(refs))
+                    ref_count = 0
+            else:
+                ref_count = ref_count_cr
+                # Анализируем ссылки из Crossref
+                for ref in refs:
+                    ref_doi = ref.get('DOI', '')
+                    if ref_doi:
+                        refs_with_doi += 1
+                        if get_doi_prefix(ref_doi) == journal_prefix:
+                            self_cites += 1
+                    else:
+                        refs_without_doi += 1
+            
+            total_refs += ref_count
+            ref_counts.append(ref_count)
 
             authors = cr.get('author', [])
             num_auth = len(authors)
@@ -5023,7 +5040,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     'Journal': safe_convert(journal_info['journal_name'])[:100],  # ИЗ КЭША
                     'Publisher': safe_convert(journal_info['publisher'])[:100],  # ИЗ КЭША
                     'ISSN': safe_join([str(issn) for issn in journal_info['issn'] if issn])[:50],  # ИЗ КЭША
-                    'Reference_Count': safe_convert(cr.get('reference-count', 0)),
+                    'Reference_Count': safe_convert(cr.get('reference-count', 0) or (precomputed['oa'].get('referenced_works_count', 0) if precomputed['oa'] else 0)),
                     'Citations_Crossref': safe_convert(cr.get('is-referenced-by-count', 0)),
                     'Citations_OpenAlex': safe_convert(precomputed['oa'].get('cited_by_count', 0)) if precomputed['oa'] else 0,
                     'Author_Count': safe_convert(len(cr.get('author', []))),
@@ -5080,7 +5097,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                         'Journal': safe_convert(journal_info['journal_name'])[:100],
                         'Publisher': safe_convert(journal_info['publisher'])[:100],
                         'ISSN': safe_join([str(issn) for issn in journal_info['issn'] if issn])[:50],
-                        'Reference_Count': safe_convert(cr.get('reference-count', 0)),
+                        'Reference_Count': safe_convert(cr.get('reference-count', 0) or (oa.get('referenced_works_count', 0) if oa else 0)),
                         'Citations_Crossref': safe_convert(cr.get('is-referenced-by-count', 0)),
                         'Citations_OpenAlex': safe_convert(oa.get('cited_by_count', 0)) if oa else 0,
                         'Author_Count': safe_convert(len(cr.get('author', []))),
@@ -6544,3 +6561,4 @@ def main_optimized():
 if __name__ == "__main__":
     # Use optimized version by default
     main_optimized()
+
