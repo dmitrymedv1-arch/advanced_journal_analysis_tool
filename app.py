@@ -70,15 +70,22 @@ def cached_extract_article_data(metadata):
     return result
 
 def cached_extract_journal_info(metadata):
-    """Кэшированное извлечение информации о журнале"""
+    """Кэшированное извлечение информации о журнале и темах"""
     if not metadata:
-        return {'issn': [], 'journal_name': '', 'publisher': ''}
+        return {
+            'issn': [], 
+            'journal_name': '', 
+            'publisher': '',
+            'topics': {'topic': '', 'subfield': '', 'field': '', 'domain': '', 'concepts': []}
+        }
     
     cache_key = hash(json.dumps(metadata, sort_keys=True) if isinstance(metadata, dict) else str(metadata))
     if cache_key in _journal_info_cache:
         return _journal_info_cache[cache_key]
     
     result = extract_journal_info(metadata)
+    # Добавляем информацию о темах
+    result['topics'] = extract_topics_info(metadata.get('openalex'))
     _journal_info_cache[cache_key] = result
     return result
 
@@ -141,6 +148,18 @@ def is_valid_doi_cached(doi):
     _doi_validity_cache[doi] = is_valid
     return is_valid
 
+def cached_extract_topics_info(metadata):
+    """Кэшированное извлечение информации о темах"""
+    if not metadata:
+        return {'topic': '', 'subfield': '', 'field': '', 'domain': '', 'concepts': []}
+    
+    cache_key = hash(json.dumps(metadata, sort_keys=True) if isinstance(metadata, dict) else str(metadata))
+    if cache_key in _journal_info_cache:  # Можно использовать существующий кэш
+        return _journal_info_cache[cache_key].get('topics', {'topic': '', 'subfield': '', 'field': '', 'domain': '', 'concepts': []})
+    
+    result = extract_topics_info(metadata.get('openalex'))
+    return result
+    
 # =============================================================================
 # PARALLEL PROCESSING FUNCTIONS
 # =============================================================================
@@ -452,6 +471,77 @@ def optimized_get_journal_name(issn):
 def optimized_normalize_issn(issn):
     """Optimized ISSN normalization with caching"""
     return cached_normalize_issn(issn)
+
+def extract_topics_info(openalex_data):
+    """Извлекает информацию о темах, подполях, полях, доменах и концептах из OpenAlex"""
+    topics_info = {
+        'topic': '',
+        'subfield': '',
+        'field': '',
+        'domain': '',
+        'concepts': []
+    }
+
+    if not openalex_data:
+        return topics_info
+
+    try:
+        # Извлекаем концепты
+        concepts = openalex_data.get('concepts', [])
+        concept_names = []
+        
+        for concept in concepts:
+            if isinstance(concept, dict):
+                display_name = concept.get('display_name', '')
+                if display_name:
+                    concept_names.append(display_name)
+        
+        topics_info['concepts'] = concept_names
+
+        # Извлекаем информацию о теме (используем первый концепт как тему)
+        if concept_names:
+            topics_info['topic'] = concept_names[0] if concept_names else ''
+            
+            # Для подполя, поля и домена используем иерархию концептов
+            if len(concept_names) > 1:
+                topics_info['subfield'] = concept_names[1] if len(concept_names) > 1 else ''
+            if len(concept_names) > 2:
+                topics_info['field'] = concept_names[2] if len(concept_names) > 2 else ''
+            if len(concept_names) > 3:
+                topics_info['domain'] = concept_names[3] if len(concept_names) > 3 else ''
+
+        # Проверяем наличие полей в структуре OpenAlex
+        if 'topics' in openalex_data and openalex_data['topics']:
+            topics = openalex_data['topics']
+            if isinstance(topics, list) and topics:
+                if isinstance(topics[0], dict):
+                    topics_info['topic'] = topics[0].get('display_name', topics_info['topic'])
+
+        if 'subfield' in openalex_data and openalex_data['subfield']:
+            subfield = openalex_data['subfield']
+            if isinstance(subfield, dict):
+                topics_info['subfield'] = subfield.get('display_name', topics_info['subfield'])
+            elif isinstance(subfield, str):
+                topics_info['subfield'] = subfield
+
+        if 'field' in openalex_data and openalex_data['field']:
+            field = openalex_data['field']
+            if isinstance(field, dict):
+                topics_info['field'] = field.get('display_name', topics_info['field'])
+            elif isinstance(field, str):
+                topics_info['field'] = field
+
+        if 'domain' in openalex_data and openalex_data['domain']:
+            domain = openalex_data['domain']
+            if isinstance(domain, dict):
+                topics_info['domain'] = domain.get('display_name', topics_info['domain'])
+            elif isinstance(domain, str):
+                topics_info['domain'] = domain
+
+    except Exception as e:
+        print(f"⚠️ Ошибка извлечения topics info: {e}")
+
+    return topics_info
 
 def process_data_in_chunks(data, chunk_size=500, process_func=None):
     """Обработка данных блоками для уменьшения потребления памяти"""
@@ -3670,6 +3760,132 @@ class TitleKeywordsAnalyzer:
             }
         }
 
+class TermsTopicsCollector:
+    """Класс для сбора статистики по терминам и темам"""
+    
+    def __init__(self):
+        self.terms_topics_stats = defaultdict(lambda: {
+            'type': '',
+            'analyzed_count': 0,
+            'citing_count': 0,
+            'years': [],
+            'first_year': None,
+            'peak_year': None,
+            'peak_count': 0
+        })
+    
+    def collect_term_stats(self, metadata_list, source_type='analyzed'):
+        """Собирает статистику по терминам и темам из метаданных"""
+        for meta in metadata_list:
+            if not meta or not meta.get('openalex'):
+                continue
+            
+            # Получаем информацию о темах
+            topics_info = cached_extract_topics_info(meta)
+            
+            # Получаем год публикации
+            pub_year = None
+            cr = meta.get('crossref')
+            if cr:
+                date_parts = cr.get('published', {}).get('date-parts', [[]])[0]
+                if date_parts and len(date_parts) > 0:
+                    pub_year = date_parts[0]
+            
+            # Собираем статистику по topic
+            if topics_info.get('topic'):
+                self._add_term_stat('topic', topics_info['topic'], source_type, pub_year)
+            
+            # Собираем статистику по subfield
+            if topics_info.get('subfield'):
+                self._add_term_stat('subfield', topics_info['subfield'], source_type, pub_year)
+            
+            # Собираем статистику по field
+            if topics_info.get('field'):
+                self._add_term_stat('field', topics_info['field'], source_type, pub_year)
+            
+            # Собираем статистику по domain
+            if topics_info.get('domain'):
+                self._add_term_stat('domain', topics_info['domain'], source_type, pub_year)
+            
+            # Собираем статистику по concepts
+            for concept in topics_info.get('concepts', []):
+                if concept:
+                    self._add_term_stat('concept', concept, source_type, pub_year)
+    
+    def _add_term_stat(self, term_type, term, source_type, year):
+        """Добавляет статистику для термина"""
+        key = f"{term_type}:{term}"
+        
+        # Обновляем счетчики
+        if source_type == 'analyzed':
+            self.terms_topics_stats[key]['analyzed_count'] += 1
+        elif source_type == 'citing':
+            self.terms_topics_stats[key]['citing_count'] += 1
+        
+        # Устанавливаем тип
+        self.terms_topics_stats[key]['type'] = term_type
+        
+        # Добавляем год если есть
+        if year:
+            self.terms_topics_stats[key]['years'].append(year)
+            
+            # Обновляем первый год
+            if self.terms_topics_stats[key]['first_year'] is None or year < self.terms_topics_stats[key]['first_year']:
+                self.terms_topics_stats[key]['first_year'] = year
+            
+            # Подсчитываем количество для каждого года (для peak year)
+            year_counts = Counter(self.terms_topics_stats[key]['years'])
+            current_year, current_count = year_counts.most_common(1)[0]
+            
+            if current_count > self.terms_topics_stats[key]['peak_count']:
+                self.terms_topics_stats[key]['peak_year'] = current_year
+                self.terms_topics_stats[key]['peak_count'] = current_count
+    
+    def prepare_terms_topics_data(self, total_analyzed, total_citing):
+        """Подготавливает данные для листа Terms and Topics"""
+        data = []
+        
+        for key, stats in self.terms_topics_stats.items():
+            if stats['analyzed_count'] == 0 and stats['citing_count'] == 0:
+                continue
+            
+            # Извлекаем термин из ключа
+            if ':' in key:
+                term = key.split(':', 1)[1]
+            else:
+                term = key
+            
+            # Рассчитываем нормализованные значения
+            analyzed_norm = stats['analyzed_count'] / total_analyzed if total_analyzed > 0 else 0
+            citing_norm = stats['citing_count'] / total_citing if total_citing > 0 else 0
+            total_norm = analyzed_norm + citing_norm
+            
+            # Рассчитываем количество за последние 5 лет
+            recent_5_years_count = 0
+            if stats['years']:
+                current_year = datetime.now().year
+                for year in stats['years']:
+                    if year and year >= current_year - 5:
+                        recent_5_years_count += 1
+            
+            data.append({
+                'Term': term,
+                'Type': stats['type'],
+                'Analyzed count': stats['analyzed_count'],
+                'Citing Count': stats['citing_count'],
+                'Analyzed norm count': round(analyzed_norm, 4),
+                'Citing norm Count': round(citing_norm, 4),
+                'Total norm count': round(total_norm, 4),
+                'First_Year': stats['first_year'] if stats['first_year'] else '',
+                'Peak_Year': stats['peak_year'] if stats['peak_year'] else '',
+                'Recent_5_Years_Count': recent_5_years_count
+            })
+        
+        # Сортировка по Total norm count (от большего к меньшему)
+        data.sort(key=lambda x: x['Total norm count'], reverse=True)
+        
+        return data
+    
 def extract_titles_from_metadata(metadata_list):
     """Извлекает названия статей из метаданных"""
     titles = []
@@ -5035,6 +5251,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 analyzed_doi = cr.get('DOI', '')
                 usage_info = analyzed_articles_usage.get(analyzed_doi, {})
                 
+                topics_info = journal_info.get('topics', {})
+                
                 analyzed_list.append({
                     'DOI': safe_convert(cr.get('DOI', ''))[:100],
                     'Title': (cr.get('title', [''])[0] if cr.get('title') else 'No title')[:200],
@@ -5052,7 +5270,12 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     'Author_Count': safe_convert(len(cr.get('author', []))),
                     'Work_Type': safe_convert(cr.get('type', ''))[:50],
                     'Used for SC': '×' if usage_info.get('used_for_sc') else '',
-                    'Used for IF': '×' if usage_info.get('used_for_if') else ''
+                    'Used for IF': '×' if usage_info.get('used_for_if') else '',
+                    'Topic': safe_convert(topics_info.get('topic', ''))[:100],
+                    'Subfield': safe_convert(topics_info.get('subfield', ''))[:100],
+                    'Field': safe_convert(topics_info.get('field', ''))[:100],
+                    'Domain': safe_convert(topics_info.get('domain', ''))[:100],
+                    'Concepts': safe_join(topics_info.get('concepts', []))[:300]
                 })
             
             # Get special analysis metrics if available
@@ -5092,6 +5315,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     if i < 5 and citing_doi:
                         print(f"🔍 Citing_Works DEBUG - Item {i}: DOI={citing_doi}, usage_info={usage_info}")
                     
+                    topics_info = journal_info.get('topics', {})
+                    
                     citing_list.append({
                         'DOI': safe_convert(cr.get('DOI', ''))[:100],
                         'Title': (cr.get('title', [''])[0] if cr.get('title') else 'No title')[:200],
@@ -5112,7 +5337,12 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                         'Used for SC': '×' if usage_info.get('used_for_sc') else '',
                         'Used for SC_corr': '×' if usage_info.get('used_for_sc_corr') else '',
                         'Used for IF': '×' if usage_info.get('used_for_if') else '',
-                        'Used for IF_corr': '×' if usage_info.get('used_for_if_corr') else ''
+                        'Used for IF_corr': '×' if usage_info.get('used_for_if_corr') else '',
+                        'Topic': safe_convert(topics_info.get('topic', ''))[:100],
+                        'Subfield': safe_convert(topics_info.get('subfield', ''))[:100],
+                        'Field': safe_convert(topics_info.get('field', ''))[:100],
+                        'Domain': safe_convert(topics_info.get('domain', ''))[:100],
+                        'Concepts': safe_join(topics_info.get('concepts', []))[:300]
                     })
             
             if citing_list:
@@ -5497,7 +5727,12 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     keywords_df = pd.DataFrame(normalized_keywords)
                     keywords_df.to_excel(writer, sheet_name='Combined_Title_Keywords', index=False)
 
-            # Sheet 17: Citation seasonality - ИСПРАВЛЕНО: правильное имя листа
+            # Sheet 17: Terms and Topics (NEW)
+            if 'terms_topics_data' in additional_data and additional_data['terms_topics_data']:
+                terms_topics_df = pd.DataFrame(additional_data['terms_topics_data'])
+                terms_topics_df.to_excel(writer, sheet_name='Terms_and_Topics', index=False)
+
+            # Sheet 18: Citation seasonality - ИСПРАВЛЕНО: правильное имя листа
             if 'citation_seasonality' in additional_data:
                 seasonality_data = []
                 citation_seasonality = additional_data['citation_seasonality']
@@ -5519,7 +5754,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     seasonality_df = pd.DataFrame(seasonality_data)
                     seasonality_df.to_excel(writer, sheet_name='Citation_Seasonality', index=False)
             
-                # Optimal publication months - ИСПРАВЛЕНО: создаем отдельный лист
+                # Sheet 19: Optimal publication months - ИСПРАВЛЕНО: создаем отдельный лист
                 if citation_seasonality['optimal_publication_months']:
                     optimal_months_data = []
                     for optimal in citation_seasonality['optimal_publication_months']:
@@ -5533,7 +5768,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     optimal_months_df = pd.DataFrame(optimal_months_data)
                     optimal_months_df.to_excel(writer, sheet_name='Optimal_Publication_Months', index=False)
               
-            # Sheet 18: Potential reviewers - ИСПРАВЛЕНО: правильное имя листа
+            # Sheet 20: Potential reviewers - ИСПРАВЛЕНО: правильное имя листа
             if 'potential_reviewers' in additional_data:
                 reviewers_data = []
                 potential_reviewers_info = additional_data['potential_reviewers']
@@ -5551,7 +5786,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     reviewers_df = pd.DataFrame(reviewers_data)
                     reviewers_df.to_excel(writer, sheet_name='Potential_Reviewers', index=False)
 
-            # Sheet 19: Special Analysis Metrics (NEW) - ИСПРАВЛЕНО: правильное имя листа
+            # Sheet 21: Special Analysis Metrics (NEW) - ИСПРАВЛЕНО: правильное имя листа
             if 'special_analysis_metrics' in additional_data:
                 special_metrics = additional_data['special_analysis_metrics']
                 debug_info = special_metrics.get('debug_info', {})
@@ -5585,8 +5820,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 special_metrics_df = pd.DataFrame(special_metrics_data)
                 special_metrics_df.to_excel(writer, sheet_name='Special_Analysis_Metrics', index=False)
 
-            # === NEW SHEET: Author ID Data ===
-            # Sheet 20: Author_ID_data (NEW)
+            # Sheet 22: Author_ID_data (NEW)
             if state.include_author_id_data:
                 author_id_data = create_author_id_sheet(analyzed_data, citing_data, state)
                 if author_id_data:
@@ -6195,7 +6429,7 @@ def analyze_journal_optimized(issn, period_str, special_analysis=False, include_
     fast_metrics = parallel_metrics['fast']
     citation_timing = parallel_metrics['timing']
     overlap_details = parallel_metrics['overlap']
-    
+
     # PARALLEL: Additional analyses
     overall_status.text("Calculating additional insights...")
     
@@ -6206,6 +6440,18 @@ def analyze_journal_optimized(issn, period_str, special_analysis=False, include_
         citation_timing['days_median'],
         analyzed_stats,  # передаем статистику
         citing_stats     # передаем статистику
+    )
+    
+    # Сбор статистики для Terms and Topics
+    overall_status.text("Collecting terms and topics statistics...")
+    terms_topics_collector = TermsTopicsCollector()
+    terms_topics_collector.collect_term_stats(analyzed_metadata, source_type='analyzed')
+    terms_topics_collector.collect_term_stats(all_citing_metadata, source_type='citing')
+    
+    # Добавляем данные в additional_data
+    additional_data['terms_topics_data'] = terms_topics_collector.prepare_terms_topics_data(
+        total_analyzed=len(analyzed_metadata),
+        total_citing=len(all_citing_metadata)
     )
     
     # Add special analysis metrics if available
@@ -6567,5 +6813,6 @@ def main_optimized():
 if __name__ == "__main__":
     # Use optimized version by default
     main_optimized()
+
 
 
