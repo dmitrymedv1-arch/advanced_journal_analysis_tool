@@ -1163,7 +1163,7 @@ class TermsTopicsStats:
         if not openalex_data:
             return
 
-        topics_info = extract_topics_info(openalex_data)
+        topics_info = DataProcessor.extract_topics_info(openalex_data)
         
         # Обновляем статистику для каждого типа терминов
         term_types = ['topic', 'subfield', 'field', 'domain']
@@ -6840,5 +6840,6 @@ def main_optimized():
 if __name__ == "__main__":
     # Use optimized version by default
     main_optimized()
+
 
 
