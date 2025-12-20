@@ -1069,7 +1069,7 @@ class DataProcessor:
         
         return validated
 
-    def extract_topics_info(openalex_data: Dict) -> Dict:
+    def extract_topics_info(openalex_data):
         """Извлекает информацию о темах, подполях, полях, доменах и концептах из OpenAlex"""
         topics_info = {
             'topic': '',
@@ -1078,10 +1078,10 @@ class DataProcessor:
             'domain': '',
             'concepts': []
         }
-    
+        
         if not openalex_data:
             return topics_info
-    
+        
         try:
             # Извлекаем концепты
             concepts = openalex_data.get('concepts', [])
@@ -6840,4 +6840,5 @@ def main_optimized():
 if __name__ == "__main__":
     # Use optimized version by default
     main_optimized()
+
 
