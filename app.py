@@ -5718,16 +5718,29 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     keywords_df.to_excel(writer, sheet_name='Combined_Title_Keywords', index=False)
 
             # Sheet 17: Terms_and_Topics (NEW)
-            if 'terms_topics_stats' in additional_data:
-                terms_topics_stats = additional_data['terms_topics_stats']
-                terms_topics_data = terms_topics_stats.get_final_stats(
-                    total_analyzed=analyzed_stats['n_items'],
-                    total_citing=citing_stats['n_items']
-                )
-                
-                if terms_topics_data:
-                    terms_topics_df = pd.DataFrame(terms_topics_data)
-                    terms_topics_df.to_excel(writer, sheet_name='Terms_and_Topics', index=False)
+            try:
+                if 'terms_topics_stats' in additional_data and additional_data['terms_topics_stats'] is not None:
+                    terms_topics_stats = additional_data['terms_topics_stats']
+                    
+                    # Проверяем, есть ли метод get_final_stats
+                    if hasattr(terms_topics_stats, 'get_final_stats'):
+                        terms_topics_data = terms_topics_stats.get_final_stats(
+                            total_analyzed=analyzed_stats.get('n_items', 0),
+                            total_citing=citing_stats.get('n_items', 0)
+                        )
+                        
+                        if terms_topics_data and isinstance(terms_topics_data, list) and len(terms_topics_data) > 0:
+                            terms_topics_df = pd.DataFrame(terms_topics_data)
+                            terms_topics_df.to_excel(writer, sheet_name='Terms_and_Topics', index=False)
+                        else:
+                            # Создаем пустой лист с информацией
+                            empty_df = pd.DataFrame({'Message': ['No terms/topics data available']})
+                            empty_df.to_excel(writer, sheet_name='Terms_and_Topics', index=False)
+            except Exception as e:
+                print(f"Warning: Error creating Terms_and_Topics sheet: {e}")
+                # Создаем лист с сообщением об ошибке
+                error_df = pd.DataFrame({'Error': [f'Could not create Terms_and_Topics sheet: {str(e)}']})
+                error_df.to_excel(writer, sheet_name='Terms_and_Topics', index=False)
 
             # Sheet 18: Citation seasonality - ИСПРАВЛЕНО: правильное имя листа
             if 'citation_seasonality' in additional_data:
@@ -6840,6 +6853,7 @@ def main_optimized():
 if __name__ == "__main__":
     # Use optimized version by default
     main_optimized()
+
 
 
 
