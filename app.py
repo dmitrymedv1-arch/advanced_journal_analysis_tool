@@ -1069,6 +1069,193 @@ class DataProcessor:
         
         return validated
 
+    def extract_topics_info(openalex_data: Dict) -> Dict:
+        """Извлекает информацию о темах, подполях, полях, доменах и концептах из OpenAlex"""
+        topics_info = {
+            'topic': '',
+            'subfield': '',
+            'field': '',
+            'domain': '',
+            'concepts': []
+        }
+    
+        if not openalex_data:
+            return topics_info
+    
+        try:
+            # Извлекаем концепты
+            concepts = openalex_data.get('concepts', [])
+            concept_names = []
+            
+            for concept in concepts:
+                if isinstance(concept, dict):
+                    display_name = concept.get('display_name', '')
+                    if display_name:
+                        concept_names.append(display_name)
+            
+            topics_info['concepts'] = concept_names
+    
+            # Извлекаем информацию о теме (используем первый концепт как тему)
+            if concept_names:
+                topics_info['topic'] = concept_names[0] if concept_names else ''
+                
+                # Для подполя, поля и домена используем иерархию концептов
+                if len(concept_names) > 1:
+                    topics_info['subfield'] = concept_names[1] if len(concept_names) > 1 else ''
+                if len(concept_names) > 2:
+                    topics_info['field'] = concept_names[2] if len(concept_names) > 2 else ''
+                if len(concept_names) > 3:
+                    topics_info['domain'] = concept_names[3] if len(concept_names) > 3 else ''
+    
+            # Проверяем наличие полей в структуре OpenAlex
+            if 'topics' in openalex_data and openalex_data['topics']:
+                topics = openalex_data['topics']
+                if isinstance(topics, list) and topics:
+                    if isinstance(topics[0], dict):
+                        topics_info['topic'] = topics[0].get('display_name', topics_info['topic'])
+    
+            if 'subfield' in openalex_data and openalex_data['subfield']:
+                subfield = openalex_data['subfield']
+                if isinstance(subfield, dict):
+                    topics_info['subfield'] = subfield.get('display_name', topics_info['subfield'])
+                elif isinstance(subfield, str):
+                    topics_info['subfield'] = subfield
+    
+            if 'field' in openalex_data and openalex_data['field']:
+                field = openalex_data['field']
+                if isinstance(field, dict):
+                    topics_info['field'] = field.get('display_name', topics_info['field'])
+                elif isinstance(field, str):
+                    topics_info['field'] = field
+    
+            if 'domain' in openalex_data and openalex_data['domain']:
+                domain = openalex_data['domain']
+                if isinstance(domain, dict):
+                    topics_info['domain'] = domain.get('display_name', topics_info['domain'])
+                elif isinstance(domain, str):
+                    topics_info['domain'] = domain
+    
+        except Exception as e:
+            print(f"⚠️ Warning: Error extracting topics info: {e}")
+    
+        return topics_info
+
+# =============================================================================
+# TermsTopicsStats
+# =============================================================================
+class TermsTopicsStats:
+    """Класс для сбора статистики терминов и тем"""
+    
+    def __init__(self):
+        self.stats = defaultdict(lambda: {
+            'analyzed_count': 0,
+            'citing_count': 0,
+            'reference_count': 0,
+            'type': '',
+            'years': [],
+            'first_year': None,
+            'peak_year': None,
+            'peak_count': 0
+        })
+    
+    def update_stats(self, doi: str, openalex_data: Dict, source_type: str, pub_year: int = None):
+        """Обновляет статистику терминов и тем"""
+        if not openalex_data:
+            return
+
+        topics_info = extract_topics_info(openalex_data)
+        
+        # Обновляем статистику для каждого типа терминов
+        term_types = ['topic', 'subfield', 'field', 'domain']
+        for term_type in term_types:
+            term = topics_info.get(term_type, '')
+            if term:
+                key = f"{term_type}:{term}"
+                
+                if source_type == 'analyzed':
+                    self.stats[key]['analyzed_count'] += 1
+                elif source_type == 'citing':
+                    self.stats[key]['citing_count'] += 1
+                elif source_type == 'reference':
+                    self.stats[key]['reference_count'] += 1
+                
+                self.stats[key]['type'] = term_type.capitalize()
+                
+                if pub_year:
+                    self.stats[key]['years'].append(pub_year)
+                    
+                    # Обновляем первый год
+                    if self.stats[key]['first_year'] is None or pub_year < self.stats[key]['first_year']:
+                        self.stats[key]['first_year'] = pub_year
+                    
+                    # Обновляем пиковый год
+                    year_count = self.stats[key]['years'].count(pub_year)
+                    if year_count > self.stats[key]['peak_count']:
+                        self.stats[key]['peak_year'] = pub_year
+                        self.stats[key]['peak_count'] = year_count
+
+        # Обновляем статистику для концептов
+        concepts = topics_info.get('concepts', [])
+        for concept in concepts:
+            key = f"concept:{concept}"
+            
+            if source_type == 'analyzed':
+                self.stats[key]['analyzed_count'] += 1
+            elif source_type == 'citing':
+                self.stats[key]['citing_count'] += 1
+            elif source_type == 'reference':
+                self.stats[key]['reference_count'] += 1
+            
+            self.stats[key]['type'] = 'Concept'
+            
+            if pub_year:
+                self.stats[key]['years'].append(pub_year)
+                
+                # Обновляем первый год
+                if self.stats[key]['first_year'] is None or pub_year < self.stats[key]['first_year']:
+                    self.stats[key]['first_year'] = pub_year
+                
+                # Обновляем пиковый год
+                year_count = self.stats[key]['years'].count(pub_year)
+                if year_count > self.stats[key]['peak_count']:
+                    self.stats[key]['peak_year'] = pub_year
+                    self.stats[key]['peak_count'] = year_count
+    
+    def get_final_stats(self, total_analyzed: int, total_citing: int):
+        """Получает финальную статистику для Excel"""
+        final_stats = []
+        
+        for key, data in self.stats.items():
+            term = key.split(':', 1)[1] if ':' in key else key
+            term_type = data['type']
+            
+            # Рассчитываем нормализованные счетчики
+            analyzed_norm = data['analyzed_count'] / total_analyzed if total_analyzed > 0 else 0
+            citing_norm = data['citing_count'] / total_citing if total_citing > 0 else 0
+            total_norm = analyzed_norm + citing_norm
+            
+            # Рассчитываем Recent_5_Years_Count
+            current_year = datetime.now().year
+            recent_years = [year for year in data['years'] if year >= current_year - 5]
+            recent_count = len(recent_years)
+            
+            final_stats.append({
+                'Term': term,
+                'Type': term_type,
+                'Analyzed_Count': data['analyzed_count'],
+                'Citing_Count': data['citing_count'],
+                'Analyzed_Norm_Count': round(analyzed_norm, 4),
+                'Citing_Norm_Count': round(citing_norm, 4),
+                'Total_Norm_Count': round(total_norm, 4),
+                'First_Year': data['first_year'] if data['first_year'] else 'N/A',
+                'Peak_Year': data['peak_year'] if data['peak_year'] else 'N/A',
+                'Recent_5_Years_Count': recent_count
+            })
+        
+        # Сортируем по Total_Norm_Count (убывание)
+        final_stats.sort(key=lambda x: x['Total_Norm_Count'], reverse=True)
+        
+        return final_stats
 # =============================================================================
 # METRICS CALCULATORS (ORIGINAL)
 # =============================================================================
@@ -4947,6 +5134,7 @@ def precompute_excel_data(analyzed_data, citing_data, analyzed_stats, citing_sta
                 'oa': oa,
                 'article_data': article_data,
                 'journal_info': journal_info,
+                'topics_info': topics_info,
                 'doi': cr.get('DOI', '')
             })
     
@@ -5009,13 +5197,36 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             return bool(value)
         return value
 
-    def safe_join(items, sep='; ', max_len=None):
+    def safe_join(items, sep='; ', max_len=None, truncate=True):
         """Safely join list, filtering None and applying length limit"""
         if not items:
             return ''
-        cleaned = [str(x).strip() for x in items if x is not None and str(x).strip()]
+        
+        # Если items - строка, возвращаем как есть
+        if isinstance(items, str):
+            return items[:max_len] if max_len and truncate else items
+        
+        # Если items - список, обрабатываем
+        cleaned = []
+        for x in items:
+            if x is not None:
+                if isinstance(x, dict):
+                    # Если словарь, пытаемся извлечь название
+                    name = x.get('display_name', x.get('name', str(x)))
+                    if name:
+                        cleaned.append(str(name).strip())
+                else:
+                    cleaned.append(str(x).strip())
+        
+        if not cleaned:
+            return ''
+        
         result = sep.join(cleaned)
-        return result[:max_len] if max_len else result
+        
+        if max_len and truncate and len(result) > max_len:
+            result = result[:max_len-3] + '...'
+        
+        return result
             
     try:
         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
@@ -5051,6 +5262,11 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     'Citations_OpenAlex': safe_convert(precomputed['oa'].get('cited_by_count', 0)) if precomputed['oa'] else 0,
                     'Author_Count': safe_convert(len(cr.get('author', []))),
                     'Work_Type': safe_convert(cr.get('type', ''))[:50],
+                    'Topic': safe_convert(topics_info.get('topic', ''))[:100],
+                    'Subfield': safe_convert(topics_info.get('subfield', ''))[:100],
+                    'Field': safe_convert(topics_info.get('field', ''))[:100],
+                    'Domain': safe_convert(topics_info.get('domain', ''))[:100],
+                    'Concepts': safe_join(topics_info.get('concepts', []))[:500],
                     'Used for SC': '×' if usage_info.get('used_for_sc') else '',
                     'Used for IF': '×' if usage_info.get('used_for_if') else ''
                 })
@@ -5108,7 +5324,11 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                         'Citations_OpenAlex': safe_convert(oa.get('cited_by_count', 0)) if oa else 0,
                         'Author_Count': safe_convert(len(cr.get('author', []))),
                         'Work_Type': safe_convert(cr.get('type', ''))[:50],
-                        # FIXED: 4 columns for special analysis usage - using proper dictionary access
+                        'Topic': safe_convert(topics_info.get('topic', ''))[:100],
+                        'Subfield': safe_convert(topics_info.get('subfield', ''))[:100],
+                        'Field': safe_convert(topics_info.get('field', ''))[:100],
+                        'Domain': safe_convert(topics_info.get('domain', ''))[:100],
+                        'Concepts': safe_join(topics_info.get('concepts', []))[:500],
                         'Used for SC': '×' if usage_info.get('used_for_sc') else '',
                         'Used for SC_corr': '×' if usage_info.get('used_for_sc_corr') else '',
                         'Used for IF': '×' if usage_info.get('used_for_if') else '',
@@ -5497,7 +5717,19 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     keywords_df = pd.DataFrame(normalized_keywords)
                     keywords_df.to_excel(writer, sheet_name='Combined_Title_Keywords', index=False)
 
-            # Sheet 17: Citation seasonality - ИСПРАВЛЕНО: правильное имя листа
+            # Sheet 17: Terms_and_Topics (NEW)
+            if 'terms_topics_stats' in additional_data:
+                terms_topics_stats = additional_data['terms_topics_stats']
+                terms_topics_data = terms_topics_stats.get_final_stats(
+                    total_analyzed=analyzed_stats['n_items'],
+                    total_citing=citing_stats['n_items']
+                )
+                
+                if terms_topics_data:
+                    terms_topics_df = pd.DataFrame(terms_topics_data)
+                    terms_topics_df.to_excel(writer, sheet_name='Terms_and_Topics', index=False)
+
+            # Sheet 18: Citation seasonality - ИСПРАВЛЕНО: правильное имя листа
             if 'citation_seasonality' in additional_data:
                 seasonality_data = []
                 citation_seasonality = additional_data['citation_seasonality']
@@ -5519,7 +5751,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     seasonality_df = pd.DataFrame(seasonality_data)
                     seasonality_df.to_excel(writer, sheet_name='Citation_Seasonality', index=False)
             
-                # Optimal publication months - ИСПРАВЛЕНО: создаем отдельный лист
+            # Sheet 19: # Optimal publication months - ИСПРАВЛЕНО: создаем отдельный лист
                 if citation_seasonality['optimal_publication_months']:
                     optimal_months_data = []
                     for optimal in citation_seasonality['optimal_publication_months']:
@@ -5533,7 +5765,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     optimal_months_df = pd.DataFrame(optimal_months_data)
                     optimal_months_df.to_excel(writer, sheet_name='Optimal_Publication_Months', index=False)
               
-            # Sheet 18: Potential reviewers - ИСПРАВЛЕНО: правильное имя листа
+            # Sheet 20: Potential reviewers - ИСПРАВЛЕНО: правильное имя листа
             if 'potential_reviewers' in additional_data:
                 reviewers_data = []
                 potential_reviewers_info = additional_data['potential_reviewers']
@@ -5551,7 +5783,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                     reviewers_df = pd.DataFrame(reviewers_data)
                     reviewers_df.to_excel(writer, sheet_name='Potential_Reviewers', index=False)
 
-            # Sheet 19: Special Analysis Metrics (NEW) - ИСПРАВЛЕНО: правильное имя листа
+            # Sheet 21: Special Analysis Metrics (NEW) - ИСПРАВЛЕНО: правильное имя листа
             if 'special_analysis_metrics' in additional_data:
                 special_metrics = additional_data['special_analysis_metrics']
                 debug_info = special_metrics.get('debug_info', {})
@@ -5585,8 +5817,7 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                 special_metrics_df = pd.DataFrame(special_metrics_data)
                 special_metrics_df.to_excel(writer, sheet_name='Special_Analysis_Metrics', index=False)
 
-            # === NEW SHEET: Author ID Data ===
-            # Sheet 20: Author_ID_data (NEW)
+            # Sheet 22: Author_ID_data (NEW)
             if state.include_author_id_data:
                 author_id_data = create_author_id_sheet(analyzed_data, citing_data, state)
                 if author_id_data:
@@ -6005,7 +6236,6 @@ def create_visualizations(analyzed_stats, citing_stats, enhanced_stats, citation
 # =============================================================================
 # 19. OPTIMIZED MAIN ANALYSIS FUNCTION
 # =============================================================================
-
 def analyze_journal_optimized(issn, period_str, special_analysis=False, include_ror_data=False, include_author_id_data=False):
     """Optimized version of analyze_journal with parallel processing and caching"""
     global delayer
@@ -6049,6 +6279,9 @@ def analyze_journal_optimized(issn, period_str, special_analysis=False, include_
     
     # Load metrics data in background
     load_metrics_data()
+    
+    # ИНИЦИАЛИЗИРУЕМ СТАТИСТИКУ ТЕРМИНОВ И ТЕМ - ДОБАВЛЕНО ЗДЕСЬ
+    terms_topics_stats = TermsTopicsStats()
     
     # Overall progress
     overall_progress = st.progress(0)
@@ -6128,6 +6361,24 @@ def analyze_journal_optimized(issn, period_str, special_analysis=False, include_
     meta_status.empty()
     overall_progress.progress(0.6)
     
+    # СОБИРАЕМ СТАТИСТИКУ ТЕРМИНОВ И ТЕМ ДЛЯ АНАЛИЗИРУЕМЫХ СТАТЕЙ - ДОБАВЛЕНО ЗДЕСЬ
+    print("📊 Collecting terms and topics statistics for analyzed articles...")
+    for i, item in enumerate(analyzed_metadata):
+        if item and item.get('crossref'):
+            cr = item['crossref']
+            oa = item.get('openalex', {})
+            
+            # Извлекаем год публикации
+            pub_year = cr.get('published', {}).get('date-parts', [[0]])[0][0]
+            
+            # Обновляем статистику терминов и тем
+            terms_topics_stats.update_stats(
+                doi=cr.get('DOI', ''),
+                openalex_data=oa,
+                source_type='analyzed',
+                pub_year=pub_year
+            )
+    
     # PARALLEL: Citing works retrieval and processing
     overall_status.text(translation_manager.get_text('collecting_citations'))
     
@@ -6154,6 +6405,25 @@ def analyze_journal_optimized(issn, period_str, special_analysis=False, include_
     
     citing_progress.empty()
     citing_status.empty()
+    
+    # СОБИРАЕМ СТАТИСТИКУ ТЕРМИНОВ И ТЕМ ДЛЯ ЦИТИРУЮЩИХ СТАТЕЙ - ДОБАВЛЕНО ЗДЕСЬ
+    print("📊 Collecting terms and topics statistics for citing articles...")
+    for i, citing in enumerate(all_citing_metadata):
+        if citing and citing.get('openalex'):
+            # Извлекаем год публикации
+            citing_year = None
+            if citing.get('pub_date'):
+                try:
+                    citing_year = int(citing['pub_date'][:4])
+                except:
+                    pass
+            
+            terms_topics_stats.update_stats(
+                doi=citing.get('doi', ''),
+                openalex_data=citing.get('openalex', {}),
+                source_type='citing',
+                pub_year=citing_year
+            )
     
     # Unique citing works
     unique_citing_dois = set(c['doi'] for c in all_citing_metadata if c.get('doi'))
@@ -6207,6 +6477,9 @@ def analyze_journal_optimized(issn, period_str, special_analysis=False, include_
         analyzed_stats,  # передаем статистику
         citing_stats     # передаем статистику
     )
+    
+    # ДОБАВЛЯЕМ СТАТИСТИКУ ТЕРМИНОВ И ТЕМ В ADDITIONAL_DATA - ДОБАВЛЕНО ЗДЕСЬ
+    additional_data['terms_topics_stats'] = terms_topics_stats
     
     # Add special analysis metrics if available
     if state.is_special_analysis and 'special_analysis' in additional_data:
@@ -6567,3 +6840,4 @@ def main_optimized():
 if __name__ == "__main__":
     # Use optimized version by default
     main_optimized()
+
