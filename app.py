@@ -198,6 +198,9 @@ def parallel_analyses(analyzed_metadata, citing_metadata, state, citation_timing
         
         # Potential reviewers - ВСЕГДА выполняем
         future_reviewers = executor.submit(find_potential_reviewers, analyzed_metadata, citing_metadata, [], state)
+
+        # Terms and topics analysis - НОВЫЙ АНАЛИЗ
+        future_terms_topics = executor.submit(collect_terms_topics_statistics, analyzed_metadata, citing_metadata)
         
         # Special analysis metrics (if needed)
         if state.is_special_analysis:
@@ -234,6 +237,12 @@ def parallel_analyses(analyzed_metadata, citing_metadata, state, citation_timing
                              'citing': {'content_words': [], 'compound_words': [], 'scientific_words': [], 'total_titles': 0}}
         
         try:
+            terms_topics_result = future_terms_topics.result()  # НОВОЕ
+        except Exception as e:
+            print(f"Warning: Terms and topics analysis failed: {e}")
+            terms_topics_result = {}
+        
+        try:
             seasonality_result = future_seasonality.result()
         except Exception as e:
             print(f"Warning: Citation seasonality analysis failed: {e}")
@@ -246,9 +255,10 @@ def parallel_analyses(analyzed_metadata, citing_metadata, state, citation_timing
             reviewers_result = {'potential_reviewers': [], 'total_journal_authors': 0, 'total_overlap_authors': 0, 'total_potential_reviewers': 0}
         
         results = {
-            'title_keywords': keywords_result,  # ИСПРАВЛЕНО: правильное имя ключа
-            'citation_seasonality': seasonality_result,  # ИСПРАВЛЕНО: правильное имя ключа
-            'potential_reviewers': reviewers_result  # ИСПРАВЛЕНО: правильное имя ключа
+            'title_keywords': keywords_result,
+            'citation_seasonality': seasonality_result,
+            'potential_reviewers': reviewers_result,
+            'terms_topics_stats': terms_topics_result
         }
         
         if future_special:
@@ -4979,6 +4989,108 @@ def precompute_excel_data(analyzed_data, citing_data, analyzed_stats, citing_sta
         'citing_articles_usage': citing_articles_usage
     }
 
+def collect_terms_topics_statistics(analyzed_metadata, citing_metadata):
+    """Собирает расширенную статистику по терминам и темам"""
+    
+    # Словарь для хранения статистики по терминам
+    terms_stats = {}
+    
+    # Функция для обработки одной статьи
+    def process_article(metadata, article_type, publication_year):
+        if not metadata or not metadata.get('openalex'):
+            return
+        
+        oa = metadata['openalex']
+        
+        # Извлекаем концепты (terms/topics)
+        concepts = oa.get('concepts', [])
+        
+        for concept in concepts[:10]:  # Берем топ-10 концептов
+            concept_name = concept.get('display_name', '')
+            concept_score = concept.get('score', 0)
+            
+            if not concept_name:
+                continue
+            
+            # Инициализируем запись для термина, если её нет
+            if concept_name not in terms_stats:
+                terms_stats[concept_name] = {
+                    'type': 'Concept',
+                    'analyzed_count': 0,
+                    'reference_count': 0,
+                    'citing_count': 0,
+                    'analyzed_norm': 0,
+                    'reference_norm': 0,
+                    'citing_norm': 0,
+                    'total_norm': 0,
+                    'years': [],
+                    'first_year': None,
+                    'peak_year': None,
+                    'peak_count': 0,
+                    'recent_5_years': 0
+                }
+            
+            # Обновляем счетчики в зависимости от типа статьи
+            if article_type == 'analyzed':
+                terms_stats[concept_name]['analyzed_count'] += 1
+                terms_stats[concept_name]['analyzed_norm'] += concept_score
+            elif article_type == 'citing':
+                terms_stats[concept_name]['citing_count'] += 1
+                terms_stats[concept_name]['citing_norm'] += concept_score
+            # reference_count - если нужно анализировать ссылки
+            
+            # Сохраняем год публикации
+            if publication_year:
+                terms_stats[concept_name]['years'].append(publication_year)
+                
+                # Обновляем первый год
+                if terms_stats[concept_name]['first_year'] is None or publication_year < terms_stats[concept_name]['first_year']:
+                    terms_stats[concept_name]['first_year'] = publication_year
+                
+                # Определяем пиковый год
+                year_count = terms_stats[concept_name]['years'].count(publication_year)
+                if year_count > terms_stats[concept_name]['peak_count']:
+                    terms_stats[concept_name]['peak_year'] = publication_year
+                    terms_stats[concept_name]['peak_count'] = year_count
+                
+                # Считаем публикации за последние 5 лет
+                current_year = datetime.now().year
+                if publication_year >= current_year - 5:
+                    terms_stats[concept_name]['recent_5_years'] += 1
+    
+    # Обрабатываем анализируемые статьи
+    for article in analyzed_metadata:
+        if article and article.get('crossref'):
+            # Извлекаем год публикации
+            date_parts = article['crossref'].get('published', {}).get('date-parts', [[]])[0]
+            year = date_parts[0] if date_parts and len(date_parts) > 0 else None
+            
+            process_article(article, 'analyzed', year)
+    
+    # Обрабатываем цитирующие статьи
+    for article in citing_metadata:
+        if article and article.get('crossref'):
+            date_parts = article['crossref'].get('published', {}).get('date-parts', [[]])[0]
+            year = date_parts[0] if date_parts and len(date_parts) > 0 else None
+            
+            process_article(article, 'citing', year)
+    
+    # Рассчитываем normalized counts
+    total_analyzed = len(analyzed_metadata)
+    total_citing = len(citing_metadata)
+    
+    for term in terms_stats.values():
+        # Нормализованные счетчики
+        if total_analyzed > 0:
+            term['analyzed_norm_count'] = term['analyzed_norm'] / total_analyzed
+        if total_citing > 0:
+            term['citing_norm_count'] = term['citing_norm'] / total_citing
+        
+        # Общий нормализованный счет
+        term['total_norm_count'] = term['analyzed_norm_count'] + term['citing_norm_count']
+    
+    return terms_stats
+    
 def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, citing_stats, enhanced_stats, citation_timing, overlap_details, fast_metrics, excel_buffer, additional_data):
     """Create enhanced Excel report with error handling for large data"""
     
@@ -5478,14 +5590,37 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
             fast_metrics_df = pd.DataFrame(fast_metrics_data)
             fast_metrics_df.to_excel(writer, sheet_name='Fast_Metrics', index=False)
 
-            # Sheet 15: Top concepts (NEW) - РАСШИРЕНО ДО 10 ТЕРМИНОВ
-            if fast_metrics.get('top_concepts'):
-                top_concepts_data = {
-                    'Concept': [safe_convert(concept[0]) for concept in fast_metrics['top_concepts']],
-                    'Mentions_Count': [safe_convert(concept[1]) for concept in fast_metrics['top_concepts']]
-                }
-                top_concepts_df = pd.DataFrame(top_concepts_data)
-                top_concepts_df.to_excel(writer, sheet_name='Top_Concepts', index=False)
+            # Sheet 15: Terms and Topics Analysis
+            if 'terms_topics_stats' in additional_data and additional_data['terms_topics_stats']:
+                terms_stats = additional_data['terms_topics_stats']
+                
+                terms_topics_data = []
+                current_year = datetime.now().year
+                
+                for term_name, stats in terms_stats.items():
+                    terms_topics_data.append({
+                        'Term': safe_convert(term_name)[:200],
+                        'Type': safe_convert(stats.get('type', 'Concept')),
+                        'Analyzed count': safe_convert(stats.get('analyzed_count', 0)),
+                        'Reference count': safe_convert(stats.get('reference_count', 0)),
+                        'Citing Count': safe_convert(stats.get('citing_count', 0)),
+                        'Analyzed norm count': round(stats.get('analyzed_norm_count', 0), 4),
+                        'Reference norm count': round(stats.get('reference_norm_count', 0), 4),
+                        'Citing norm Count': round(stats.get('citing_norm_count', 0), 4),
+                        'Total norm count': round(stats.get('total_norm_count', 0), 4),
+                        'First_Year': safe_convert(stats.get('first_year', 'N/A')),
+                        'Peak_Year': safe_convert(stats.get('peak_year', 'N/A')),
+                        'Recent_5_Years_Count': safe_convert(stats.get('recent_5_years', 0))
+                    })
+                
+                # Сортируем по Total norm count
+                terms_topics_data.sort(key=lambda x: x['Total norm count'], reverse=True)
+                
+                # Ограничиваем количество записей
+                terms_topics_data = terms_topics_data[:100]
+                
+                terms_topics_df = pd.DataFrame(terms_topics_data)
+                terms_topics_df.to_excel(writer, sheet_name='Terms_and_Topics', index=False)
 
             # === НОВЫЙ ЛИСТ: Объединенный анализ ключевых слов в названиях ===
             # Sheet 16: Combined Title Keywords (NEW) - ИСПРАВЛЕНО: правильное имя листа
@@ -6567,3 +6702,4 @@ def main_optimized():
 if __name__ == "__main__":
     # Use optimized version by default
     main_optimized()
+
