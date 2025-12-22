@@ -4990,10 +4990,68 @@ def precompute_excel_data(analyzed_data, citing_data, analyzed_stats, citing_sta
     }
 
 def collect_terms_topics_statistics(analyzed_metadata, citing_metadata):
-    """Собирает расширенную статистику по терминам и темам"""
+    """Собирает расширенную статистику по терминам и темам с полной иерархией"""
     
     # Словарь для хранения статистики по терминам
     terms_stats = {}
+    
+    def _extract_topics_info(openalex_data):
+        """Извлекает topic, subfield, field, domain и concepts из данных OpenAlex"""
+        topics_info = {
+            'topic': '',
+            'subfield': '',
+            'field': '',
+            'domain': '',
+            'concepts': []
+        }
+        
+        if not openalex_data:
+            return topics_info
+        
+        try:
+            # Извлекаем концепты
+            concepts = openalex_data.get('concepts', [])
+            concept_names = []
+            
+            for concept in concepts:
+                if isinstance(concept, dict):
+                    display_name = concept.get('display_name', '')
+                    score = concept.get('score', 0)
+                    if display_name:
+                        concept_names.append((display_name, score))
+            
+            # Сортируем концепты по score (убывание)
+            concept_names.sort(key=lambda x: x[1], reverse=True)
+            topics_info['concepts'] = [name for name, score in concept_names]
+            
+            # Используем первый концепт как topic
+            if concept_names:
+                topics_info['topic'] = concept_names[0][0] if concept_names else ''
+                
+                # Для subfield, field и domain используем следующие концепты
+                if len(concept_names) > 1:
+                    topics_info['subfield'] = concept_names[1][0] if len(concept_names) > 1 else ''
+                if len(concept_names) > 2:
+                    topics_info['field'] = concept_names[2][0] if len(concept_names) > 2 else ''
+                if len(concept_names) > 3:
+                    topics_info['domain'] = concept_names[3][0] if len(concept_names) > 3 else ''
+            
+            # Проверяем специальные поля OpenAlex для тем
+            # (В реальных данных OpenAlex могут быть дополнительные поля)
+            
+            # Проверяем поля topics, subfield, field, domain если они есть
+            if 'topics' in openalex_data and openalex_data['topics']:
+                topics = openalex_data['topics']
+                if isinstance(topics, list) and topics:
+                    if isinstance(topics[0], dict):
+                        topics_info['topic'] = topics[0].get('display_name', topics_info['topic'])
+            
+            # Можно добавить проверку других полей, если они есть в ваших данных
+            
+        except Exception as e:
+            print(f"⚠️ Topics info extraction error: {e}")
+        
+        return topics_info
     
     # Функция для обработки одной статьи
     def process_article(metadata, article_type, publication_year):
@@ -5002,27 +5060,35 @@ def collect_terms_topics_statistics(analyzed_metadata, citing_metadata):
         
         oa = metadata['openalex']
         
-        # Извлекаем концепты (terms/topics)
-        concepts = oa.get('concepts', [])
+        # Извлекаем полную иерархию тем
+        topics_info = _extract_topics_info(oa)
         
-        for concept in concepts[:10]:  # Берем топ-10 концептов
-            concept_name = concept.get('display_name', '')
-            concept_score = concept.get('score', 0)
-            
-            if not concept_name:
+        # Список всех терминов с их типами
+        all_terms = [
+            (topics_info['topic'], 'Topic'),
+            (topics_info['subfield'], 'Subfield'),
+            (topics_info['field'], 'Field'),
+            (topics_info['domain'], 'Domain')
+        ]
+        
+        # Добавляем концепты
+        for concept in topics_info['concepts'][:10]:  # Берем топ-10 концептов
+            if concept:  # Пропускаем пустые
+                all_terms.append((concept, 'Concept'))
+        
+        # Обрабатываем каждый термин
+        for term_name, term_type in all_terms:
+            if not term_name:  # Пропускаем пустые термины
                 continue
             
             # Инициализируем запись для термина, если её нет
-            if concept_name not in terms_stats:
-                terms_stats[concept_name] = {
-                    'type': 'Concept',
+            if term_name not in terms_stats:
+                terms_stats[term_name] = {
+                    'type': term_type,
                     'analyzed_count': 0,
-                    'reference_count': 0,
                     'citing_count': 0,
                     'analyzed_norm': 0,
-                    'reference_norm': 0,
                     'citing_norm': 0,
-                    'total_norm': 0,
                     'years': [],
                     'first_year': None,
                     'peak_year': None,
@@ -5032,35 +5098,57 @@ def collect_terms_topics_statistics(analyzed_metadata, citing_metadata):
             
             # Обновляем счетчики в зависимости от типа статьи
             if article_type == 'analyzed':
-                terms_stats[concept_name]['analyzed_count'] += 1
-                terms_stats[concept_name]['analyzed_norm'] += concept_score
+                terms_stats[term_name]['analyzed_count'] += 1
+                # Для нормализации используем вес (для концептов) или 1 для тем
+                if term_type == 'Concept':
+                    # Ищем score концепта в исходных данных
+                    concepts = oa.get('concepts', [])
+                    for concept in concepts:
+                        if concept.get('display_name') == term_name:
+                            terms_stats[term_name]['analyzed_norm'] += concept.get('score', 1)
+                            break
+                else:
+                    terms_stats[term_name]['analyzed_norm'] += 1
+                    
             elif article_type == 'citing':
-                terms_stats[concept_name]['citing_count'] += 1
-                terms_stats[concept_name]['citing_norm'] += concept_score
-            # reference_count - если нужно анализировать ссылки
+                terms_stats[term_name]['citing_count'] += 1
+                if term_type == 'Concept':
+                    concepts = oa.get('concepts', [])
+                    for concept in concepts:
+                        if concept.get('display_name') == term_name:
+                            terms_stats[term_name]['citing_norm'] += concept.get('score', 1)
+                            break
+                else:
+                    terms_stats[term_name]['citing_norm'] += 1
             
             # Сохраняем год публикации
             if publication_year:
-                terms_stats[concept_name]['years'].append(publication_year)
+                terms_stats[term_name]['years'].append(publication_year)
                 
                 # Обновляем первый год
-                if terms_stats[concept_name]['first_year'] is None or publication_year < terms_stats[concept_name]['first_year']:
-                    terms_stats[concept_name]['first_year'] = publication_year
+                if terms_stats[term_name]['first_year'] is None or publication_year < terms_stats[term_name]['first_year']:
+                    terms_stats[term_name]['first_year'] = publication_year
                 
                 # Определяем пиковый год
-                year_count = terms_stats[concept_name]['years'].count(publication_year)
-                if year_count > terms_stats[concept_name]['peak_count']:
-                    terms_stats[concept_name]['peak_year'] = publication_year
-                    terms_stats[concept_name]['peak_count'] = year_count
+                year_count = terms_stats[term_name]['years'].count(publication_year)
+                if year_count > terms_stats[term_name]['peak_count']:
+                    terms_stats[term_name]['peak_year'] = publication_year
+                    terms_stats[term_name]['peak_count'] = year_count
                 
                 # Считаем публикации за последние 5 лет
                 current_year = datetime.now().year
                 if publication_year >= current_year - 5:
-                    terms_stats[concept_name]['recent_5_years'] += 1
+                    terms_stats[term_name]['recent_5_years'] += 1
     
     # Обрабатываем анализируемые статьи
+    print(f"🔍 Processing terms/topics from analyzed articles: {len(analyzed_metadata)}")
+    analyzed_with_concepts = 0
+    
     for article in analyzed_metadata:
-        if article and article.get('crossref'):
+        if article and article.get('openalex'):
+            oa = article['openalex']
+            if oa.get('concepts'):
+                analyzed_with_concepts += 1
             # Извлекаем год публикации
             date_parts = article['crossref'].get('published', {}).get('date-parts', [[]])[0]
             year = date_parts[0] if date_parts and len(date_parts) > 0 else None
@@ -5068,26 +5156,52 @@ def collect_terms_topics_statistics(analyzed_metadata, citing_metadata):
             process_article(article, 'analyzed', year)
     
     # Обрабатываем цитирующие статьи
+    print(f"🔍 Processing terms/topics from citing articles: {len(citing_metadata)}")
+    citing_with_concepts = 0
+    
     for article in citing_metadata:
-        if article and article.get('crossref'):
+        if article and article.get('openalex'):
+            oa = article['openalex']
+            if oa.get('concepts'):
+                citing_with_concepts += 1
             date_parts = article['crossref'].get('published', {}).get('date-parts', [[]])[0]
             year = date_parts[0] if date_parts and len(date_parts) > 0 else None
             
             process_article(article, 'citing', year)
     
     # Рассчитываем normalized counts
-    total_analyzed = len(analyzed_metadata)
-    total_citing = len(citing_metadata)
+    print(f"📊 Terms/topics statistics: {len(terms_stats)} unique terms found")
+    print(f"   Analyzed articles with concepts: {analyzed_with_concepts}/{len(analyzed_metadata)}")
+    print(f"   Citing articles with concepts: {citing_with_concepts}/{len(citing_metadata)}")
     
-    for term in terms_stats.values():
+    for term_name, term in terms_stats.items():
         # Нормализованные счетчики
-        if total_analyzed > 0:
-            term['analyzed_norm_count'] = term['analyzed_norm'] / total_analyzed
-        if total_citing > 0:
-            term['citing_norm_count'] = term['citing_norm'] / total_citing
+        if analyzed_with_concepts > 0:
+            term['analyzed_norm_count'] = term['analyzed_norm'] / analyzed_with_concepts if term['analyzed_norm'] > 0 else 0
+        else:
+            term['analyzed_norm_count'] = 0
+            
+        if citing_with_concepts > 0:
+            term['citing_norm_count'] = term['citing_norm'] / citing_with_concepts if term['citing_norm'] > 0 else 0
+        else:
+            term['citing_norm_count'] = 0
         
         # Общий нормализованный счет
         term['total_norm_count'] = term['analyzed_norm_count'] + term['citing_norm_count']
+        
+        # Очищаем временные поля для экономии памяти
+        term.pop('years', None)
+        term.pop('peak_count', None)
+        term.pop('analyzed_norm', None)
+        term.pop('citing_norm', None)
+    
+    # Анализируем распределение по типам
+    type_distribution = {}
+    for term_name, term in terms_stats.items():
+        term_type = term.get('type', 'Unknown')
+        type_distribution[term_type] = type_distribution.get(term_type, 0) + 1
+    
+    print(f"📊 Type distribution: {type_distribution}")
     
     return terms_stats
     
@@ -5602,10 +5716,8 @@ def create_enhanced_excel_report(analyzed_data, citing_data, analyzed_stats, cit
                         'Term': safe_convert(term_name)[:200],
                         'Type': safe_convert(stats.get('type', 'Concept')),
                         'Analyzed count': safe_convert(stats.get('analyzed_count', 0)),
-                        'Reference count': safe_convert(stats.get('reference_count', 0)),
                         'Citing Count': safe_convert(stats.get('citing_count', 0)),
                         'Analyzed norm count': round(stats.get('analyzed_norm_count', 0), 4),
-                        'Reference norm count': round(stats.get('reference_norm_count', 0), 4),
                         'Citing norm Count': round(stats.get('citing_norm_count', 0), 4),
                         'Total norm count': round(stats.get('total_norm_count', 0), 4),
                         'First_Year': safe_convert(stats.get('first_year', 'N/A')),
@@ -6702,4 +6814,5 @@ def main_optimized():
 if __name__ == "__main__":
     # Use optimized version by default
     main_optimized()
+
 
